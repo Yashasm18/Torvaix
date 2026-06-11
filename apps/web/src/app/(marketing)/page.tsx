@@ -146,11 +146,13 @@ export default function LandingPage() {
             <Link href="#story" className="hover:text-white transition-colors duration-200">How it started</Link>
             <Link href="/app" className="hover:text-white transition-colors duration-200">Get started</Link>
           </div>
-          <div>
-            <Button variant="outline" className="border-white/10 bg-transparent hover:bg-white/5 text-slate-300 gap-2 rounded-full px-5 transition-all">
-              <GithubIcon className="w-4 h-4" />
-              GitHub
-            </Button>
+          <div className="hidden md:block">
+            <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" className="border-white/10 bg-transparent hover:bg-white/5 text-slate-300 gap-2 rounded-full px-5 transition-all">
+                <GithubIcon className="w-4 h-4" />
+                GitHub
+              </Button>
+            </a>
           </div>
         </nav>
 
@@ -207,10 +209,12 @@ export default function LandingPage() {
               Get started
             </Button>
           </Link>
-          <Button variant="outline" className="bg-[#22272e] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2">
-            <GithubIcon className="w-5 h-5" />
-            View on GitHub
-          </Button>
+          <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" className="bg-[#22272e] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
+              <GithubIcon className="w-5 h-5" />
+              View on GitHub
+            </Button>
+          </a>
         </motion.div>
       </main>
       </div>
@@ -410,10 +414,12 @@ export default function LandingPage() {
                 Get started <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
-            <Button variant="outline" className="bg-[#22272e] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2">
-              <GithubIcon className="w-5 h-5" />
-              Star on GitHub
-            </Button>
+            <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" className="bg-[#22272e] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
+                <GithubIcon className="w-5 h-5" />
+                Star on GitHub
+              </Button>
+            </a>
           </motion.div>
 
           {/* Terminal Install Block */}
