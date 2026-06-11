@@ -460,9 +460,10 @@ export default function LandingPage() {
               GitHub <ExternalLink className="w-3 h-3" />
             </a>
           </div>
-          <p className="text-xs text-slate-600 font-mono">
-            Open source · No telemetry · Your data, your machine
-          </p>
+          <div className="flex flex-col md:items-end gap-2 text-xs text-slate-600 font-mono">
+            <p>Open source · No telemetry · Your data, your machine</p>
+            <p>&copy; {new Date().getFullYear()} Torvaix</p>
+          </div>
         </div>
       </footer>
     </div>
