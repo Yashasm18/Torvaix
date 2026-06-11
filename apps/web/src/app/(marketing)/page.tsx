@@ -195,7 +195,7 @@ export default function LandingPage() {
           transition={{ duration: 0.6, delay: 0.45 }}
           className="text-sm text-slate-500 mb-14 font-mono italic"
         >
-          (if you want to add an API that&apos;s cool too — I&apos;m not here to tell you how to live your life...)
+          (where conversations become knowledge, and knowledge becomes leverage...)
         </motion.p>
 
         <motion.div 
