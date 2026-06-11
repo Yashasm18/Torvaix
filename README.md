@@ -2,6 +2,8 @@
 
 **A workspace-first AI operating system. Local-first, privacy-first, no telemetry.**
 
+🌐 **Live Website:** [https://Yashasm18.github.io/Torvaix](https://Yashasm18.github.io/Torvaix)
+
 Torvaix is a self-hosted interface for working with language models. Chat, autonomous agents, tools, model serving, email integration, deep research, and more — all running on your hardware. Your data never leaves your machine.
 
 ---
