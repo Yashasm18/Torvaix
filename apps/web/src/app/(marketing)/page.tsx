@@ -461,7 +461,7 @@ export default function LandingPage() {
             </a>
           </div>
           <div className="flex flex-col md:items-end gap-2 text-xs text-slate-600 font-mono">
-            <p>Open source · No telemetry · Your data, your machine</p>
+            <p>No tokens were wasted in the making of this workspace.*</p>
           </div>
         </div>
       </footer>
