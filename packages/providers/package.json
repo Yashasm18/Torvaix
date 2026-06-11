@@ -1,0 +1,12 @@
+{
+  "name": "@torvaix/providers",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "ai": "^3.0.0",
+    "@ai-sdk/openai": "^0.0.1",
+    "@ai-sdk/anthropic": "^0.0.1",
+    "@ai-sdk/google": "^0.0.1"
+  }
+}
