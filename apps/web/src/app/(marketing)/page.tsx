@@ -429,7 +429,7 @@ export default function LandingPage() {
               <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
               <div className="w-3 h-3 rounded-full bg-green-500/60" />
             </div>
-            <p className="text-slate-500">$ <span className="text-slate-300">git clone https://github.com/torvaix/torvaix.git</span></p>
+            <p className="text-slate-500">$ <span className="text-slate-300">git clone https://github.com/Yashasm18/Torvaix.git</span></p>
             <p className="text-slate-500">$ <span className="text-slate-300">cd torvaix && npm install</span></p>
             <p className="text-slate-500">$ <span className="text-slate-300">npm run dev</span></p>
             <p className="text-green-400/80 mt-2">✓ Torvaix running at http://localhost:3000</p>
@@ -450,7 +450,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-6 text-xs text-slate-500">
             <Link href="#features" className="hover:text-slate-300 transition-colors">Features</Link>
             <Link href="#story" className="hover:text-slate-300 transition-colors">Story</Link>
-            <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors flex items-center gap-1">
+            <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors flex items-center gap-1">
               GitHub <ExternalLink className="w-3 h-3" />
             </a>
           </div>
