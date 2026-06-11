@@ -450,7 +450,7 @@ export default function LandingPage() {
             <div className="w-5 h-5 bg-[#e06c75] rounded-sm transform rotate-45 flex items-center justify-center">
               <div className="w-2.5 h-2.5 bg-[#1c2128] transform -rotate-45 rounded-sm" />
             </div>
-            <span className="text-sm font-semibold text-slate-400">Torvaix</span>
+            <span className="text-sm font-semibold text-slate-400">&copy; {new Date().getFullYear()} Torvaix</span>
             <span className="text-xs text-slate-600 font-mono">v0.1.0</span>
           </div>
           <div className="flex items-center gap-6 text-xs text-slate-500">
@@ -462,7 +462,6 @@ export default function LandingPage() {
           </div>
           <div className="flex flex-col md:items-end gap-2 text-xs text-slate-600 font-mono">
             <p>Open source · No telemetry · Your data, your machine</p>
-            <p>&copy; {new Date().getFullYear()} Torvaix</p>
           </div>
         </div>
       </footer>
