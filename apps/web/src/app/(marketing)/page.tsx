@@ -453,13 +453,7 @@ export default function LandingPage() {
             <span className="text-sm font-semibold text-slate-400">&copy; {new Date().getFullYear()} Torvaix</span>
             <span className="text-xs text-slate-600 font-mono">v0.1.0</span>
           </div>
-          <div className="flex items-center gap-6 text-xs text-slate-500">
-            <Link href="#features" className="hover:text-slate-300 transition-colors">Features</Link>
-            <Link href="#story" className="hover:text-slate-300 transition-colors">Story</Link>
-            <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors flex items-center gap-1">
-              GitHub <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
+
           <div className="flex flex-col md:items-end gap-2 text-xs text-slate-600 font-mono">
             <p>No tokens were wasted in the making of this workspace.*</p>
           </div>
