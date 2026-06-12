@@ -568,21 +568,33 @@ export default function LandingPage() {
             Torvaix is yours.
           </h2>
           
-          <p className="text-base md:text-lg text-slate-400 mb-12 max-w-2xl mx-auto font-sans leading-relaxed">
-            Torvaix is open source and local-first. Run your own models, own your memory, and work with autonomous agents inside a connected knowledge workspace.
+          <p className="text-base md:text-lg text-slate-400 mb-8 max-w-2xl mx-auto font-sans leading-relaxed">
+            Torvaix is an open-source AI Knowledge Operating System. Run your own models, own your memory, and work with intelligent agents inside a connected knowledge workspace.
           </p>
 
-          <div className="relative bg-[#0d1117] border border-white/10 rounded-xl p-5 md:p-6 mb-10 text-left font-mono text-sm overflow-x-auto mx-auto max-w-3xl flex items-center justify-between group shadow-inner">
-            <div className="text-slate-300 pr-24 whitespace-pre font-jetbrains leading-[2.2]">
+          {/* Prerequisites */}
+          <div className="flex flex-col items-center mb-8">
+            <span className="text-[10px] text-slate-500 font-mono mb-3 uppercase tracking-[0.15em]">Requirements</span>
+            <div className="flex flex-wrap justify-center gap-2">
+              {['Node.js 20+', 'Ollama', 'Docker'].map(req => (
+                <span key={req} className="px-3 py-1.5 bg-[#0d1117] border border-white/5 rounded-md text-xs font-mono text-slate-400">
+                  {req}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="relative bg-[#0d1117] border border-white/10 rounded-xl p-5 md:p-6 mb-10 text-left font-mono text-sm overflow-x-auto mx-auto max-w-3xl flex items-start justify-between group shadow-inner">
+            <div className="text-slate-300 pr-24 whitespace-pre font-jetbrains leading-[1.8]">
               <span className="text-[#fca5a5]">$</span> git clone https://github.com/Yashasm18/Torvaix.git{'\n'}
-              <span className="text-[#fca5a5]">$</span> cd torvaix{'\n'}
-              <span className="text-[#fca5a5]">$</span> npm install{'\n'}
-              <span className="text-[#fca5a5]">$</span> ollama serve{'\n'}
-              <span className="text-[#fca5a5]">$</span> docker run -d -p 6333:6333 qdrant/qdrant{'\n'}
+              <span className="text-[#fca5a5]">$</span> cd Torvaix{'\n\n'}
+              <span className="text-[#fca5a5]">$</span> npm install{'\n\n'}
+              <span className="text-[#fca5a5]">$</span> ollama serve{'\n\n'}
+              <span className="text-[#fca5a5]">$</span> docker run -d -p 6333:6333 qdrant/qdrant{'\n\n'}
               <span className="text-[#fca5a5]">$</span> npm run dev
             </div>
             <button 
-              onClick={() => navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git\ncd torvaix\nnpm install\nollama serve\ndocker run -d -p 6333:6333 qdrant/qdrant\nnpm run dev")}
+              onClick={() => navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git\ncd Torvaix\nnpm install\nollama serve\ndocker run -d -p 6333:6333 qdrant/qdrant\nnpm run dev")}
               className="absolute top-4 right-4 md:top-6 md:right-6 bg-white/5 hover:bg-white/10 text-slate-400 border border-white/20 rounded-md px-4 py-2 text-xs transition-colors hover:text-white"
             >
               Copy
