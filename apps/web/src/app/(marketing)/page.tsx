@@ -565,11 +565,11 @@ export default function LandingPage() {
           </div>
           
           <h2 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-slate-100 mb-6 tracking-tight">
-            TORVAIX is yours.
+            Torvaix is yours.
           </h2>
           
           <p className="text-base md:text-lg text-slate-400 mb-12 max-w-2xl mx-auto font-sans leading-relaxed">
-            TORVAIX is open source and local-first. Run your own models, own your memory, and work with autonomous agents inside a connected knowledge workspace.
+            Torvaix is open source and local-first. Run your own models, own your memory, and work with autonomous agents inside a connected knowledge workspace.
           </p>
 
           <div className="relative bg-[#0d1117] border border-white/10 rounded-xl p-5 md:p-6 mb-10 text-left font-mono text-sm overflow-x-auto mx-auto max-w-3xl flex items-center justify-between group shadow-inner">
