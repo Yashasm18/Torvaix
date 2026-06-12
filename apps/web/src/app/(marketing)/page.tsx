@@ -188,11 +188,11 @@ bootstrapTorvaix();`;
   const repeatedCode = Array(20).fill(codeSnippet).join('\n\n');
 
   return (
-    <div className="absolute inset-0 overflow-hidden opacity-[0.15] pointer-events-none select-none flex items-start justify-center mask-image-b-fade">
+    <div className="absolute inset-0 overflow-hidden opacity-40 pointer-events-none select-none flex items-start justify-center">
       <motion.div
         animate={{ y: [0, -3000] }}
         transition={{ duration: 150, repeat: Infinity, ease: "linear" }}
-        className="font-mono text-xs sm:text-sm text-[#56b6c2] whitespace-pre p-8 blur-[2px]"
+        className="font-mono text-sm sm:text-base text-[#56b6c2]/80 whitespace-pre p-8 blur-[2px]"
       >
         {repeatedCode}
       </motion.div>
@@ -424,13 +424,13 @@ export default function LandingPage() {
       </section>
 
       {/* ════════════════════ HOW IT STARTED (STORY) ════════════════════ */}
-      <section id="story" className="relative z-10 py-32 px-4 border-t border-white/5 overflow-hidden">
+      <section id="story" className="relative z-10 py-32 px-4 border-t border-white/5 overflow-hidden bg-[#1c2128]">
         
         {/* Animated coding background */}
         <AnimatedCodeBackground />
         
-        {/* Subtle overlay to ensure text remains readable */}
-        <div className="absolute inset-0 z-0 bg-[#1c2128]/70 backdrop-blur-sm" />
+        {/* Subtle gradient overlay to fade edges, but leave code visible */}
+        <div className="absolute inset-0 z-0 bg-gradient-to-b from-[#1c2128] via-transparent to-[#1c2128] pointer-events-none" />
 
         <div className="max-w-4xl mx-auto relative z-10 flex flex-col gap-16">
           
