@@ -1,6 +1,7 @@
 "use client"
 
-import { motion } from "framer-motion"
+import { useState, useEffect, useRef } from "react"
+import { motion, useInView } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { MessageSquare, Terminal, Mail, Search, GitCompare, Database, Sparkles, Shield, BookOpen, Quote, ExternalLink, ArrowRight } from "lucide-react"
@@ -109,6 +110,55 @@ const testimonials = [
     role: "Data Scientist"
   }
 ]
+
+function TypingEffect({ text }: { text: string }) {
+  const [displayText, setDisplayText] = useState("");
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true });
+
+  useEffect(() => {
+    if (!isInView) return;
+
+    let index = 0;
+    let isTyping = true;
+    let timer: NodeJS.Timeout;
+
+    const type = () => {
+      if (!isTyping) return;
+      if (index <= text.length) {
+        setDisplayText(text.substring(0, index));
+        index++;
+        timer = setTimeout(type, 35);
+      } else {
+        timer = setTimeout(() => {
+          if (!isTyping) return;
+          setDisplayText("");
+          index = 0;
+          timer = setTimeout(type, 500);
+        }, 3000);
+      }
+    };
+
+    timer = setTimeout(type, 600);
+
+    return () => {
+      isTyping = false;
+      clearTimeout(timer);
+    };
+  }, [text, isInView]);
+
+  return (
+    <span ref={ref}>
+      {displayText}
+      <motion.span
+        initial={{ opacity: 0 }}
+        animate={{ opacity: [0, 1, 0] }}
+        transition={{ repeat: Infinity, duration: 0.8 }}
+        className="inline-block w-2 h-4 bg-[#56b6c2] align-middle ml-1"
+      />
+    </span>
+  );
+}
 
 export default function LandingPage() {
   return (
@@ -377,23 +427,7 @@ export default function LandingPage() {
             {/* Terminal Body */}
             <div className="p-6 font-mono text-sm leading-relaxed text-[#56b6c2]">
               <span className="text-[#98c379] font-bold mr-2">{'>'}</span>
-              {"I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me".split('').map((char, index) => (
-                <motion.span
-                  key={index}
-                  initial={{ opacity: 0 }}
-                  whileInView={{ opacity: 1 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.01, delay: 0.6 + index * 0.04 }}
-                >
-                  {char}
-                </motion.span>
-              ))}
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: [0, 1, 0] }}
-                transition={{ repeat: Infinity, duration: 0.8 }}
-                className="inline-block w-2 h-4 bg-[#56b6c2] align-middle ml-1"
-              />
+              <TypingEffect text="I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me" />
             </div>
           </motion.div>
         </div>
