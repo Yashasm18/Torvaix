@@ -209,7 +209,7 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 bg-background/90 backdrop-blur-md border-b border-border shadow-sm">
         <Link href="/" className="flex items-center gap-3 group">
           <AppLogo size={28} animated={false} />
-          <span className="text-xl font-bold tracking-tight text-foreground">TORVAIX</span>
+          <span className="text-xl font-bold tracking-tight text-foreground">Torvaix</span>
         </Link>
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
           <Link href="#features" className="hover:text-foreground transition-colors duration-200">Features</Link>
@@ -256,7 +256,7 @@ export default function LandingPage() {
             <div className="mb-6 drop-shadow-[0_0_40px_rgba(0,212,170,0.2)]">
               <AppLogo size={56} animated={true} />
             </div>
-            <h1 className="text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-12">TORVAIX</h1>
+            <h1 className="text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-12">Torvaix</h1>
           </motion.div>
 
           <motion.h2 
@@ -441,12 +441,12 @@ export default function LandingPage() {
             </div>
             
             <div className="space-y-6 text-slate-300 text-left leading-relaxed text-[15px] sm:text-base font-mono">
-              <p>I built TORVAIX because using AI felt fragmented.</p>
+              <p>I built Torvaix because using AI felt fragmented.</p>
               <p>Every model had its own interface. Conversations lived in one place, notes in another, and knowledge was scattered across countless tabs and applications.</p>
               <p>The models were getting smarter, but the workflow around them wasn&apos;t.</p>
-              <p>TORVAIX began as an attempt to bring everything together: conversations, knowledge, documents, and multiple AI models inside a single workspace.</p>
+              <p>Torvaix began as an attempt to bring everything together: conversations, knowledge, documents, and multiple AI models inside a single workspace.</p>
               <p>The goal isn&apos;t just to chat with AI. It&apos;s to build a system that remembers, organizes, and helps turn information into knowledge.</p>
-              <p>Whether your models run locally or in the cloud, TORVAIX gives them a shared home — without locking you into a single provider.</p>
+              <p>Whether your models run locally or in the cloud, Torvaix gives them a shared home — without locking you into a single provider.</p>
             </div>
           </motion.div>
 

@@ -212,7 +212,7 @@ export default function ChatPage() {
             <Textarea
               value={input}
               onChange={handleInputChange}
-              placeholder="Ask TORVAIX..."
+              placeholder="Ask Torvaix..."
               className="flex-1 min-h-[60px] max-h-48 resize-none bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 px-2 py-2"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {

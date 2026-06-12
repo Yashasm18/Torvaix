@@ -31,7 +31,7 @@ export default function ContextDebugPage() {
       memoryContextStr = retrieved.map(m => `- [${(m.score*100).toFixed(1)}%] ${m.content} (Source: ${m.source})`).join('\n');
     }
 
-    return `You are TORVAIX, an AI Operating System running locally on the user's machine.
+    return `You are Torvaix, an AI Operating System running locally on the user's machine.
 
 [WORKSPACE CONTEXT ENGINE]
 Current Date/Time: ${new Date().toLocaleString()}

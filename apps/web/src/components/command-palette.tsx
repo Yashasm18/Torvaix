@@ -67,7 +67,7 @@ export function CommandPalette() {
             Workspace
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push('/app/chat'))}>
-            Ask TORVAIX
+            Ask Torvaix
           </CommandItem>
         </CommandGroup>
       </CommandList>

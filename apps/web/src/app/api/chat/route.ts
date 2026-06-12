@@ -175,7 +175,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const systemPrompt = `You are TORVAIX, an AI Operating System running locally on the user's machine.
+  const systemPrompt = `You are Torvaix, an AI Operating System running locally on the user's machine.
 
 [WORKSPACE CONTEXT ENGINE]
 Current Date/Time: ${currentDate}

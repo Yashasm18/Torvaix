@@ -101,7 +101,7 @@ export function AppSidebar() {
             <div className="flex items-center gap-3">
               <AppLogo size={32} animated={true} />
               <div className="flex flex-col items-start">
-                <span className="font-semibold text-sm tracking-tight text-foreground">TORVAIX</span>
+                <span className="font-semibold text-sm tracking-tight text-foreground">Torvaix</span>
                 <span className="text-xs text-muted-foreground">{activeWorkspace?.name || "Personal"}</span>
               </div>
             </div>

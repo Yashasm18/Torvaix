@@ -38,7 +38,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         >
           <SidebarTrigger className="transition-transform hover:scale-105 active:scale-95" />
           <div className="h-4 w-px bg-border/50" />
-          <div className="font-semibold text-sm tracking-tight">TORVAIX Workspace</div>
+          <div className="font-semibold text-sm tracking-tight">Torvaix Workspace</div>
           <div className="ml-auto flex items-center gap-1.5">
             <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
             <span className="text-xs text-muted-foreground">Connected</span>
