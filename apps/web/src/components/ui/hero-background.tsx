@@ -16,18 +16,21 @@ export function HeroBackground() {
     let time = 0
 
     const resize = () => {
+      if (!canvas.parentElement) return
       const dpr = window.devicePixelRatio || 1
-      canvas.width = window.innerWidth * dpr
-      canvas.height = window.innerHeight * dpr
-      canvas.style.width = `${window.innerWidth}px`
-      canvas.style.height = `${window.innerHeight}px`
+      const rect = canvas.parentElement.getBoundingClientRect()
+      canvas.width = rect.width * dpr
+      canvas.height = rect.height * dpr
+      canvas.style.width = `${rect.width}px`
+      canvas.style.height = `${rect.height}px`
       ctx.scale(dpr, dpr)
     }
 
     const animate = () => {
       time += 0.005
-      const w = window.innerWidth
-      const h = window.innerHeight
+      if (!canvas.parentElement) return
+      const w = canvas.parentElement.clientWidth
+      const h = canvas.parentElement.clientHeight
 
       // Clear with dark transparent background for trail effect
       ctx.fillStyle = "rgba(11, 16, 32, 0.2)"
