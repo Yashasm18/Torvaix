@@ -160,6 +160,46 @@ function TypingEffect({ text }: { text: string }) {
   );
 }
 
+function AnimatedCodeBackground() {
+  const codeSnippet = `import { Agent, Workspace } from '@torvaix/core';
+import { LLMProvider } from '@torvaix/llm';
+
+async function bootstrapTorvaix() {
+  const workspace = new Workspace({ db: 'local-vector-store' });
+  
+  // Initialize local uncompromised LLM
+  const model = await LLMProvider.load('llama-3-8b-instruct');
+  workspace.attachModel(model);
+  
+  // Knowledge graph setup
+  const memory = new VectorStore();
+  await memory.indexDirectory('./knowledge');
+  
+  // Core event loop
+  workspace.on('user_input', async (input) => {
+    const context = await memory.search(input);
+    const response = await model.generate(input, context);
+    console.log(response);
+  });
+}
+
+bootstrapTorvaix();`;
+
+  const repeatedCode = Array(20).fill(codeSnippet).join('\n\n');
+
+  return (
+    <div className="absolute inset-0 overflow-hidden opacity-[0.15] pointer-events-none select-none flex items-start justify-center mask-image-b-fade">
+      <motion.div
+        animate={{ y: [0, -3000] }}
+        transition={{ duration: 150, repeat: Infinity, ease: "linear" }}
+        className="font-mono text-xs sm:text-sm text-[#56b6c2] whitespace-pre p-8 blur-[2px]"
+      >
+        {repeatedCode}
+      </motion.div>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#1c2128] text-slate-300 font-sans selection:bg-[#e06c75]/30">
@@ -384,52 +424,87 @@ export default function LandingPage() {
       </section>
 
       {/* ════════════════════ HOW IT STARTED (STORY) ════════════════════ */}
-      <section id="story" className="relative z-10 py-28 px-4 border-t border-white/5">
-        <div className="max-w-4xl mx-auto text-center mb-16">
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="flex items-center justify-center gap-2.5 mb-5"
-          >
-            <BookOpen className="w-4 h-4 text-[#e06c75]" />
-            <span className="text-[#e06c75] font-mono text-xs font-bold tracking-[0.2em] uppercase">Origin Story</span>
-          </motion.div>
-          
-          <motion.h3 
-            initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.1 }}
-            className="text-lg md:text-xl font-mono text-slate-300 max-w-2xl mx-auto mb-8"
-          >
-            Torvaix was created by a carefully crafted one-shot AI prompt:
-          </motion.h3>
+      <section id="story" className="relative z-10 py-32 px-4 border-t border-white/5 overflow-hidden">
+        
+        {/* Animated coding background */}
+        <AnimatedCodeBackground />
+        
+        {/* Subtle overlay to ensure text remains readable */}
+        <div className="absolute inset-0 z-0 bg-[#1c2128]/70 backdrop-blur-sm" />
 
-          <motion.div
+        <div className="max-w-4xl mx-auto relative z-10 flex flex-col gap-16">
+          
+          {/* New Why Torvaix Exists Box */}
+          <motion.div 
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ delay: 0.2 }}
-            className="bg-[#0d1117] border border-white/10 rounded-xl overflow-hidden max-w-3xl mx-auto shadow-2xl text-left"
+            className="bg-[#161b22]/80 backdrop-blur-md border border-white/10 rounded-2xl p-8 md:p-12 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
           >
-            {/* Terminal Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#161b22]">
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400 font-mono text-xs">user@torvaix: ~</span>
-              </div>
-              <div className="flex items-center gap-2 text-slate-500">
-                <span className="w-3 h-3 rounded-full bg-slate-700"></span>
-                <span className="w-3 h-3 rounded-full bg-slate-700"></span>
-              </div>
+            {/* Subtle glow inside the box */}
+            <div className="absolute top-0 left-1/4 w-1/2 h-px bg-gradient-to-r from-transparent via-[#e06c75]/50 to-transparent"></div>
+
+            <div className="flex items-center gap-2 mb-8">
+               <span className="text-[#e06c75] font-mono text-xs font-bold tracking-[0.2em]">◎ WHY TORVAIX EXISTS</span>
             </div>
             
-            {/* Terminal Body */}
-            <div className="p-6 font-mono text-sm leading-relaxed text-[#56b6c2]">
-              <span className="text-[#98c379] font-bold mr-2">{'>'}</span>
-              <TypingEffect text="I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me" />
+            <div className="space-y-6 text-slate-300 text-left leading-relaxed text-[15px] sm:text-base font-mono">
+              <p>I built TORVAIX because using AI felt fragmented.</p>
+              <p>Every model had its own interface. Conversations lived in one place, notes in another, and knowledge was scattered across countless tabs and applications.</p>
+              <p>The models were getting smarter, but the workflow around them wasn't.</p>
+              <p>TORVAIX began as an attempt to bring everything together: conversations, knowledge, documents, and multiple AI models inside a single workspace.</p>
+              <p>The goal isn't just to chat with AI. It's to build a system that remembers, organizes, and helps turn information into knowledge.</p>
+              <p>Whether your models run locally or in the cloud, TORVAIX gives them a shared home — without locking you into a single provider.</p>
             </div>
           </motion.div>
+
+          {/* Existing Terminal Box */}
+          <div className="text-center pt-8 border-t border-white/5">
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="flex items-center justify-center gap-2.5 mb-5"
+            >
+              <BookOpen className="w-4 h-4 text-[#e06c75]" />
+              <span className="text-[#e06c75] font-mono text-xs font-bold tracking-[0.2em] uppercase">Origin Story</span>
+            </motion.div>
+            
+            <motion.h3 
+              initial={{ opacity: 0, y: 10 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.1 }}
+              className="text-lg md:text-xl font-mono text-slate-300 max-w-2xl mx-auto mb-8"
+            >
+              Torvaix was created by a carefully crafted one-shot AI prompt:
+            </motion.h3>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.2 }}
+              className="bg-[#0d1117] border border-white/10 rounded-xl overflow-hidden max-w-3xl mx-auto shadow-2xl text-left"
+            >
+              {/* Terminal Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#161b22]">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 font-mono text-xs">user@torvaix: ~</span>
+                </div>
+                <div className="flex items-center gap-2 text-slate-500">
+                  <span className="w-3 h-3 rounded-full bg-slate-700"></span>
+                  <span className="w-3 h-3 rounded-full bg-slate-700"></span>
+                </div>
+              </div>
+              
+              {/* Terminal Body */}
+              <div className="p-6 font-mono text-sm leading-relaxed text-[#56b6c2]">
+                <span className="text-[#98c379] font-bold mr-2">{'>'}</span>
+                <TypingEffect text="I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me" />
+              </div>
+            </motion.div>
+          </div>
         </div>
       </section>
 
