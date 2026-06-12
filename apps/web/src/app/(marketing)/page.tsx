@@ -255,9 +255,15 @@ export default function LandingPage() {
             transition={{ duration: 0.7 }}
             className="flex flex-col items-center gap-6 md:gap-10"
           >
-            {/* 1. Eyebrow */}
-            <div className="text-[13px] uppercase tracking-[0.25em] font-medium text-white/70 drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">
-              KNOWLEDGE OPERATING SYSTEM
+            {/* 1. App Logo & Subtitle (Odysseus Style) */}
+            <div className="flex flex-col items-center gap-2 mb-4">
+              <div className="flex items-center gap-3">
+                <AppLogo size={40} animated={true} />
+                <span className="text-4xl md:text-5xl font-bold tracking-tight text-slate-100 drop-shadow-md">Torvaix</span>
+              </div>
+              <div className="text-[14px] md:text-[15px] font-mono text-red-400/90 italic tracking-wide mt-1">
+                Knowledge Operating System.
+              </div>
             </div>
 
             {/* 2. Main Headline */}
