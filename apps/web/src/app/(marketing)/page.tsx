@@ -207,10 +207,10 @@ export default function LandingPage() {
       
       {/* ════════════════════ NAVIGATION ════════════════════ */}
       <nav className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 bg-background/90 backdrop-blur-md border-b border-border shadow-sm">
-        <Link href="/" className="flex items-center gap-3 group">
+        <button onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})} className="flex items-center gap-3 group focus:outline-none">
           <AppLogo size={28} animated={false} />
           <span className="text-xl font-bold tracking-tight text-foreground">Torvaix</span>
-        </Link>
+        </button>
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
           <Link href="#features" className="hover:text-foreground transition-colors duration-200">Features</Link>
           <Link href="#testimonials" className="hover:text-foreground transition-colors duration-200">Testimonials</Link>
