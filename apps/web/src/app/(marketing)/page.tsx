@@ -114,7 +114,31 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#1c2128] text-slate-300 font-sans selection:bg-[#e06c75]/30">
       
-      {/* ════════════════════ TOP SECTION (NAV + HERO) ════════════════════ */}
+      {/* ════════════════════ NAVIGATION ════════════════════ */}
+      <nav className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 bg-[#161b22]/90 backdrop-blur-md border-b border-white/5 shadow-sm">
+        <Link href="/" className="flex items-center gap-3 group">
+          <div className="w-7 h-7 bg-[#e06c75] rounded-md transform rotate-45 flex items-center justify-center transition-transform group-hover:rotate-[405deg] duration-500">
+            <div className="w-3.5 h-3.5 bg-[#1c2128] transform -rotate-45 rounded-sm" />
+          </div>
+          <span className="text-xl font-bold tracking-tight text-white">Torvaix</span>
+        </Link>
+        <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-400">
+          <Link href="#features" className="hover:text-white transition-colors duration-200">Features</Link>
+          <Link href="#testimonials" className="hover:text-white transition-colors duration-200">Testimonials</Link>
+          <Link href="#story" className="hover:text-white transition-colors duration-200">How it started</Link>
+          <Link href="/app/chat" className="hover:text-white transition-colors duration-200">Get started</Link>
+        </div>
+        <div className="hidden md:block">
+          <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" className="border-white/10 bg-transparent hover:bg-white/5 text-slate-300 gap-2 rounded-full px-5 transition-all">
+              <GithubIcon className="w-4 h-4" />
+              GitHub
+            </Button>
+          </a>
+        </div>
+      </nav>
+
+      {/* ════════════════════ TOP SECTION (HERO) ════════════════════ */}
       <div className="relative min-h-[90vh] flex flex-col overflow-hidden border-b border-white/5">
         
         {/* ══ Animated Interactive Canvas Background (Scoped to Hero) ══ */}
@@ -132,32 +156,8 @@ export default function LandingPage() {
         {/* Subtle fade out at the bottom of the hero to blend into the rest of the page */}
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#1c2128] to-transparent z-0 pointer-events-none" />
 
-        {/* ════════════════════ NAVIGATION ════════════════════ */}
-        <nav className="relative z-50 flex items-center justify-between px-8 py-4 bg-transparent">
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-7 h-7 bg-[#e06c75] rounded-md transform rotate-45 flex items-center justify-center transition-transform group-hover:rotate-[405deg] duration-500">
-              <div className="w-3.5 h-3.5 bg-[#1c2128] transform -rotate-45 rounded-sm" />
-            </div>
-            <span className="text-xl font-bold tracking-tight text-white">Torvaix</span>
-          </Link>
-          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-400">
-            <Link href="#features" className="hover:text-white transition-colors duration-200">Features</Link>
-            <Link href="#testimonials" className="hover:text-white transition-colors duration-200">Testimonials</Link>
-            <Link href="#story" className="hover:text-white transition-colors duration-200">How it started</Link>
-            <Link href="/app" className="hover:text-white transition-colors duration-200">Get started</Link>
-          </div>
-          <div className="hidden md:block">
-            <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" className="border-white/10 bg-transparent hover:bg-white/5 text-slate-300 gap-2 rounded-full px-5 transition-all">
-                <GithubIcon className="w-4 h-4" />
-                GitHub
-              </Button>
-            </a>
-          </div>
-        </nav>
-
         {/* ════════════════════ HERO CONTENT ════════════════════ */}
-        <main className="relative z-10 flex flex-col items-center justify-center flex-1 px-4 text-center pb-20">
+        <main className="relative z-10 flex flex-col items-center justify-center flex-1 px-4 text-center pb-20 pt-16">
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
