@@ -16,7 +16,8 @@ import {
   Plus,
   Database,
   Terminal,
-  Loader2
+  Loader2,
+  Activity
 } from "lucide-react"
 
 import {
@@ -162,20 +163,20 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild tooltip="Memory Inspector">
-                    <Link href="/debug/memory" className="flex items-center gap-3 text-muted-foreground hover:text-foreground">
+                  <Link href="/debug/memory" className="w-full">
+                    <SidebarMenuButton tooltip="Memory Inspector">
                       <Database className="w-4 h-4" />
                       <span>Memory Inspector</span>
-                    </Link>
-                  </SidebarMenuButton>
+                    </SidebarMenuButton>
+                  </Link>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild tooltip="Context Debugger">
-                    <Link href="/debug/context" className="flex items-center gap-3 text-muted-foreground hover:text-foreground">
-                      <Terminal className="w-4 h-4" />
+                  <Link href="/debug/context" className="w-full">
+                    <SidebarMenuButton tooltip="Context Debugger">
+                      <Activity className="w-4 h-4" />
                       <span>Context Debugger</span>
-                    </Link>
-                  </SidebarMenuButton>
+                    </SidebarMenuButton>
+                  </Link>
                 </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>

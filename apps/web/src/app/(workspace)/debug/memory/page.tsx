@@ -29,8 +29,8 @@ export default function MemoryDebugPage() {
   const loadAllMemories = async () => {
     setLoading(true);
     const res = await getAllMemoriesAction(workspaceId);
-    if (res.success) {
-      setMemories(res.results);
+    if (res.success && res.results) {
+      setMemories(res.results as any[]);
     }
     setLoading(false);
   };
@@ -52,8 +52,8 @@ export default function MemoryDebugPage() {
     e.preventDefault();
     setLoading(true);
     const res = await queryMemoryAction(workspaceId, searchQuery, 5);
-    if (res.success) {
-      setSearchResults(res.results);
+    if (res.success && res.results) {
+      setSearchResults(res.results as any[]);
     }
     setLoading(false);
   };
