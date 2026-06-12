@@ -206,7 +206,7 @@ export default function LandingPage() {
           >
             <Link href="/app/chat">
               <Button className="bg-[#e06c75] hover:bg-[#d95861] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] active:scale-[0.98] gap-2">
-                Try Now
+                Get started
                 <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
@@ -412,7 +412,7 @@ export default function LandingPage() {
           >
             <Link href="/app/chat">
               <Button className="bg-[#e06c75] hover:bg-[#d95861] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] gap-2">
-                Try Now <ArrowRight className="w-5 h-5" />
+                Get started <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
             <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
