@@ -549,61 +549,60 @@ export default function LandingPage() {
       </section>
 
       {/* ════════════════════ CTA / INSTALL SECTION ════════════════════ */}
-      <section id="install" className="relative z-10 py-28 px-4 border-t border-white/5">
-        <div className="max-w-3xl mx-auto text-center">
-          <motion.h3
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-3xl md:text-5xl font-bold text-slate-200 mb-6"
-          >
-            Ready to own your AI?
-          </motion.h3>
-          <motion.p
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.1 }}
-            className="text-lg text-slate-400 mb-10 max-w-xl mx-auto"
-          >
-            One command to install. Zero data leaves your machine. Start building with your own models today.
-          </motion.p>
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.2 }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-4"
-          >
-            {/* Remove the secondary "Get started" button here since we are already at the Get Started section */}
-            <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
-              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_35px_rgba(0,212,170,0.3)] hover:scale-[1.03] gap-2 w-full sm:w-auto">
-                <GithubIcon className="w-5 h-5" />
-                View on GitHub
-              </Button>
-            </a>
-          </motion.div>
+      <section id="install" className="relative z-10 py-32 px-4 border-t border-white/5">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="max-w-4xl mx-auto rounded-[2rem] bg-[#11161d] p-8 md:p-14 text-center shadow-2xl border border-white/5 relative overflow-hidden"
+        >
+          {/* Subtle glow effect behind */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-32 bg-[#fca5a5]/5 blur-[80px] pointer-events-none" />
 
-          {/* Terminal Install Block */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.3 }}
-            className="mt-12 bg-[#0d1117] border border-white/[0.06] rounded-xl p-5 max-w-md mx-auto text-left font-mono text-sm"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-3 h-3 rounded-full bg-[#00D4AA]/60" />
-              <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
-              <div className="w-3 h-3 rounded-full bg-green-500/60" />
+          <div className="text-[#fca5a5] font-mono text-xs md:text-sm tracking-[0.2em] font-bold mb-6 flex items-center justify-center gap-2">
+            <span>{'>_'}</span> GET STARTED
+          </div>
+          
+          <h2 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-slate-100 mb-6 tracking-tight">
+            TORVAIX is yours.
+          </h2>
+          
+          <p className="text-base md:text-lg text-slate-400 mb-12 max-w-2xl mx-auto font-sans leading-relaxed">
+            TORVAIX is open source and local-first. Run your own models, own your memory, and work with autonomous agents inside a connected knowledge workspace.
+          </p>
+
+          <div className="relative bg-[#0d1117] border border-white/10 rounded-xl p-5 md:p-6 mb-10 text-left font-mono text-sm overflow-x-auto mx-auto max-w-3xl flex items-center justify-between group shadow-inner">
+            <div className="text-slate-300 pr-24 whitespace-pre font-jetbrains leading-[2.2]">
+              <span className="text-[#fca5a5]">$</span> git clone https://github.com/Yashasm18/Torvaix.git{'\n'}
+              <span className="text-[#fca5a5]">$</span> cd torvaix{'\n'}
+              <span className="text-[#fca5a5]">$</span> npm install{'\n'}
+              <span className="text-[#fca5a5]">$</span> ollama serve{'\n'}
+              <span className="text-[#fca5a5]">$</span> docker run -d -p 6333:6333 qdrant/qdrant{'\n'}
+              <span className="text-[#fca5a5]">$</span> npm run dev
             </div>
-            <p className="text-slate-500">$ <span className="text-slate-300">git clone https://github.com/Yashasm18/Torvaix.git</span></p>
-            <p className="text-slate-500">$ <span className="text-slate-300">cd torvaix && npm install</span></p>
-            <p className="text-slate-500">$ <span className="text-slate-300">npm run dev</span></p>
-            <p className="text-green-400/80 mt-2">✓ Torvaix running at http://localhost:3000</p>
-            <p className="text-slate-500 mt-2">$ <span className="text-slate-300">Visit http://localhost:3000/chat to start</span></p>
-          </motion.div>
-        </div>
+            <button 
+              onClick={() => navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git\ncd torvaix\nnpm install\nollama serve\ndocker run -d -p 6333:6333 qdrant/qdrant\nnpm run dev")}
+              className="absolute top-4 right-4 md:top-6 md:right-6 bg-white/5 hover:bg-white/10 text-slate-400 border border-white/20 rounded-md px-4 py-2 text-xs transition-colors hover:text-white"
+            >
+              Copy
+            </button>
+          </div>
+
+          <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer" className="inline-block mb-2">
+            <Button className="bg-[#fca5a5] hover:bg-[#fca5a5]/90 text-[#11161d] border-0 rounded-lg px-8 py-6 text-base font-bold transition-all shadow-lg hover:-translate-y-0.5">
+              View on GitHub
+            </Button>
+          </a>
+
+          <div className="flex flex-wrap justify-center gap-3 mt-12">
+            {['Open Source', 'Local-First', 'Memory-Powered', 'Multi-Model', 'Agentic', 'Privacy-First'].map(badge => (
+              <span key={badge} className="px-4 py-1.5 rounded-full border border-white/10 text-slate-400 text-xs font-mono bg-white/5 hover:bg-white/10 hover:text-slate-300 transition-colors cursor-default">
+                {badge}
+              </span>
+            ))}
+          </div>
+        </motion.div>
       </section>
 
       {/* ════════════════════ FOOTER ════════════════════ */}
