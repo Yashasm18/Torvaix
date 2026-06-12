@@ -3,7 +3,7 @@
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { MessageSquare, Terminal, Mail, Search, GitCompare, Database, Sparkles, Shield, BookOpen, Quote, ArrowRight, ExternalLink } from "lucide-react"
+import { MessageSquare, Terminal, Mail, Search, GitCompare, Database, Sparkles, Shield, BookOpen, Quote, ExternalLink, ArrowRight } from "lucide-react"
 import { HeroBackground } from "@/components/ui/hero-background"
 
 /* ── Inline GitHub SVG icon (not available in lucide-react) ── */
@@ -198,24 +198,25 @@ export default function LandingPage() {
           (where conversations become knowledge, and knowledge becomes leverage...)
         </motion.p>
 
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-          className="flex flex-col sm:flex-row items-center gap-4"
-        >
-          <Link href="/app">
-            <Button className="bg-[#e06c75] hover:bg-[#d95861] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] active:scale-[0.98]">
-              Get started
-            </Button>
-          </Link>
-          <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" className="bg-[#22272e] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
-              <GithubIcon className="w-5 h-5" />
-              View on GitHub
-            </Button>
-          </a>
-        </motion.div>
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="flex flex-col sm:flex-row items-center gap-4"
+          >
+            <Link href="/app/chat">
+              <Button className="bg-[#e06c75] hover:bg-[#d95861] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] active:scale-[0.98] gap-2">
+                Try Now
+                <ArrowRight className="w-5 h-5" />
+              </Button>
+            </Link>
+            <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" className="bg-[#22272e] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
+                <GithubIcon className="w-5 h-5" />
+                View on GitHub
+              </Button>
+            </a>
+          </motion.div>
       </main>
       </div>
 
@@ -409,9 +410,9 @@ export default function LandingPage() {
             transition={{ delay: 0.2 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Link href="/app">
+            <Link href="/app/chat">
               <Button className="bg-[#e06c75] hover:bg-[#d95861] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] gap-2">
-                Get started <ArrowRight className="w-5 h-5" />
+                Try Now <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
             <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
@@ -439,6 +440,7 @@ export default function LandingPage() {
             <p className="text-slate-500">$ <span className="text-slate-300">cd torvaix && npm install</span></p>
             <p className="text-slate-500">$ <span className="text-slate-300">npm run dev</span></p>
             <p className="text-green-400/80 mt-2">✓ Torvaix running at http://localhost:3000</p>
+            <p className="text-slate-500 mt-2">$ <span className="text-slate-300">Visit http://localhost:3000/app/chat to start</span></p>
           </motion.div>
         </div>
       </section>

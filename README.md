@@ -88,6 +88,17 @@ npm run dev
 
 The web app will be available at `http://localhost:3000`.
 
+### Accessing the AI Interface
+
+1. **Start the development server** as above.
+2. **Visit the AI interface**: Open your browser and go to `http://localhost:3000/app/chat`
+3. **Start chatting**: The interface includes:
+   - Quick action buttons for common tasks
+   - Real-time chat with local AI models
+   - Tool execution (bash, python, web search)
+   - Model selection and provider switching
+   - Private, local processing
+
 ### Connecting to local models
 
 1. Install and start [Ollama](https://ollama.ai).
