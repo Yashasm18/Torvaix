@@ -215,7 +215,7 @@ export default function LandingPage() {
           <Link href="#features" className="hover:text-foreground transition-colors duration-200">Features</Link>
           <Link href="#testimonials" className="hover:text-foreground transition-colors duration-200">Testimonials</Link>
           <Link href="#story" className="hover:text-foreground transition-colors duration-200">How it started</Link>
-          <Link href="/chat" className="hover:text-foreground transition-colors duration-200">Get started</Link>
+          <Link href="#install" className="hover:text-foreground transition-colors duration-200">Get started</Link>
         </div>
         <div className="hidden md:block">
           <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
@@ -286,7 +286,7 @@ export default function LandingPage() {
             transition={{ duration: 0.6, delay: 0.3 }}
             className="flex flex-col sm:flex-row items-center gap-4"
           >
-            <Link href="/chat">
+            <Link href="#install">
               <Button className="bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_35px_rgba(0,212,170,0.3)] hover:scale-[1.03] active:scale-[0.98] gap-2">
                 Get started
                 <ArrowRight className="w-5 h-5" />
@@ -500,8 +500,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ════════════════════ CTA ════════════════════ */}
-      <section className="relative z-10 py-28 px-4 border-t border-white/5">
+      {/* ════════════════════ CTA / INSTALL SECTION ════════════════════ */}
+      <section id="install" className="relative z-10 py-28 px-4 border-t border-white/5">
         <div className="max-w-3xl mx-auto text-center">
           <motion.h3
             initial={{ opacity: 0, y: 20 }}
@@ -527,15 +527,11 @@ export default function LandingPage() {
             transition={{ delay: 0.2 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Link href="/chat">
-              <Button className="bg-[#00D4AA] hover:bg-[#00A383] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] gap-2">
-                Get started <ArrowRight className="w-5 h-5" />
-              </Button>
-            </Link>
+            {/* Remove the secondary "Get started" button here since we are already at the Get Started section */}
             <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" className="bg-[#1F2937] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
+              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_35px_rgba(0,212,170,0.3)] hover:scale-[1.03] gap-2 w-full sm:w-auto">
                 <GithubIcon className="w-5 h-5" />
-                Star on GitHub
+                View on GitHub
               </Button>
             </a>
           </motion.div>
