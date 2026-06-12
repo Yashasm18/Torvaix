@@ -451,9 +451,9 @@ export default function LandingPage() {
             <div className="space-y-6 text-slate-300 text-left leading-relaxed text-[15px] sm:text-base font-mono">
               <p>I built TORVAIX because using AI felt fragmented.</p>
               <p>Every model had its own interface. Conversations lived in one place, notes in another, and knowledge was scattered across countless tabs and applications.</p>
-              <p>The models were getting smarter, but the workflow around them wasn't.</p>
+              <p>The models were getting smarter, but the workflow around them wasn&apos;t.</p>
               <p>TORVAIX began as an attempt to bring everything together: conversations, knowledge, documents, and multiple AI models inside a single workspace.</p>
-              <p>The goal isn't just to chat with AI. It's to build a system that remembers, organizes, and helps turn information into knowledge.</p>
+              <p>The goal isn&apos;t just to chat with AI. It&apos;s to build a system that remembers, organizes, and helps turn information into knowledge.</p>
               <p>Whether your models run locally or in the cloud, TORVAIX gives them a shared home — without locking you into a single provider.</p>
             </div>
           </motion.div>

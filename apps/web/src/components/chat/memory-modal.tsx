@@ -9,16 +9,17 @@ import { Button } from "../ui/button"
 export function MemoryModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [memories, setMemories] = React.useState<MemoryItem[]>([])
 
-  React.useEffect(() => {
-    if (open) {
-      loadMemories()
-    }
-  }, [open])
-
-  const loadMemories = async () => {
+  const loadMemories = React.useCallback(async () => {
     const data = await getMemories()
     setMemories(data)
-  }
+  }, [])
+
+  React.useEffect(() => {
+    if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadMemories()
+    }
+  }, [open, loadMemories])
 
   const handleDelete = async (id: string) => {
     await removeMemory(id)

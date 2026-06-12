@@ -29,6 +29,7 @@ export function ChatView({ chatId }: { chatId: string }) {
       <ScrollArea className="flex-1 p-4">
         <div className="max-w-3xl mx-auto space-y-6 pb-20">
           <AnimatePresence initial={false}>
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             {messages.map((m: any) => (
               <motion.div 
                 key={m.id} 
