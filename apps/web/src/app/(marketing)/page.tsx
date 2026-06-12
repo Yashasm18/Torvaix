@@ -377,7 +377,23 @@ export default function LandingPage() {
             {/* Terminal Body */}
             <div className="p-6 font-mono text-sm leading-relaxed text-[#56b6c2]">
               <span className="text-[#98c379] font-bold mr-2">{'>'}</span>
-              I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me
+              {"I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me".split('').map((char, index) => (
+                <motion.span
+                  key={index}
+                  initial={{ opacity: 0 }}
+                  whileInView={{ opacity: 1 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.01, delay: 0.6 + index * 0.04 }}
+                >
+                  {char}
+                </motion.span>
+              ))}
+              <motion.span
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0, 1, 0] }}
+                transition={{ repeat: Infinity, duration: 0.8 }}
+                className="inline-block w-2 h-4 bg-[#56b6c2] align-middle ml-1"
+              />
             </div>
           </motion.div>
         </div>
