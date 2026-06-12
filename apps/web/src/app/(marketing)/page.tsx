@@ -306,9 +306,18 @@ export default function LandingPage() {
       </main>
       </div>
 
-      {/* ════════════════════ FEATURES ════════════════════ */}
-      <section id="features" className="relative z-10 py-28 px-4 border-t border-white/5">
-        <div className="max-w-6xl mx-auto text-center mb-16">
+      {/* ════════════════════ FEATURES GRID ════════════════════ */}
+      <section id="features" className="relative z-10 py-32 px-4 border-t border-white/5 overflow-hidden bg-[#0B1020]">
+        {/* Subtle dot matrix background to match screenshot */}
+        <div 
+          className="absolute inset-0 pointer-events-none opacity-[0.15] z-0"
+          style={{
+            backgroundImage: 'radial-gradient(circle at 1px 1px, #ffffff 1px, transparent 0)',
+            backgroundSize: '40px 40px'
+          }}
+        />
+        
+        <div className="max-w-6xl mx-auto text-center mb-16 relative z-10">
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -344,7 +353,7 @@ export default function LandingPage() {
           </motion.p>
         </div>
 
-        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
           {features.map((feature, idx) => (
             <motion.div
               key={idx}
@@ -352,12 +361,12 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: idx * 0.07, duration: 0.5 }}
-              className={`bg-[#1F2937]/80 backdrop-blur-sm border ${feature.border || 'border-white/[0.06]'} rounded-2xl p-7 text-left hover:border-[#00D4AA]/40 transition-all duration-300 group cursor-default`}
+              className={`bg-[#111827]/80 backdrop-blur-xl border ${feature.border || 'border-white/[0.08]'} rounded-2xl p-8 text-left hover:border-[#00D4AA]/50 hover:shadow-[0_0_30px_-5px_rgba(0,212,170,0.15)] hover:-translate-y-1 transition-all duration-300 group cursor-default`}
             >
-              <div className="w-12 h-12 rounded-xl bg-[#0B1020] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:scale-110 group-hover:border-[#00D4AA]/20 transition-all duration-300">
+              <div className="w-12 h-12 rounded-xl bg-[#0B1020] border border-white/[0.08] flex items-center justify-center mb-6 group-hover:scale-110 group-hover:border-[#00D4AA]/40 group-hover:shadow-[0_0_15px_rgba(0,212,170,0.2)] transition-all duration-300">
                 {feature.icon}
               </div>
-              <h4 className="text-lg font-bold text-slate-200 mb-2.5 flex items-center gap-3">
+              <h4 className="text-xl font-display font-bold text-slate-100 mb-3 flex items-center gap-3 tracking-wide">
                 {feature.title}
                 {feature.badge && (
                   <span className="text-[10px] font-mono text-[#00D4AA] border border-[#00D4AA]/30 bg-[#00D4AA]/10 px-2.5 py-0.5 rounded-full tracking-wider">
@@ -365,7 +374,7 @@ export default function LandingPage() {
                   </span>
                 )}
               </h4>
-              <p className="text-sm text-slate-400 leading-relaxed">
+              <p className="text-[15px] font-sans text-slate-400 leading-relaxed group-hover:text-slate-300 transition-colors duration-300">
                 {feature.description}
               </p>
             </motion.div>
