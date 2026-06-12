@@ -1,18 +1,7 @@
 "use client"
 
 import * as React from "react"
-import {
-  Calculator,
-  Calendar,
-  CreditCard,
-  Settings,
-  Smile,
-  User,
-  MessageSquare,
-  Folder,
-  StickyNote
-} from "lucide-react"
-
+import { useRouter } from "next/navigation"
 import {
   CommandDialog,
   CommandEmpty,
@@ -21,13 +10,12 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-  CommandShortcut,
 } from "@/components/ui/command"
-import { useDBStore } from "@/store/db-store"
+import { Search, Plus, Bot, Cpu, CheckSquare } from "lucide-react"
 
 export function CommandPalette() {
   const [open, setOpen] = React.useState(false)
-  const { workspaces, setActiveWorkspaceId } = useDBStore()
+  const router = useRouter()
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -41,43 +29,47 @@ export function CommandPalette() {
     return () => document.removeEventListener("keydown", down)
   }, [])
 
+  const runCommand = (command: () => void) => {
+    setOpen(false)
+    command()
+  }
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Type a command or search..." />
+      <CommandInput placeholder="Search Everything..." />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
-        
         <CommandGroup heading="Actions">
-          <CommandItem>
-            <MessageSquare className="mr-2 h-4 w-4" />
-            <span>New Chat</span>
-            <CommandShortcut>⌘N</CommandShortcut>
+          <CommandItem onSelect={() => runCommand(() => router.push('/app/knowledge'))}>
+            <Search className="mr-2 h-4 w-4" />
+            <span>Search Knowledge</span>
           </CommandItem>
-          <CommandItem>
-            <Settings className="mr-2 h-4 w-4" />
-            <span>Settings</span>
-            <CommandShortcut>⌘S</CommandShortcut>
+          <CommandItem onSelect={() => runCommand(() => router.push('/app/projects/new'))}>
+            <Plus className="mr-2 h-4 w-4" />
+            <span>Create Project</span>
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push('/app/agents'))}>
+            <Bot className="mr-2 h-4 w-4" />
+            <span>Run Agent</span>
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push('/app/models'))}>
+            <Cpu className="mr-2 h-4 w-4" />
+            <span>Switch Model</span>
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push('/app/tasks'))}>
+            <CheckSquare className="mr-2 h-4 w-4" />
+            <span>Open Task</span>
           </CommandItem>
         </CommandGroup>
-        
         <CommandSeparator />
-        
-        {workspaces.length > 0 && (
-          <CommandGroup heading="Workspaces">
-            {workspaces.map((workspace) => (
-              <CommandItem 
-                key={workspace.id}
-                onSelect={() => {
-                  setActiveWorkspaceId(workspace.id)
-                  setOpen(false)
-                }}
-              >
-                <Folder className="mr-2 h-4 w-4" />
-                <span>{workspace.name}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
+        <CommandGroup heading="Navigation">
+          <CommandItem onSelect={() => runCommand(() => router.push('/app'))}>
+            Workspace
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push('/app/chat'))}>
+            Ask TORVAIX
+          </CommandItem>
+        </CommandGroup>
       </CommandList>
     </CommandDialog>
   )

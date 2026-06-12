@@ -2,13 +2,92 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import fetch from 'node-fetch';
+import { MemoryStore } from '../../memory/src';
+import path from 'path';
 
 const execAsync = promisify(exec);
+
+// Initialize Memory Store (using a local database file in the workspace)
+const memoryDbPath = path.join(process.cwd(), 'torvaix_metadata.db');
+const memoryStore = new MemoryStore(memoryDbPath);
 
 export interface ToolResult {
   tool: string;
   output: string;
   success: boolean;
+}
+
+export async function executeStoreMemory(workspaceId: string, content: string, source: string): Promise<ToolResult> {
+  try {
+    await memoryStore.initQdrant();
+    const id = await memoryStore.storeMemory(workspaceId, content, source);
+    return {
+      tool: 'store_memory',
+      output: `Stored memory successfully with ID: ${id}`,
+      success: true,
+    };
+  } catch (error: any) {
+    return {
+      tool: 'store_memory',
+      output: error.message || String(error),
+      success: false,
+    };
+  }
+}
+
+export async function executeQueryMemory(workspaceId: string, query: string, topK: number = 5): Promise<ToolResult> {
+  try {
+    await memoryStore.initQdrant();
+    const results = await memoryStore.queryMemory(workspaceId, query, topK);
+    const output = results.map(r => `[Score: ${r.score.toFixed(2)}] (Source: ${r.source}) ${r.content}`).join('\n\n');
+    return {
+      tool: 'query_memory',
+      output: output || 'No relevant memories found.',
+      success: true,
+    };
+  } catch (error: any) {
+    return {
+      tool: 'query_memory',
+      output: error.message || String(error),
+      success: false,
+    };
+  }
+}
+
+export async function executeUpdateMemory(id: string, newContent: string): Promise<ToolResult> {
+  try {
+    await memoryStore.initQdrant();
+    await memoryStore.updateMemory(id, newContent);
+    return {
+      tool: 'update_memory',
+      output: `Updated memory ${id} successfully.`,
+      success: true,
+    };
+  } catch (error: any) {
+    return {
+      tool: 'update_memory',
+      output: error.message || String(error),
+      success: false,
+    };
+  }
+}
+
+export async function executeDeleteMemory(id: string): Promise<ToolResult> {
+  try {
+    await memoryStore.initQdrant();
+    await memoryStore.deleteMemory(id);
+    return {
+      tool: 'delete_memory',
+      output: `Deleted memory ${id} successfully.`,
+      success: true,
+    };
+  } catch (error: any) {
+    return {
+      tool: 'delete_memory',
+      output: error.message || String(error),
+      success: false,
+    };
+  }
 }
 
 /**
@@ -106,7 +185,7 @@ export async function executeWebSearch(query: string): Promise<ToolResult> {
  */
 export function parseToolBlocks(llmOutput: string): { tool: string; args: string }[] {
   const tools = [];
-  const regex = /```(bash|read_file|python|web_search)\n([\s\S]*?)```/g;
+  const regex = /```(bash|read_file|python|web_search|store_memory|query_memory|update_memory|delete_memory)\n([\s\S]*?)```/g;
   let match;
   while ((match = regex.exec(llmOutput)) !== null) {
     tools.push({
@@ -184,6 +263,24 @@ export async function runAgentLoop(instructions: string, modelUrl: string = 'htt
             break;
           case 'web_search':
             result = await executeWebSearch(block.args);
+            break;
+          case 'store_memory':
+            // Format: workspaceId|content|source
+            const [storeWorkspace, storeContent, storeSource] = block.args.split('|');
+            result = await executeStoreMemory(storeWorkspace, storeContent, storeSource);
+            break;
+          case 'query_memory':
+            // Format: workspaceId|query|topK
+            const [queryWorkspace, queryStr, topKStr] = block.args.split('|');
+            result = await executeQueryMemory(queryWorkspace, queryStr, topKStr ? parseInt(topKStr) : 5);
+            break;
+          case 'update_memory':
+            // Format: id|newContent
+            const [updateId, updateContent] = block.args.split('|');
+            result = await executeUpdateMemory(updateId, updateContent);
+            break;
+          case 'delete_memory':
+            result = await executeDeleteMemory(block.args);
             break;
           default:
             result = {

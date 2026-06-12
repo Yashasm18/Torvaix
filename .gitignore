@@ -37,3 +37,8 @@ Thumbs.db
 
 # Vercel
 .vercel/
+
+# Database
+*.db
+*.db-journal
+torvaix_metadata.db

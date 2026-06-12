@@ -19,52 +19,52 @@ function GithubIcon({ className }: { className?: string }) {
 /* ── Feature card data ── */
 const features = [
   {
-    icon: <MessageSquare className="h-5 w-5 text-[#e06c75]" />,
+    icon: <MessageSquare className="h-5 w-5 text-primary" />,
     title: "Chat & Agents",
     description: "Multi-turn chat plus autonomous agents that plan, call tools, and work through tasks."
   },
   {
-    icon: <Terminal className="h-5 w-5 text-[#e06c75]" />,
+    icon: <Terminal className="h-5 w-5 text-primary" />,
     title: "Tools & MCP",
     description: "Built-in tools (bash, files, web, memory) plus any MCP server you connect. Toggle per tool."
   },
   {
-    icon: <BookOpen className="h-5 w-5 text-[#e06c75]" />,
+    icon: <BookOpen className="h-5 w-5 text-primary" />,
     title: "Cookbook",
     description: "Hardware-aware model recommendations and one-click serving across 270+ catalogued models."
   },
   {
-    icon: <Mail className="h-5 w-5 text-[#e06c75]" />,
+    icon: <Mail className="h-5 w-5 text-primary" />,
     title: "Email Assistant",
     description: "AI summaries, style-matched draft replies, auto-tagging and spam triage over IMAP/SMTP."
   },
   {
-    icon: <Search className="h-5 w-5 text-[#e06c75]" />,
+    icon: <Search className="h-5 w-5 text-primary" />,
     title: "Deep Research",
     description: "Multi-step research runs that gather, read, and synthesize sources into a written report."
   },
   {
-    icon: <GitCompare className="h-5 w-5 text-[#e06c75]" />,
+    icon: <GitCompare className="h-5 w-5 text-primary" />,
     title: "Compare",
     description: "Send one prompt to several models at once and compare their answers side-by-side."
   },
   {
-    icon: <Database className="h-5 w-5 text-[#e06c75]" />,
+    icon: <Database className="h-5 w-5 text-primary" />,
     title: "Memory",
     description: "Persistent memory the assistant builds up and recalls across all your conversations.",
-    border: "border-[#e06c75]/40 shadow-[0_0_20px_-5px_rgba(224,108,117,0.25)]"
+    border: "border-primary/40 shadow-[0_0_20px_-5px_rgba(0,212,170,0.25)]"
   },
   {
-    icon: <Sparkles className="h-5 w-5 text-[#e06c75]" />,
+    icon: <Sparkles className="h-5 w-5 text-primary" />,
     title: "Skills",
     badge: "self-evolving",
     description: "The assistant writes, refines, and reuses its own skills — getting more capable over time."
   },
   {
-    icon: <Shield className="h-5 w-5 text-[#e06c75]" />,
+    icon: <Shield className="h-5 w-5 text-primary" />,
     title: "Private by default",
     description: "Runs on your machine against your own endpoints. No telemetry, with optional external integrations when you choose them.",
-    border: "border-[#e06c75]/40 shadow-[0_0_20px_-5px_rgba(224,108,117,0.25)]"
+    border: "border-primary/40 shadow-[0_0_20px_-5px_rgba(0,212,170,0.25)]"
   }
 ]
 
@@ -154,7 +154,7 @@ function TypingEffect({ text }: { text: string }) {
         initial={{ opacity: 0 }}
         animate={{ opacity: [0, 1, 0] }}
         transition={{ repeat: Infinity, duration: 0.8 }}
-        className="inline-block w-2 h-4 bg-[#56b6c2] align-middle ml-1"
+        className="inline-block w-2 h-4 bg-[#00D4AA] align-middle ml-1"
       />
     </span>
   );
@@ -192,7 +192,7 @@ bootstrapTorvaix();`;
       <motion.div
         animate={{ y: [0, -3000] }}
         transition={{ duration: 150, repeat: Infinity, ease: "linear" }}
-        className="font-mono text-sm sm:text-base text-[#56b6c2]/80 whitespace-pre p-8 blur-[2px]"
+        className="font-mono text-sm sm:text-base text-[#00D4AA]/80 whitespace-pre p-8 blur-[2px]"
       >
         {repeatedCode}
       </motion.div>
@@ -202,25 +202,25 @@ bootstrapTorvaix();`;
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-[#1c2128] text-slate-300 font-sans selection:bg-[#e06c75]/30">
+    <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
       
       {/* ════════════════════ NAVIGATION ════════════════════ */}
-      <nav className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 bg-[#161b22]/90 backdrop-blur-md border-b border-white/5 shadow-sm">
+      <nav className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 bg-background/90 backdrop-blur-md border-b border-border shadow-sm">
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-7 h-7 bg-[#e06c75] rounded-md transform rotate-45 flex items-center justify-center transition-transform group-hover:rotate-[405deg] duration-500">
-            <div className="w-3.5 h-3.5 bg-[#1c2128] transform -rotate-45 rounded-sm" />
+          <div className="w-7 h-7 bg-primary rounded-md transform rotate-45 flex items-center justify-center transition-transform group-hover:rotate-[405deg] duration-500">
+            <div className="w-3.5 h-3.5 bg-background transform -rotate-45 rounded-sm" />
           </div>
-          <span className="text-xl font-bold tracking-tight text-white">Torvaix</span>
+          <span className="text-xl font-bold tracking-tight text-foreground">TORVAIX</span>
         </Link>
-        <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-400">
-          <Link href="#features" className="hover:text-white transition-colors duration-200">Features</Link>
-          <Link href="#testimonials" className="hover:text-white transition-colors duration-200">Testimonials</Link>
-          <Link href="#story" className="hover:text-white transition-colors duration-200">How it started</Link>
-          <Link href="/app/chat" className="hover:text-white transition-colors duration-200">Get started</Link>
+        <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
+          <Link href="#features" className="hover:text-foreground transition-colors duration-200">Features</Link>
+          <Link href="#testimonials" className="hover:text-foreground transition-colors duration-200">Testimonials</Link>
+          <Link href="#story" className="hover:text-foreground transition-colors duration-200">How it started</Link>
+          <Link href="/app" className="hover:text-foreground transition-colors duration-200">Get started</Link>
         </div>
         <div className="hidden md:block">
           <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" className="border-white/10 bg-transparent hover:bg-white/5 text-slate-300 gap-2 rounded-full px-5 transition-all">
+            <Button variant="outline" className="border-border bg-transparent hover:bg-muted text-foreground gap-2 rounded-full px-5 transition-all">
               <GithubIcon className="w-4 h-4" />
               GitHub
             </Button>
@@ -229,7 +229,7 @@ export default function LandingPage() {
       </nav>
 
       {/* ════════════════════ TOP SECTION (HERO) ════════════════════ */}
-      <div className="relative min-h-[90vh] flex flex-col overflow-hidden border-b border-white/5">
+      <div className="relative min-h-[90vh] flex flex-col overflow-hidden border-b border-border bg-background">
         
         {/* ══ Animated Interactive Canvas Background (Scoped to Hero) ══ */}
         <HeroBackground />
@@ -244,7 +244,7 @@ export default function LandingPage() {
         />
 
         {/* Subtle fade out at the bottom of the hero to blend into the rest of the page */}
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#1c2128] to-transparent z-0 pointer-events-none" />
+        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent z-0 pointer-events-none" />
 
         {/* ════════════════════ HERO CONTENT ════════════════════ */}
         <main className="relative z-10 flex flex-col items-center justify-center flex-1 px-4 text-center pb-20 pt-16">
@@ -254,39 +254,32 @@ export default function LandingPage() {
             transition={{ duration: 0.7 }}
             className="flex flex-col items-center"
           >
-            <div className="w-14 h-14 bg-[#e06c75] rounded-xl transform rotate-45 flex items-center justify-center mb-6 shadow-[0_0_40px_rgba(224,108,117,0.4)]">
-              <div className="w-7 h-7 bg-[#1c2128] transform -rotate-45 rounded-md" />
+            <div className="w-14 h-14 bg-primary rounded-xl transform rotate-45 flex items-center justify-center mb-6 shadow-[0_0_40px_rgba(0,212,170,0.2)]">
+              <div className="w-7 h-7 bg-background transform -rotate-45 rounded-md" />
             </div>
-            <h1 className="text-5xl md:text-6xl font-bold tracking-tight text-white mb-2">Torvaix</h1>
-            <p className="text-[#e06c75] font-mono text-sm tracking-[0.25em] uppercase mb-14 opacity-80">Yours for the voyage.</p>
+            <h1 className="text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-12">TORVAIX</h1>
           </motion.div>
 
           <motion.h2 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.1 }}
-            className="text-5xl md:text-7xl font-extrabold tracking-tight text-slate-200 max-w-4xl leading-[1.08] mb-10"
+            className="text-5xl md:text-7xl font-extrabold tracking-tight text-foreground max-w-4xl leading-[1.08] mb-10"
           >
-            Your own <span className="text-[#e06c75]">AI</span> workspace,<br/>running on your hardware.
+            One Workspace.<br/>
+            <span className="text-primary">Every Model.</span>
           </motion.h2>
 
-          <motion.p 
+          <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.2 }}
-            className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-6 leading-relaxed"
+            className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-14 leading-relaxed flex flex-col gap-2"
           >
-          Torvaix is a self-hosted interface for talking to language models — chat, autonomous agents, tools, model serving, email, research, and more. Local-first, privacy-first, and no telemetry. Just you and your <span className="text-[#e06c75]">models</span>.
-        </motion.p>
-        
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.6, delay: 0.45 }}
-          className="text-sm text-slate-500 mb-14 font-mono italic"
-        >
-          (where conversations become knowledge, and knowledge becomes leverage...)
-        </motion.p>
+            <p>Conversations become knowledge.</p>
+            <p>Knowledge becomes memory.</p>
+            <p>Memory enables intelligent action.</p>
+          </motion.div>
 
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -294,14 +287,14 @@ export default function LandingPage() {
             transition={{ duration: 0.6, delay: 0.3 }}
             className="flex flex-col sm:flex-row items-center gap-4"
           >
-            <Link href="/app/chat">
-              <Button className="bg-[#e06c75] hover:bg-[#d95861] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] active:scale-[0.98] gap-2">
+            <Link href="/app">
+              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_35px_rgba(0,212,170,0.3)] hover:scale-[1.03] active:scale-[0.98] gap-2">
                 Get started
                 <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
             <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" className="bg-[#22272e] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
+              <Button variant="outline" className="bg-[#1F2937] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
                 <GithubIcon className="w-5 h-5" />
                 View on GitHub
               </Button>
@@ -321,12 +314,12 @@ export default function LandingPage() {
             className="flex items-center justify-center gap-2.5 mb-5"
           >
             <div className="grid grid-cols-2 gap-[3px]">
-              <div className="w-1.5 h-1.5 bg-[#e06c75] rounded-[2px]"/>
-              <div className="w-1.5 h-1.5 bg-[#e06c75] rounded-[2px]"/>
-              <div className="w-1.5 h-1.5 bg-[#e06c75] rounded-[2px]"/>
-              <div className="w-1.5 h-1.5 bg-[#e06c75] rounded-[2px]"/>
+              <div className="w-1.5 h-1.5 bg-[#00D4AA] rounded-[2px]"/>
+              <div className="w-1.5 h-1.5 bg-[#00D4AA] rounded-[2px]"/>
+              <div className="w-1.5 h-1.5 bg-[#00D4AA] rounded-[2px]"/>
+              <div className="w-1.5 h-1.5 bg-[#00D4AA] rounded-[2px]"/>
             </div>
-            <span className="text-[#e06c75] font-mono text-xs font-bold tracking-[0.2em] uppercase">Everything, Self-Hosted</span>
+            <span className="text-[#00D4AA] font-mono text-xs font-bold tracking-[0.2em] uppercase">Everything, Self-Hosted</span>
           </motion.div>
           <motion.h3 
             initial={{ opacity: 0, y: 10 }}
@@ -356,15 +349,15 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: idx * 0.07, duration: 0.5 }}
-              className={`bg-[#22272e]/80 backdrop-blur-sm border ${feature.border || 'border-white/[0.06]'} rounded-2xl p-7 text-left hover:border-[#e06c75]/40 transition-all duration-300 group cursor-default`}
+              className={`bg-[#1F2937]/80 backdrop-blur-sm border ${feature.border || 'border-white/[0.06]'} rounded-2xl p-7 text-left hover:border-[#00D4AA]/40 transition-all duration-300 group cursor-default`}
             >
-              <div className="w-12 h-12 rounded-xl bg-[#1c2128] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:scale-110 group-hover:border-[#e06c75]/20 transition-all duration-300">
+              <div className="w-12 h-12 rounded-xl bg-[#0B1020] border border-white/[0.06] flex items-center justify-center mb-5 group-hover:scale-110 group-hover:border-[#00D4AA]/20 transition-all duration-300">
                 {feature.icon}
               </div>
               <h4 className="text-lg font-bold text-slate-200 mb-2.5 flex items-center gap-3">
                 {feature.title}
                 {feature.badge && (
-                  <span className="text-[10px] font-mono text-[#e06c75] border border-[#e06c75]/30 bg-[#e06c75]/10 px-2.5 py-0.5 rounded-full tracking-wider">
+                  <span className="text-[10px] font-mono text-[#00D4AA] border border-[#00D4AA]/30 bg-[#00D4AA]/10 px-2.5 py-0.5 rounded-full tracking-wider">
                     {feature.badge}
                   </span>
                 )}
@@ -386,8 +379,8 @@ export default function LandingPage() {
             viewport={{ once: true }}
             className="flex items-center justify-center gap-2.5 mb-5"
           >
-            <Quote className="w-4 h-4 text-[#e06c75]" />
-            <span className="text-[#e06c75] font-mono text-xs font-bold tracking-[0.2em] uppercase">What people say</span>
+            <Quote className="w-4 h-4 text-[#00D4AA]" />
+            <span className="text-[#00D4AA] font-mono text-xs font-bold tracking-[0.2em] uppercase">What people say</span>
           </motion.div>
           <motion.h3 
             initial={{ opacity: 0, y: 10 }}
@@ -408,9 +401,9 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: idx * 0.1, duration: 0.5 }}
-              className="bg-[#22272e]/80 backdrop-blur-sm border border-white/[0.06] rounded-2xl p-7 text-left hover:border-[#e06c75]/30 transition-all duration-300 flex flex-col"
+              className="bg-[#1F2937]/80 backdrop-blur-sm border border-white/[0.06] rounded-2xl p-7 text-left hover:border-[#00D4AA]/30 transition-all duration-300 flex flex-col"
             >
-              <Quote className="w-6 h-6 text-[#e06c75]/30 mb-4 shrink-0" />
+              <Quote className="w-6 h-6 text-[#00D4AA]/30 mb-4 shrink-0" />
               <p className="text-slate-300 leading-relaxed mb-6 flex-1 italic">
                 &ldquo;{t.quote}&rdquo;
               </p>
@@ -424,13 +417,13 @@ export default function LandingPage() {
       </section>
 
       {/* ════════════════════ HOW IT STARTED (STORY) ════════════════════ */}
-      <section id="story" className="relative z-10 py-32 px-4 border-t border-white/5 overflow-hidden bg-[#1c2128]">
+      <section id="story" className="relative z-10 py-32 px-4 border-t border-white/5 overflow-hidden bg-[#0B1020]">
         
         {/* Animated coding background */}
         <AnimatedCodeBackground />
         
         {/* Subtle gradient overlay to fade edges, but leave code visible */}
-        <div className="absolute inset-0 z-0 bg-gradient-to-b from-[#1c2128] via-transparent to-[#1c2128] pointer-events-none" />
+        <div className="absolute inset-0 z-0 bg-gradient-to-b from-[#0B1020] via-transparent to-[#0B1020] pointer-events-none" />
 
         <div className="max-w-4xl mx-auto relative z-10 flex flex-col gap-16">
           
@@ -439,13 +432,13 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="bg-[#161b22]/80 backdrop-blur-md border border-white/10 rounded-2xl p-8 md:p-12 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
+            className="bg-[#111827]/80 backdrop-blur-md border border-white/10 rounded-2xl p-8 md:p-12 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
           >
             {/* Subtle glow inside the box */}
-            <div className="absolute top-0 left-1/4 w-1/2 h-px bg-gradient-to-r from-transparent via-[#e06c75]/50 to-transparent"></div>
+            <div className="absolute top-0 left-1/4 w-1/2 h-px bg-gradient-to-r from-transparent via-[#00D4AA]/50 to-transparent"></div>
 
             <div className="flex items-center gap-2 mb-8">
-               <span className="text-[#e06c75] font-mono text-xs font-bold tracking-[0.2em]">◎ WHY TORVAIX EXISTS</span>
+               <span className="text-[#00D4AA] font-mono text-xs font-bold tracking-[0.2em]">◎ WHY TORVAIX EXISTS</span>
             </div>
             
             <div className="space-y-6 text-slate-300 text-left leading-relaxed text-[15px] sm:text-base font-mono">
@@ -466,8 +459,8 @@ export default function LandingPage() {
               viewport={{ once: true }}
               className="flex items-center justify-center gap-2.5 mb-5"
             >
-              <BookOpen className="w-4 h-4 text-[#e06c75]" />
-              <span className="text-[#e06c75] font-mono text-xs font-bold tracking-[0.2em] uppercase">Origin Story</span>
+              <BookOpen className="w-4 h-4 text-[#00D4AA]" />
+              <span className="text-[#00D4AA] font-mono text-xs font-bold tracking-[0.2em] uppercase">Origin Story</span>
             </motion.div>
             
             <motion.h3 
@@ -488,7 +481,7 @@ export default function LandingPage() {
               className="bg-[#0d1117] border border-white/10 rounded-xl overflow-hidden max-w-3xl mx-auto shadow-2xl text-left"
             >
               {/* Terminal Header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#161b22]">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#111827]">
                 <div className="flex items-center gap-2">
                   <span className="text-slate-400 font-mono text-xs">user@torvaix: ~</span>
                 </div>
@@ -499,7 +492,7 @@ export default function LandingPage() {
               </div>
               
               {/* Terminal Body */}
-              <div className="p-6 font-mono text-sm leading-relaxed text-[#56b6c2]">
+              <div className="p-6 font-mono text-sm leading-relaxed text-[#00D4AA]">
                 <span className="text-[#98c379] font-bold mr-2">{'>'}</span>
                 <TypingEffect text="I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me" />
               </div>
@@ -536,12 +529,12 @@ export default function LandingPage() {
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
             <Link href="/app/chat">
-              <Button className="bg-[#e06c75] hover:bg-[#d95861] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] gap-2">
+              <Button className="bg-[#00D4AA] hover:bg-[#00A383] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] gap-2">
                 Get started <ArrowRight className="w-5 h-5" />
               </Button>
             </Link>
             <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" className="bg-[#22272e] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
+              <Button variant="outline" className="bg-[#1F2937] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
                 <GithubIcon className="w-5 h-5" />
                 Star on GitHub
               </Button>
@@ -557,7 +550,7 @@ export default function LandingPage() {
             className="mt-12 bg-[#0d1117] border border-white/[0.06] rounded-xl p-5 max-w-md mx-auto text-left font-mono text-sm"
           >
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-3 h-3 rounded-full bg-[#e06c75]/60" />
+              <div className="w-3 h-3 rounded-full bg-[#00D4AA]/60" />
               <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
               <div className="w-3 h-3 rounded-full bg-green-500/60" />
             </div>
@@ -574,8 +567,8 @@ export default function LandingPage() {
       <footer className="relative z-10 border-t border-white/5 py-12 px-8">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <div className="w-5 h-5 bg-[#e06c75] rounded-sm transform rotate-45 flex items-center justify-center">
-              <div className="w-2.5 h-2.5 bg-[#1c2128] transform -rotate-45 rounded-sm" />
+            <div className="w-5 h-5 bg-[#00D4AA] rounded-sm transform rotate-45 flex items-center justify-center">
+              <div className="w-2.5 h-2.5 bg-[#0B1020] transform -rotate-45 rounded-sm" />
             </div>
             <span className="text-sm font-semibold text-slate-400">&copy; {new Date().getFullYear()} Torvaix</span>
             <span className="text-xs text-slate-600 font-mono">v0.1.0</span>

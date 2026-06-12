@@ -5,38 +5,38 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Default TORVAIX Dark Theme - the primary, deep rich dark mode */
-  --background: hsl(230, 20%, 8%);
-  --foreground: hsl(0, 0%, 95%);
-  --card: hsl(230, 20%, 12%);
-  --card-foreground: hsl(0, 0%, 95%);
-  --popover: hsl(230, 20%, 10%);
-  --popover-foreground: hsl(0, 0%, 95%);
-  --brand-color: hsl(355, 65%, 65%); /* Odysseus red: #e06c75 */
-  --primary: hsl(215, 100%, 55%);
-  --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(230, 15%, 20%);
-  --secondary-foreground: hsl(0, 0%, 98%);
-  --muted: hsl(230, 15%, 20%);
-  --muted-foreground: hsl(230, 10%, 65%);
-  --accent: hsl(250, 80%, 60%);
-  --accent-foreground: hsl(0, 0%, 98%);
-  --destructive: hsl(0, 62.8%, 30.6%);
-  --destructive-foreground: hsl(0, 0%, 98%);
-  --border: hsl(230, 15%, 25%);
-  --input: hsl(230, 15%, 20%);
-  --ring: hsl(215, 100%, 55%);
+  /* TORVAIX AI Operating System Theme */
+  --background: #0B1020;
+  --foreground: #F3F4F6;
+  --card: #111827;
+  --card-foreground: #F3F4F6;
+  --popover: #111827;
+  --popover-foreground: #F3F4F6;
+  --brand-color: #00D4AA;
+  --primary: #00D4AA;
+  --primary-foreground: #0A0A0A;
+  --secondary: #1F2937;
+  --secondary-foreground: #F3F4F6;
+  --muted: #1F2937;
+  --muted-foreground: #9CA3AF;
+  --accent: #1F2937;
+  --accent-foreground: #F3F4F6;
+  --destructive: #EF4444;
+  --destructive-foreground: #F9FAFB;
+  --border: #1F2937;
+  --input: #1F2937;
+  --ring: #00D4AA;
   --radius: 0.75rem;
 
   /* Sidebar Variables */
-  --sidebar-background: hsl(230, 20%, 6%);
-  --sidebar-foreground: hsl(240, 5%, 96%);
-  --sidebar-primary: hsl(215, 100%, 55%);
-  --sidebar-primary-foreground: hsl(0, 0%, 100%);
-  --sidebar-accent: hsl(230, 15%, 15%);
-  --sidebar-accent-foreground: hsl(240, 5%, 96%);
-  --sidebar-border: hsl(230, 15%, 18%);
-  --sidebar-ring: hsl(215, 100%, 55%);
+  --sidebar-background: #0B1020;
+  --sidebar-foreground: #F3F4F6;
+  --sidebar-primary: #00D4AA;
+  --sidebar-primary-foreground: #0A0A0A;
+  --sidebar-accent: #111827;
+  --sidebar-accent-foreground: #00D4AA;
+  --sidebar-border: #1F2937;
+  --sidebar-ring: #00D4AA;
 }
 
 .theme-light {
