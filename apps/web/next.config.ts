@@ -20,9 +20,6 @@ const nextConfig: NextConfig = {
   },
   typescript: {
     ignoreBuildErrors: !!isGithubActions,
-  },
-  eslint: {
-    ignoreDuringBuilds: !!isGithubActions,
   }
 };
 
