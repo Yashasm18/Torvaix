@@ -269,17 +269,18 @@ export default function LandingPage() {
             </div>
 
             {/* 2. Main Headline */}
-            <h1 className="font-sans font-black text-[clamp(48px,8vw,104px)] leading-[0.95] text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-[#00D4AA] to-purple-500 max-w-[950px] mx-auto tracking-tighter drop-shadow-[0_0_40px_rgba(0,212,170,0.3)]">
-              Knowledge that grows with you.
+            <h1 className="font-satoshi font-bold text-[clamp(44px,7vw,84px)] leading-[1.05] text-slate-100 max-w-[950px] mx-auto tracking-tight">
+              Your own AI workspace,<br/>
+              <span className="text-slate-300">that remembers.</span>
             </h1>
 
             {/* 3. Supporting Description */}
-            <p className="font-sans text-[22px] md:text-[28px] font-normal leading-[1.7] text-white/65 max-w-[850px] mx-auto">
-              Every conversation becomes part of a connected knowledge system that remembers context, surfaces insights, and helps you think clearly.
+            <p className="font-sans text-[18px] md:text-[22px] font-normal leading-[1.7] text-slate-400 max-w-[850px] mx-auto">
+              TORVAIX is a workspace where conversations become knowledge, knowledge becomes memory, and memory enables intelligent action. Chat with AI, organize projects, build knowledge, and work with autonomous agents—all in one connected system.
             </p>
 
             {/* 4. Philosophy Line */}
-            <div className="mt-4 md:mt-8 font-mono text-[16px] md:text-[18px] font-medium tracking-[0.04em] text-white/45">
+            <div className="mt-4 md:mt-8 font-mono text-[15px] md:text-[16px] font-medium tracking-[0.04em] text-slate-500">
               Memory-first. Local-first. Open source.
             </div>
             
