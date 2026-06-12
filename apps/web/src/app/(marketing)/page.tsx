@@ -202,6 +202,8 @@ bootstrapTorvaix();`;
 }
 
 export default function LandingPage() {
+  const [terminalState, setTerminalState] = useState<'open' | 'minimized' | 'closed'>('open');
+
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
       
@@ -474,30 +476,64 @@ export default function LandingPage() {
               Torvaix was created by a carefully crafted one-shot AI prompt:
             </motion.h3>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.2 }}
-              className="bg-[#0d1117] border border-white/10 rounded-xl overflow-hidden max-w-3xl mx-auto shadow-2xl text-left"
-            >
-              {/* Terminal Header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#111827]">
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-400 font-mono text-xs">user@torvaix: ~</span>
+            {terminalState === 'closed' ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="max-w-3xl mx-auto flex justify-center py-4"
+              >
+                <button 
+                  onClick={() => setTerminalState('open')}
+                  className="border border-dashed border-slate-500/50 text-slate-400 hover:text-slate-200 hover:border-slate-400 rounded-full px-6 py-2.5 flex items-center gap-3 font-mono text-sm transition-all shadow-lg bg-[#0d1117]/50 backdrop-blur-sm"
+                >
+                  <span className="text-lg leading-none mb-[2px]">×</span> reopen terminal
+                </button>
+              </motion.div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                layout
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+                className={`mx-auto shadow-2xl text-left overflow-hidden bg-[#0d1117] border border-white/10 ${
+                  terminalState === 'minimized' ? 'max-w-[400px] rounded-full' : 'max-w-3xl rounded-xl'
+                }`}
+              >
+                {/* Terminal Header */}
+                <div className={`flex items-center justify-between px-5 py-3.5 bg-[#111827] ${terminalState === 'minimized' ? '' : 'border-b border-white/10'}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 font-mono text-[13px] md:text-sm">user@torvaix: ~</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-slate-500 font-mono">
+                    <button 
+                      onClick={() => setTerminalState(terminalState === 'open' ? 'minimized' : 'open')} 
+                      className="hover:text-slate-200 transition-colors px-2 py-1 -my-1 rounded-md"
+                    >
+                      —
+                    </button>
+                    <button 
+                      onClick={() => setTerminalState('closed')} 
+                      className="hover:text-slate-200 transition-colors px-2 py-1 -my-1 rounded-md text-lg leading-none"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-slate-500">
-                  <span className="w-3 h-3 rounded-full bg-slate-700"></span>
-                  <span className="w-3 h-3 rounded-full bg-slate-700"></span>
-                </div>
-              </div>
-              
-              {/* Terminal Body */}
-              <div className="p-6 font-mono text-sm leading-relaxed text-[#00D4AA]">
-                <span className="text-[#98c379] font-bold mr-2">{'>'}</span>
-                <TypingEffect text="I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me" />
-              </div>
-            </motion.div>
+                
+                {/* Terminal Body */}
+                {terminalState === 'open' && (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="p-6 font-mono text-sm leading-relaxed text-[#00D4AA]"
+                  >
+                    <span className="text-[#98c379] font-bold mr-2">{'>'}</span>
+                    <TypingEffect text="I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me" />
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
           </div>
         </div>
       </section>
