@@ -203,12 +203,7 @@ bootstrapTorvaix();`;
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen text-foreground font-sans selection:bg-primary/30 relative">
-      {/* ══ GLOBAL ANIMATED BACKGROUND ══ */}
-      <div className="fixed inset-0 bg-[#0B1020] z-[-2]" />
-      <div className="fixed inset-0 z-[-1] pointer-events-none">
-        <HeroBackground />
-      </div>
+    <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
       
       {/* ════════════════════ NAVIGATION ════════════════════ */}
       <nav className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 bg-background/90 backdrop-blur-md border-b border-border shadow-sm">
@@ -233,7 +228,12 @@ export default function LandingPage() {
       </nav>
 
       {/* ════════════════════ TOP SECTION (HERO) ════════════════════ */}
-      <div className="relative min-h-[90vh] flex flex-col overflow-hidden border-b border-border border-white/5">
+      <div className="relative min-h-[90vh] flex flex-col overflow-hidden bg-background">
+        
+        {/* ══ Animated Interactive Canvas Background (Scoped to Hero) ══ */}
+        <div className="absolute inset-0 z-0">
+          <HeroBackground />
+        </div>
         
         {/* Dot Matrix Grid (Scoped to Hero) */}
         <div 
@@ -244,7 +244,8 @@ export default function LandingPage() {
           }}
         />
 
-        {/* Background is now global, no fade out needed */}
+        {/* Smooth fade out at the bottom to blend seamlessly, no hard border */}
+        <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-background via-background/80 to-transparent z-0 pointer-events-none" />
 
         {/* ════════════════════ HERO CONTENT ════════════════════ */}
         <main className="relative z-10 flex flex-col items-center justify-center flex-1 px-4 text-center py-32 md:py-48">
@@ -417,13 +418,13 @@ export default function LandingPage() {
       </section>
 
       {/* ════════════════════ HOW IT STARTED (STORY) ════════════════════ */}
-      <section id="story" className="relative z-10 py-32 px-4 border-t border-white/5 overflow-hidden">
+      <section id="story" className="relative z-10 py-32 px-4 border-t border-white/5 overflow-hidden bg-[#0B1020]">
         
         {/* Animated coding background */}
         <AnimatedCodeBackground />
         
         {/* Subtle gradient overlay to fade edges, but leave code visible */}
-        <div className="absolute inset-0 z-0 bg-gradient-to-b from-[#0B1020]/80 via-transparent to-[#0B1020]/80 pointer-events-none" />
+        <div className="absolute inset-0 z-0 bg-gradient-to-b from-[#0B1020] via-transparent to-[#0B1020] pointer-events-none" />
 
         <div className="max-w-4xl mx-auto relative z-10 flex flex-col gap-16">
           
