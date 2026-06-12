@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
+import fetch from 'node-fetch';
 
 const execAsync = promisify(exec);
 
@@ -52,6 +53,52 @@ export async function executeReadFile(filePath: string): Promise<ToolResult> {
 }
 
 /**
+ * Executes Python code.
+ */
+export async function executePython(code: string): Promise<ToolResult> {
+  try {
+    const tempFile = `/tmp/temp_script_${Date.now()}.py`;
+    await fs.writeFile(tempFile, code);
+    const { stdout, stderr } = await execAsync(`python3 ${tempFile}`);
+    await fs.unlink(tempFile);
+    return {
+      tool: 'python',
+      output: stdout || stderr,
+      success: true,
+    };
+  } catch (error: any) {
+    return {
+      tool: 'python',
+      output: error.message || String(error),
+      success: false,
+    };
+  }
+}
+
+/**
+ * Searches the web for information.
+ */
+export async function executeWebSearch(query: string): Promise<ToolResult> {
+  try {
+    const response = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&pretty=1`);
+    const data = await response.json();
+    const abstract = data.Abstract || 'No results found';
+    const related = data.RelatedTopics?.slice(0, 5).map((topic: any) => topic.Text).join('\n') || '';
+    return {
+      tool: 'web_search',
+      output: `Abstract: ${abstract}\n\nRelated Topics:\n${related}`,
+      success: true,
+    };
+  } catch (error: any) {
+    return {
+      tool: 'web_search',
+      output: error.message || String(error),
+      success: false,
+    };
+  }
+}
+
+/**
  * Parses markdown output from an LLM stream looking for Odysseus-style fenced tool blocks:
  * ```bash
  * ls -la
@@ -59,7 +106,7 @@ export async function executeReadFile(filePath: string): Promise<ToolResult> {
  */
 export function parseToolBlocks(llmOutput: string): { tool: string; args: string }[] {
   const tools = [];
-  const regex = /```(bash|read_file|python)\n([\s\S]*?)```/g;
+  const regex = /```(bash|read_file|python|web_search)\n([\s\S]*?)```/g;
   let match;
   while ((match = regex.exec(llmOutput)) !== null) {
     tools.push({
@@ -72,18 +119,112 @@ export function parseToolBlocks(llmOutput: string): { tool: string; args: string
 
 /**
  * The core offline agent loop runner.
+ * This implements a complete agent loop that can solve complex problems.
  */
 export async function runAgentLoop(instructions: string, modelUrl: string = 'http://localhost:11434/api/generate') {
   console.log(`[Agent] Booting offline loop with model: ${modelUrl}`);
   console.log(`[Agent] Instructions: ${instructions}`);
   
-  // In a full implementation, this would:
-  // 1. Send instructions to local Ollama
-  // 2. Stream response
-  // 3. Intercept ```bash or ```read_file blocks
-  // 4. Execute them via executeBash / executeReadFile
-  // 5. Feed output back into local Ollama
-  // 6. Loop until finished
+  let currentInstructions = instructions;
+  let iteration = 0;
+  const maxIterations = 10;
   
-  return { status: 'initialized_offline_loop' };
+  while (iteration < maxIterations) {
+    iteration++;
+    console.log(`[Agent] Iteration ${iteration}/${maxIterations}`);
+    
+    try {
+      // Send current instructions to local Ollama
+      const response = await fetch(modelUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'llama3.2',
+          prompt: currentInstructions,
+          stream: false,
+          options: {
+            temperature: 0.7,
+            num_predict: 2000,
+          }
+        })
+      });
+      
+      const data = await response.json();
+      const llmOutput = data.response || '';
+      console.log(`[Agent] LLM Response: ${llmOutput.substring(0, 200)}...`);
+      
+      // Parse for tool blocks
+      const toolBlocks = parseToolBlocks(llmOutput);
+      
+      if (toolBlocks.length === 0) {
+        console.log(`[Agent] No tool blocks found, finishing task`);
+        return {
+          status: 'completed',
+          iterations: iteration,
+          finalOutput: llmOutput,
+          toolsExecuted: []
+        };
+      }
+      
+      // Execute tools
+      const toolResults: ToolResult[] = [];
+      for (const block of toolBlocks) {
+        console.log(`[Agent] Executing tool: ${block.tool} with args: ${block.args.substring(0, 100)}...`);
+        
+        let result: ToolResult;
+        switch (block.tool) {
+          case 'bash':
+            result = await executeBash(block.args);
+            break;
+          case 'read_file':
+            result = await executeReadFile(block.args);
+            break;
+          case 'python':
+            result = await executePython(block.args);
+            break;
+          case 'web_search':
+            result = await executeWebSearch(block.args);
+            break;
+          default:
+            result = {
+              tool: block.tool,
+              output: `Unknown tool: ${block.tool}`,
+              success: false
+            };
+        }
+        
+        toolResults.push(result);
+        console.log(`[Agent] Tool ${block.tool} result: ${result.success ? 'Success' : 'Failed'}`);
+      }
+      
+      // Create feedback for next iteration
+      const toolOutput = toolResults.map(r => 
+        `Tool: ${r.tool}\nSuccess: ${r.success}\nOutput: ${r.output.substring(0, 500)}...`
+      ).join('\n\n---\n\n');
+      
+      currentInstructions = `
+Previous Instructions: ${currentInstructions}
+
+Tool Execution Results:
+${toolOutput}
+
+Please continue with the original task, incorporating the results above. If the task is complete, respond with final output without tool blocks.
+`;
+      
+    } catch (error) {
+      console.error(`[Agent] Error in iteration ${iteration}:`, error);
+      return {
+        status: 'error',
+        error: String(error),
+        iteration: iteration,
+        toolsExecuted: []
+      };
+    }
+  }
+  
+  return {
+    status: 'max_iterations_reached',
+    iterations: iteration,
+    toolsExecuted: []
+  };
 }

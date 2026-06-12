@@ -23,7 +23,7 @@ Most AI tools send your data to the cloud, lock you into a subscription, and giv
 ## Features
 
 | Feature | Description |
-|---|---|
+|---------|-------------|
 | **Chat and Agents** | Multi-turn chat with autonomous agents that plan, call tools, and work through complex tasks. |
 | **Tools and MCP** | Built-in tools (bash, files, web, memory) plus support for any MCP server you connect. |
 | **Cookbook** | Hardware-aware model recommendations and one-click serving across 270+ catalogued models. |
@@ -110,7 +110,7 @@ If you want to use cloud providers alongside local models:
 ### Project commands
 
 | Command | Description |
-|---|---|
+|---------|-------------|
 | `npm run dev` | Start all workspaces in development mode |
 | `npm run build` | Build all workspaces for production |
 | `npm run lint` | Run linting across all workspaces |
@@ -154,3 +154,68 @@ MIT. See [LICENSE](./LICENSE) for details.
 ---
 
 **Torvaix** — Yours for the voyage.
+
+---
+
+## Self-Hosting AI Backend
+
+Torvaix includes a complete self-hosting AI backend that provides:
+
+### User Management
+- Secure user registration and authentication
+- Persistent user sessions
+- Role-based access control
+
+### Conversation Management
+- Multi-conversation support per user
+- Real-time message updates via WebSocket
+- Full conversation history with timestamps
+
+### Agent Loop Integration
+- Complete agent loop implementation with tool execution
+- Support for multiple AI providers (local and cloud)
+- Advanced problem-solving capabilities
+- Memory and skill persistence
+
+### API Endpoints
+- `/api/auth/register` - User registration
+- `/api/auth/login` - User login
+- `/api/conversations` - Create new conversations
+- `/api/conversations/:id` - Get/update conversations
+- `/api/agent/run` - Run agent loops
+- `/api/health` - Health check
+
+### Self-Hosting Features
+- **Local-first**: All AI inference runs on your hardware
+- **Privacy-first**: No data leaves your machine unless you choose external integrations
+- **No telemetry**: No analytics, tracking, or usage reporting
+- **Offline capable**: Works with local Ollama instances
+- **Open source**: Full transparency and auditability
+
+### Problem-Solving Capabilities
+The agent loop can solve complex problems by:
+- Analyzing problems and breaking them down into steps
+- Using multiple tools (bash, file operations, python, web search)
+- Iterating and refining solutions
+- Maintaining context across conversations
+- Learning from previous interactions
+
+### Comparison with Odysseus
+Torvaix improves upon Odysseus by:
+- **More comprehensive tool support**: bash, file operations, python, web search
+- **Better routing**: Intelligent model selection based on task type
+- **Enhanced problem-solving**: Multi-step reasoning and iteration
+- **Real-time collaboration**: WebSocket support for live updates
+- **User management**: Persistent user accounts and conversations
+- **Self-hosting**: Complete backend server for deployment
+
+### Getting Started with Self-Hosting
+
+1. **Install dependencies**: `npm install`
+2. **Start the server**: `node packages/agent/src/server.js`
+3. **Configure Ollama**: Install and run Ollama locally
+4. **Access the frontend**: Open your browser at `http://localhost:3000`
+5. **Register users**: Create user accounts for your team
+6. **Start chatting**: Begin using the AI assistant immediately
+
+The self-hosting backend ensures complete control over your AI system, with all data and processing happening locally on your infrastructure.

@@ -16,5 +16,8 @@
     "dev": "npm run dev --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
   }
 }
