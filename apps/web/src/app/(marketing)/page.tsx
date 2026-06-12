@@ -231,7 +231,7 @@ export default function LandingPage() {
       <div className="relative min-h-[90vh] flex flex-col overflow-hidden border-b border-border bg-background">
         
         {/* ══ Animated Interactive Canvas Background (Scoped to Hero) ══ */}
-        <div className="absolute inset-0 z-0 opacity-20 blur-[2px]">
+        <div className="absolute inset-0 z-0">
           <HeroBackground />
         </div>
         
@@ -256,12 +256,12 @@ export default function LandingPage() {
             className="flex flex-col items-center gap-6 md:gap-10"
           >
             {/* 1. Eyebrow */}
-            <div className="text-[13px] uppercase tracking-[0.25em] font-medium text-white/55">
+            <div className="text-[13px] uppercase tracking-[0.25em] font-medium text-white/70 drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">
               KNOWLEDGE OPERATING SYSTEM
             </div>
 
             {/* 2. Main Headline */}
-            <h1 className="font-sans font-extrabold text-[clamp(48px,7vw,96px)] leading-[0.95] text-slate-50 max-w-[900px] mx-auto tracking-tight">
+            <h1 className="font-sans font-black text-[clamp(48px,8vw,104px)] leading-[0.95] text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-[#00D4AA] to-purple-500 max-w-[950px] mx-auto tracking-tighter drop-shadow-[0_0_40px_rgba(0,212,170,0.3)]">
               Knowledge that grows with you.
             </h1>
 

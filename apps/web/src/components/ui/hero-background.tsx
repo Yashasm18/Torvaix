@@ -2,24 +2,6 @@
 
 import { useEffect, useRef } from "react"
 
-interface Particle {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  radius: number
-  opacity: number
-  color: string
-}
-
-const COLORS = [
-  "224, 108, 117", // red (#e06c75)
-  "91, 141, 239",  // blue
-  "86, 182, 194",  // teal
-  "198, 120, 221", // purple
-  "229, 192, 123", // amber
-]
-
 export function HeroBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -31,9 +13,7 @@ export function HeroBackground() {
     if (!ctx) return
 
     let animationId: number
-    let particles: Particle[] = []
-    let mouseX = -1000
-    let mouseY = -1000
+    let time = 0
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1
@@ -44,130 +24,94 @@ export function HeroBackground() {
       ctx.scale(dpr, dpr)
     }
 
-    const createParticles = () => {
-      const count = Math.min(Math.floor((window.innerWidth * window.innerHeight) / 12000), 120)
-      particles = []
-      for (let i = 0; i < count; i++) {
-        particles.push({
-          x: Math.random() * window.innerWidth,
-          y: Math.random() * window.innerHeight,
-          vx: (Math.random() - 0.5) * 0.4,
-          vy: (Math.random() - 0.5) * 0.4,
-          radius: Math.random() * 2 + 0.5,
-          opacity: Math.random() * 0.5 + 0.1,
-          color: COLORS[Math.floor(Math.random() * COLORS.length)],
-        })
-      }
-    }
-
-    const handleMouseMove = (e: MouseEvent) => {
-      mouseX = e.clientX
-      mouseY = e.clientY
-    }
-
-    const handleMouseLeave = () => {
-      mouseX = -1000
-      mouseY = -1000
-    }
-
-    const drawConnection = (p1: Particle, p2: Particle, dist: number, maxDist: number) => {
-      const opacity = (1 - dist / maxDist) * 0.15
-      ctx.beginPath()
-      ctx.strokeStyle = `rgba(${p1.color}, ${opacity})`
-      ctx.lineWidth = 0.5
-      ctx.moveTo(p1.x, p1.y)
-      ctx.lineTo(p2.x, p2.y)
-      ctx.stroke()
-    }
-
     const animate = () => {
+      time += 0.005
       const w = window.innerWidth
       const h = window.innerHeight
-      ctx.clearRect(0, 0, w, h)
 
-      const connectionDist = 150
+      // Clear with dark transparent background for trail effect
+      ctx.fillStyle = "rgba(11, 16, 32, 0.2)"
+      ctx.fillRect(0, 0, w, h)
 
-      for (let i = 0; i < particles.length; i++) {
-        const p = particles[i]
-
-        // Mouse repulsion
-        const dx = p.x - mouseX
-        const dy = p.y - mouseY
-        const mouseDist = Math.sqrt(dx * dx + dy * dy)
-        if (mouseDist < 200) {
-          const force = (200 - mouseDist) / 200
-          p.vx += (dx / mouseDist) * force * 0.02
-          p.vy += (dy / mouseDist) * force * 0.02
-        }
-
-        // Velocity damping
-        p.vx *= 0.999
-        p.vy *= 0.999
-
-        // Update position
-        p.x += p.vx
-        p.y += p.vy
-
-        // Wrap edges
-        if (p.x < -10) p.x = w + 10
-        if (p.x > w + 10) p.x = -10
-        if (p.y < -10) p.y = h + 10
-        if (p.y > h + 10) p.y = -10
-
-        // Draw particle with glow
+      const drawCurve = (
+        color: string,
+        offsetY: number,
+        frequency: number,
+        amplitude: number,
+        speed: number,
+        lineWidth: number
+      ) => {
         ctx.beginPath()
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
-        ctx.fillStyle = `rgba(${p.color}, ${p.opacity})`
-        ctx.fill()
-
-        // Larger glow halo
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.radius * 3, 0, Math.PI * 2)
-        ctx.fillStyle = `rgba(${p.color}, ${p.opacity * 0.1})`
-        ctx.fill()
-
-        // Draw connections to nearby particles
-        for (let j = i + 1; j < particles.length; j++) {
-          const p2 = particles[j]
-          const ddx = p.x - p2.x
-          const ddy = p.y - p2.y
-          const dist = Math.sqrt(ddx * ddx + ddy * ddy)
-          if (dist < connectionDist) {
-            drawConnection(p, p2, dist, connectionDist)
+        ctx.strokeStyle = color
+        ctx.lineWidth = lineWidth
+        ctx.lineCap = "round"
+        
+        for (let x = -100; x <= w + 100; x += 20) {
+          const t = time * speed
+          const y = offsetY + Math.sin(x * frequency + t) * amplitude + Math.cos(x * frequency * 0.5 - t) * (amplitude * 0.5)
+          
+          if (x === -100) {
+            ctx.moveTo(x, y)
+          } else {
+            ctx.lineTo(x, y)
           }
         }
+        ctx.stroke()
+      }
 
-        // Draw connection to mouse
-        if (mouseDist < 250) {
-          const opacity = (1 - mouseDist / 250) * 0.3
-          ctx.beginPath()
-          ctx.strokeStyle = `rgba(${p.color}, ${opacity})`
-          ctx.lineWidth = 0.8
-          ctx.moveTo(p.x, p.y)
-          ctx.lineTo(mouseX, mouseY)
-          ctx.stroke()
-        }
+      // Draw multiple sweeping glowing lines
+      const gradient1 = ctx.createLinearGradient(0, 0, w, 0)
+      gradient1.addColorStop(0, "rgba(0, 212, 170, 0)")
+      gradient1.addColorStop(0.5, "rgba(0, 212, 170, 0.4)")
+      gradient1.addColorStop(1, "rgba(0, 212, 170, 0)")
+
+      const gradient2 = ctx.createLinearGradient(0, 0, w, 0)
+      gradient2.addColorStop(0, "rgba(168, 85, 247, 0)")
+      gradient2.addColorStop(0.5, "rgba(168, 85, 247, 0.4)")
+      gradient2.addColorStop(1, "rgba(168, 85, 247, 0)")
+
+      const gradient3 = ctx.createLinearGradient(0, 0, w, 0)
+      gradient3.addColorStop(0, "rgba(59, 130, 246, 0)")
+      gradient3.addColorStop(0.5, "rgba(59, 130, 246, 0.3)")
+      gradient3.addColorStop(1, "rgba(59, 130, 246, 0)")
+
+      // Glowing blur
+      ctx.shadowBlur = 30
+      ctx.shadowColor = "rgba(0, 212, 170, 0.5)"
+      drawCurve(gradient1, h * 0.4, 0.001, h * 0.2, 1.2, 2)
+      
+      ctx.shadowBlur = 40
+      ctx.shadowColor = "rgba(168, 85, 247, 0.5)"
+      drawCurve(gradient2, h * 0.55, 0.0015, h * 0.25, 0.8, 3)
+
+      ctx.shadowBlur = 20
+      ctx.shadowColor = "rgba(59, 130, 246, 0.5)"
+      drawCurve(gradient3, h * 0.7, 0.0008, h * 0.15, 1.5, 1.5)
+
+      // Reset shadow
+      ctx.shadowBlur = 0
+
+      // Draw some floating "data" particles in the background
+      ctx.fillStyle = "rgba(255, 255, 255, 0.15)"
+      for (let i = 0; i < 50; i++) {
+        const px = (Math.sin(i * 13 + time * 0.5) * 0.5 + 0.5) * w
+        const py = ((i * 87 + time * 50) % (h + 100)) - 50
+        ctx.beginPath()
+        ctx.arc(px, py, (i % 3) + 0.5, 0, Math.PI * 2)
+        ctx.fill()
       }
 
       animationId = requestAnimationFrame(animate)
     }
 
     resize()
-    createParticles()
     animate()
 
-    window.addEventListener("resize", () => {
-      resize()
-      createParticles()
-    })
-    window.addEventListener("mousemove", handleMouseMove)
-    window.addEventListener("mouseleave", handleMouseLeave)
+    window.addEventListener("resize", resize)
 
     return () => {
       cancelAnimationFrame(animationId)
       window.removeEventListener("resize", resize)
-      window.removeEventListener("mousemove", handleMouseMove)
-      window.removeEventListener("mouseleave", handleMouseLeave)
     }
   }, [])
 
