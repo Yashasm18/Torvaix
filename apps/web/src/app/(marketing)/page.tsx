@@ -549,7 +549,10 @@ export default function LandingPage() {
       </section>
 
       {/* ════════════════════ CTA / INSTALL SECTION ════════════════════ */}
-      <section id="install" className="relative z-10 py-32 px-4 border-t border-white/5">
+      <section id="install" className="relative z-10 py-32 px-4 border-t border-white/5 bg-[#20242D]" style={{
+        backgroundImage: 'radial-gradient(circle at center, rgba(255,255,255,0.06) 1px, transparent 1px)',
+        backgroundSize: '32px 32px'
+      }}>
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
