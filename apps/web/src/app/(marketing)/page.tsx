@@ -203,6 +203,7 @@ bootstrapTorvaix();`;
 
 export default function LandingPage() {
   const [terminalState, setTerminalState] = useState<'open' | 'minimized' | 'closed'>('open');
+  const [isCopied, setIsCopied] = useState(false);
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
@@ -589,18 +590,21 @@ export default function LandingPage() {
 
           <div className="relative bg-[#0d1117] border border-white/10 rounded-xl p-5 md:p-6 mb-10 text-left font-mono text-sm overflow-x-auto mx-auto max-w-3xl flex items-start justify-between group shadow-inner">
             <div className="text-slate-300 pr-24 whitespace-pre font-jetbrains leading-[1.8]">
-              <span className="text-[#fca5a5]">$</span> git clone https://github.com/Yashasm18/Torvaix.git{'\n'}
-              <span className="text-[#fca5a5]">$</span> cd Torvaix{'\n\n'}
-              <span className="text-[#fca5a5]">$</span> npm install{'\n\n'}
-              <span className="text-[#fca5a5]">$</span> ollama serve{'\n\n'}
-              <span className="text-[#fca5a5]">$</span> docker run -d -p 6333:6333 qdrant/qdrant{'\n\n'}
-              <span className="text-[#fca5a5]">$</span> npm run dev
+              <span className="text-[#fca5a5]">$</span> git clone https://github.com/Yashasm18/Torvaix.git && cd Torvaix
             </div>
             <button 
-              onClick={() => navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git\ncd Torvaix\nnpm install\nollama serve\ndocker run -d -p 6333:6333 qdrant/qdrant\nnpm run dev")}
-              className="absolute top-4 right-4 md:top-6 md:right-6 bg-white/5 hover:bg-white/10 text-slate-400 border border-white/20 rounded-md px-4 py-2 text-xs transition-colors hover:text-white"
+              onClick={() => {
+                navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git && cd Torvaix");
+                setIsCopied(true);
+                setTimeout(() => setIsCopied(false), 2000);
+              }}
+              className={`absolute top-4 right-4 md:top-6 md:right-6 border rounded-md px-4 py-2 text-xs transition-all duration-300 ${
+                isCopied 
+                  ? 'bg-[#00D4AA]/10 border-[#00D4AA]/50 text-[#00D4AA] shadow-[0_0_15px_rgba(0,212,170,0.4)]' 
+                  : 'bg-white/5 hover:bg-white/10 text-slate-400 border-white/20 hover:text-white'
+              }`}
             >
-              Copy
+              {isCopied ? 'Copied!' : 'Copy'}
             </button>
           </div>
 
