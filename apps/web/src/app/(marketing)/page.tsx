@@ -539,7 +539,7 @@ export default function LandingPage() {
                     className="p-6 font-mono text-sm leading-relaxed text-[#00D4AA]"
                   >
                     <span className="text-[#98c379] font-bold mr-2">{'>'}</span>
-                    <TypingEffect text="I was free , learning nothing from college sat down in silence thought of ai , i prompted my idea the result was right in front of me" />
+                    <TypingEffect text="Create an AI workspace because I'm tired of opening 17 tabs, forgetting everything I learned yesterday, and pretending my notes system is organized." />
                   </motion.div>
                 )}
               </motion.div>
