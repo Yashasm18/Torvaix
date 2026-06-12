@@ -231,11 +231,13 @@ export default function LandingPage() {
       <div className="relative min-h-[90vh] flex flex-col overflow-hidden border-b border-border bg-background">
         
         {/* ══ Animated Interactive Canvas Background (Scoped to Hero) ══ */}
-        <HeroBackground />
+        <div className="absolute inset-0 z-0 opacity-20 blur-[2px]">
+          <HeroBackground />
+        </div>
         
         {/* Dot Matrix Grid (Scoped to Hero) */}
         <div 
-          className="absolute inset-0 pointer-events-none opacity-[0.04] z-0 dot-grid-animated"
+          className="absolute inset-0 pointer-events-none opacity-[0.03] z-0 dot-grid-animated"
           style={{
             backgroundImage: 'radial-gradient(circle at 1px 1px, #ffffff 0.5px, transparent 0)',
             backgroundSize: '32px 32px'
@@ -246,58 +248,52 @@ export default function LandingPage() {
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent z-0 pointer-events-none" />
 
         {/* ════════════════════ HERO CONTENT ════════════════════ */}
-        <main className="relative z-10 flex flex-col items-center justify-center flex-1 px-4 text-center pb-20 pt-16">
+        <main className="relative z-10 flex flex-col items-center justify-center flex-1 px-4 text-center py-32 md:py-48">
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7 }}
-            className="flex flex-col items-center"
+            className="flex flex-col items-center gap-6 md:gap-10"
           >
-            <div className="mb-6 drop-shadow-[0_0_40px_rgba(0,212,170,0.2)]">
-              <AppLogo size={56} animated={true} />
+            {/* 1. Eyebrow */}
+            <div className="text-[13px] uppercase tracking-[0.25em] font-medium text-white/55">
+              KNOWLEDGE OPERATING SYSTEM
             </div>
-            <h1 className="text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-12">Torvaix</h1>
-          </motion.div>
 
-          <motion.h2 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.1 }}
-            className="text-5xl md:text-7xl font-extrabold tracking-tight text-foreground max-w-4xl leading-[1.08] mb-10"
-          >
-            One Workspace.<br/>
-            <span className="text-primary">Every Model.</span>
-          </motion.h2>
+            {/* 2. Main Headline */}
+            <h1 className="font-sans font-extrabold text-[clamp(48px,7vw,96px)] leading-[0.95] text-slate-50 max-w-[900px] mx-auto tracking-tight">
+              Knowledge that grows with you.
+            </h1>
 
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.2 }}
-            className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-14 leading-relaxed flex flex-col gap-2"
-          >
-            <p>Conversations become knowledge.</p>
-            <p>Knowledge becomes memory.</p>
-            <p>Memory enables intelligent action.</p>
-          </motion.div>
+            {/* 3. Supporting Description */}
+            <p className="font-sans text-[22px] md:text-[28px] font-normal leading-[1.7] text-white/65 max-w-[850px] mx-auto">
+              Every conversation becomes part of a connected knowledge system that remembers context, surfaces insights, and helps you think clearly.
+            </p>
 
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            className="flex flex-col sm:flex-row items-center gap-4"
-          >
-            <Link href="#install">
-              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_35px_rgba(0,212,170,0.3)] hover:scale-[1.03] active:scale-[0.98] gap-2">
-                Get started
-                <ArrowRight className="w-5 h-5" />
-              </Button>
-            </Link>
-            <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" className="bg-[#1F2937] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
-                <GithubIcon className="w-5 h-5" />
-                View on GitHub
-              </Button>
-            </a>
+            {/* 4. Philosophy Line */}
+            <div className="mt-4 md:mt-8 font-mono text-[16px] md:text-[18px] font-medium tracking-[0.04em] text-white/45">
+              Memory-first. Local-first. Open source.
+            </div>
+            
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.3 }}
+              className="flex flex-col sm:flex-row items-center gap-4 mt-8"
+            >
+              <Link href="#install">
+                <Button className="bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_35px_rgba(0,212,170,0.3)] hover:scale-[1.03] active:scale-[0.98] gap-2">
+                  Get started
+                  <ArrowRight className="w-5 h-5" />
+                </Button>
+              </Link>
+              <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" className="bg-[#1F2937] border-white/10 hover:bg-[#2d333b] text-white rounded-xl px-8 py-6 text-lg font-semibold transition-all hover:border-white/20 gap-2 w-full sm:w-auto">
+                  <GithubIcon className="w-5 h-5" />
+                  View on GitHub
+                </Button>
+              </a>
+            </motion.div>
           </motion.div>
       </main>
       </div>
