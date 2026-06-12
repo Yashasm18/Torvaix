@@ -39,7 +39,16 @@ def extract_intelligence(text: str) -> Dict[str, Any]:
     doc = nlp(text)
     
     # 1. Entity Extraction
-    entities = list(set([ent.text for ent in doc.ents]))
+    # Deduplicate entities by text while preserving type
+    entities = []
+    seen_texts = set()
+    for ent in doc.ents:
+        if ent.text not in seen_texts:
+            seen_texts.add(ent.text)
+            entities.append({
+                "text": ent.text,
+                "type": ent.label_
+            })
     
     # 2. Tag Generation (Key Noun Phrases)
     tags = list(set([chunk.root.lemma_.lower() for chunk in doc.noun_chunks 
