@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { MessageSquare, Terminal, Mail, Search, GitCompare, Database, Sparkles, Shield, BookOpen, Quote, ExternalLink, ArrowRight } from "lucide-react"
 import { HeroBackground } from "@/components/ui/hero-background"
+import { AppLogo } from "@/components/ui/app-logo"
 
 /* ── Inline GitHub SVG icon (not available in lucide-react) ── */
 function GithubIcon({ className }: { className?: string }) {
@@ -207,16 +208,14 @@ export default function LandingPage() {
       {/* ════════════════════ NAVIGATION ════════════════════ */}
       <nav className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 bg-background/90 backdrop-blur-md border-b border-border shadow-sm">
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-7 h-7 bg-primary rounded-md transform rotate-45 flex items-center justify-center transition-transform group-hover:rotate-[405deg] duration-500">
-            <div className="w-3.5 h-3.5 bg-background transform -rotate-45 rounded-sm" />
-          </div>
+          <AppLogo size={28} animated={false} />
           <span className="text-xl font-bold tracking-tight text-foreground">TORVAIX</span>
         </Link>
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
           <Link href="#features" className="hover:text-foreground transition-colors duration-200">Features</Link>
           <Link href="#testimonials" className="hover:text-foreground transition-colors duration-200">Testimonials</Link>
           <Link href="#story" className="hover:text-foreground transition-colors duration-200">How it started</Link>
-          <Link href="/app" className="hover:text-foreground transition-colors duration-200">Get started</Link>
+          <Link href="/chat" className="hover:text-foreground transition-colors duration-200">Get started</Link>
         </div>
         <div className="hidden md:block">
           <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer">
@@ -254,8 +253,8 @@ export default function LandingPage() {
             transition={{ duration: 0.7 }}
             className="flex flex-col items-center"
           >
-            <div className="w-14 h-14 bg-primary rounded-xl transform rotate-45 flex items-center justify-center mb-6 shadow-[0_0_40px_rgba(0,212,170,0.2)]">
-              <div className="w-7 h-7 bg-background transform -rotate-45 rounded-md" />
+            <div className="mb-6 drop-shadow-[0_0_40px_rgba(0,212,170,0.2)]">
+              <AppLogo size={56} animated={true} />
             </div>
             <h1 className="text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-12">TORVAIX</h1>
           </motion.div>
@@ -287,7 +286,7 @@ export default function LandingPage() {
             transition={{ duration: 0.6, delay: 0.3 }}
             className="flex flex-col sm:flex-row items-center gap-4"
           >
-            <Link href="/app">
+            <Link href="/chat">
               <Button className="bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(0,212,170,0.2)] transition-all hover:shadow-[0_0_35px_rgba(0,212,170,0.3)] hover:scale-[1.03] active:scale-[0.98] gap-2">
                 Get started
                 <ArrowRight className="w-5 h-5" />
@@ -528,7 +527,7 @@ export default function LandingPage() {
             transition={{ delay: 0.2 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Link href="/app/chat">
+            <Link href="/chat">
               <Button className="bg-[#00D4AA] hover:bg-[#00A383] text-white border-0 rounded-xl px-8 py-6 text-lg font-semibold shadow-[0_0_25px_rgba(224,108,117,0.35)] transition-all hover:shadow-[0_0_35px_rgba(224,108,117,0.5)] hover:scale-[1.03] gap-2">
                 Get started <ArrowRight className="w-5 h-5" />
               </Button>
@@ -558,7 +557,7 @@ export default function LandingPage() {
             <p className="text-slate-500">$ <span className="text-slate-300">cd torvaix && npm install</span></p>
             <p className="text-slate-500">$ <span className="text-slate-300">npm run dev</span></p>
             <p className="text-green-400/80 mt-2">✓ Torvaix running at http://localhost:3000</p>
-            <p className="text-slate-500 mt-2">$ <span className="text-slate-300">Visit http://localhost:3000/app/chat to start</span></p>
+            <p className="text-slate-500 mt-2">$ <span className="text-slate-300">Visit http://localhost:3000/chat to start</span></p>
           </motion.div>
         </div>
       </section>
@@ -567,9 +566,7 @@ export default function LandingPage() {
       <footer className="relative z-10 border-t border-white/5 py-12 px-8">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <div className="w-5 h-5 bg-[#00D4AA] rounded-sm transform rotate-45 flex items-center justify-center">
-              <div className="w-2.5 h-2.5 bg-[#0B1020] transform -rotate-45 rounded-sm" />
-            </div>
+            <AppLogo size={20} animated={false} />
             <span className="text-sm font-semibold text-slate-400">&copy; {new Date().getFullYear()} Torvaix</span>
             <span className="text-xs text-slate-600 font-mono">v0.1.0</span>
           </div>
