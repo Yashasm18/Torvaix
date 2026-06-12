@@ -214,7 +214,7 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 bg-background/90 backdrop-blur-md border-b border-border shadow-sm">
         <button onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})} className="flex items-center gap-3 group focus:outline-none">
           <AppLogo size={28} animated={false} />
-          <span className="text-xl font-bold tracking-tight text-foreground">Torvaix</span>
+          <span className="text-2xl font-display font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-[#00D4AA] drop-shadow-sm">Torvaix</span>
         </button>
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
           <Link href="#features" className="hover:text-foreground transition-colors duration-200">Features</Link>
@@ -257,8 +257,8 @@ export default function LandingPage() {
             {/* 1. App Logo & Subtitle (Odysseus Style) */}
             <div className="flex flex-col items-center gap-2 mb-4">
               <div className="flex items-center gap-3">
-                <AppLogo size={40} animated={true} />
-                <span className="text-4xl md:text-5xl font-bold tracking-tight text-slate-100 drop-shadow-md">Torvaix</span>
+                <AppLogo size={42} animated={true} />
+                <span className="text-5xl md:text-6xl font-display font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-[#00D4AA] to-blue-500 drop-shadow-[0_0_15px_rgba(0,212,170,0.4)]">Torvaix</span>
               </div>
               <div className="text-[14px] md:text-[15px] font-mono text-red-400/90 italic tracking-wide mt-1">
                 Knowledge Operating System.
