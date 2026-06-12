@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useChat } from "ai/react";
+import { useChat } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Bot, User, Loader2, Sparkles, Shield, Cpu, Terminal, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2 } from "lucide-react";

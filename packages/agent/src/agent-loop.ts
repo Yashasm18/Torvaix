@@ -81,7 +81,7 @@ export async function executePython(code: string): Promise<ToolResult> {
 export async function executeWebSearch(query: string): Promise<ToolResult> {
   try {
     const response = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&pretty=1`);
-    const data = await response.json();
+    const data = await response.json() as any;
     const abstract = data.Abstract || 'No results found';
     const related = data.RelatedTopics?.slice(0, 5).map((topic: any) => topic.Text).join('\n') || '';
     return {
@@ -149,7 +149,7 @@ export async function runAgentLoop(instructions: string, modelUrl: string = 'htt
         })
       });
       
-      const data = await response.json();
+      const data = await response.json() as any;
       const llmOutput = data.response || '';
       console.log(`[Agent] LLM Response: ${llmOutput.substring(0, 200)}...`);
       

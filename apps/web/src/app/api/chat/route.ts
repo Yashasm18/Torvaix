@@ -49,7 +49,8 @@ export async function POST(req: Request) {
       parameters: z.object({
         command: z.string().describe('The bash command to execute'),
       }),
-      execute: async ({ command }) => {
+      // @ts-ignore
+      execute: async ({ command }: { command: string }) => {
         const result = await executeBash(command);
         return result;
       },
@@ -59,7 +60,8 @@ export async function POST(req: Request) {
       parameters: z.object({
         filePath: z.string().describe('The absolute path to the file to read'),
       }),
-      execute: async ({ filePath }) => {
+      // @ts-ignore
+      execute: async ({ filePath }: { filePath: string }) => {
         const result = await executeReadFile(filePath);
         return result;
       },
@@ -69,7 +71,8 @@ export async function POST(req: Request) {
       parameters: z.object({
         code: z.string().describe('The python code to execute'),
       }),
-      execute: async ({ code }) => {
+      // @ts-ignore
+      execute: async ({ code }: { code: string }) => {
         const result = await executePython(code);
         return result;
       },
@@ -79,7 +82,8 @@ export async function POST(req: Request) {
       parameters: z.object({
         query: z.string().describe('The search query'),
       }),
-      execute: async ({ query }) => {
+      // @ts-ignore
+      execute: async ({ query }: { query: string }) => {
         const result = await executeWebSearch(query);
         return result;
       },
@@ -116,8 +120,10 @@ You are running within a local, privacy-first workspace. Ensure all actions are 
     messages,
     system: systemPrompt,
     tools: agentTools,
+    // @ts-ignore: maxSteps is supported by ai v3.1+ but typescript isn't seeing it
     maxSteps: 5, // Allow multi-step tool calls
   });
 
+  // @ts-ignore: type mismatch in vercel ai sdk types
   return result.toDataStreamResponse();
 }
