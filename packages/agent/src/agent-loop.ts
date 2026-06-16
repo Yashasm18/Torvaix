@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import fetch from 'node-fetch';
 import { MemoryStore } from '../../memory/src';
+import { queryGraph, getNeighbors, findPath, findEntitiesByType } from '../../graph/src';
 import path from 'path';
 
 const execAsync = promisify(exec);
@@ -54,6 +55,11 @@ export async function executeQueryMemory(workspaceId: string, query: string, top
   }
 }
 
+export async function executeQueryMemoryRecords(workspaceId: string, query: string, topK: number = 5) {
+  await memoryStore.initQdrant();
+  return memoryStore.queryMemory(workspaceId, query, topK);
+}
+
 export async function executeUpdateMemory(id: string, newContent: string): Promise<ToolResult> {
   try {
     await memoryStore.initQdrant();
@@ -87,6 +93,54 @@ export async function executeDeleteMemory(id: string): Promise<ToolResult> {
       output: error.message || String(error),
       success: false,
     };
+  }
+}
+
+export async function executeQueryGraph(query: string): Promise<ToolResult> {
+  try {
+    const results = queryGraph(query);
+    const output = results.map(r => `[${r.type}] ${r.name} (Importance: ${r.importance})`).join('\n');
+    return {
+      tool: 'query_graph',
+      output: output || 'No relevant entities found in graph.',
+      success: true,
+    };
+  } catch (error: any) {
+    return { tool: 'query_graph', output: String(error), success: false };
+  }
+}
+
+export async function executeGetNeighbors(entity: string): Promise<ToolResult> {
+  try {
+    const results = getNeighbors(entity);
+    const output = results.map(r => `${r.direction === 'OUT' ? '->' : '<-'} [${r.relation}] ${r.node.name} (${r.node.type})`).join('\n');
+    return {
+      tool: 'get_neighbors',
+      output: output || `No neighbors found for ${entity}.`,
+      success: true,
+    };
+  } catch (error: any) {
+    return { tool: 'get_neighbors', output: String(error), success: false };
+  }
+}
+
+export async function executeFindPath(entityA: string, entityB: string): Promise<ToolResult> {
+  try {
+    const results = findPath(entityA, entityB);
+    const output = results ? results.map(r => r.name).join(' -> ') : `No path found between ${entityA} and ${entityB}.`;
+    return { tool: 'find_path', output, success: true };
+  } catch (error: any) {
+    return { tool: 'find_path', output: String(error), success: false };
+  }
+}
+
+export async function executeFindEntitiesByType(type: string): Promise<ToolResult> {
+  try {
+    const results = findEntitiesByType(type);
+    const output = results.map(r => `${r.name} (Importance: ${r.importance})`).join('\n');
+    return { tool: 'find_entities_by_type', output: output || `No entities found for type ${type}.`, success: true };
+  } catch (error: any) {
+    return { tool: 'find_entities_by_type', output: String(error), success: false };
   }
 }
 
@@ -185,7 +239,7 @@ export async function executeWebSearch(query: string): Promise<ToolResult> {
  */
 export function parseToolBlocks(llmOutput: string): { tool: string; args: string }[] {
   const tools = [];
-  const regex = /```(bash|read_file|python|web_search|store_memory|query_memory|update_memory|delete_memory)\n([\s\S]*?)```/g;
+  const regex = /```(bash|read_file|python|web_search|store_memory|query_memory|update_memory|delete_memory|query_graph|get_neighbors|find_path|find_entities_by_type)\n([\s\S]*?)```/g;
   let match;
   while ((match = regex.exec(llmOutput)) !== null) {
     tools.push({
@@ -281,6 +335,19 @@ export async function runAgentLoop(instructions: string, modelUrl: string = 'htt
             break;
           case 'delete_memory':
             result = await executeDeleteMemory(block.args);
+            break;
+          case 'query_graph':
+            result = await executeQueryGraph(block.args);
+            break;
+          case 'get_neighbors':
+            result = await executeGetNeighbors(block.args);
+            break;
+          case 'find_path':
+            const [pathA, pathB] = block.args.split('|');
+            result = await executeFindPath(pathA, pathB);
+            break;
+          case 'find_entities_by_type':
+            result = await executeFindEntitiesByType(block.args);
             break;
           default:
             result = {
