@@ -2,6 +2,7 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { torvaixEvents } from '@torvaix/events';
+import { ingestKnowledgeGraph } from '@torvaix/graph';
 
 export interface MemoryMetadata {
   id: string;
@@ -24,6 +25,7 @@ export class MemoryStore {
   private collectionName = 'torvaix_memories';
   private embedModel = 'nomic-embed-text';
   private ollamaUrl = 'http://localhost:11434';
+  private pythonUrl = 'http://localhost:8000';
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -109,7 +111,25 @@ export class MemoryStore {
     const stmt = this.db.prepare('INSERT INTO memories (id, workspaceId, source, content) VALUES (?, ?, ?, ?)');
     stmt.run(id, workspaceId, source, content);
 
-    // 4. Emit Event
+    // 4. Extract Intelligence & Ingest into Knowledge Graph
+    try {
+      const response = await fetch(`${this.pythonUrl}/analyze/memory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: content })
+      });
+      if (response.ok) {
+        const intelligence = await response.json() as any;
+        ingestKnowledgeGraph(intelligence);
+        console.log(`[MemoryStore] Graph updated with new entities and relationships`);
+      } else {
+        console.warn(`[MemoryStore] Intelligence layer failed: ${response.statusText}`);
+      }
+    } catch (e) {
+      console.warn(`[MemoryStore] Could not connect to Python Intelligence Layer:`, e);
+    }
+
+    // 5. Emit Event
     torvaixEvents.emitMemoryCreated({ id, workspaceId, source, content });
 
     return id;

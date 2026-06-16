@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@torvaix/events": "*",
+    "@torvaix/graph": "*",
     "@qdrant/js-client-rest": "^1.11.0",
     "better-sqlite3": "^12.10.0",
     "uuid": "^10.0.0"
