@@ -6,7 +6,16 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "@torvaix/memory": "*",
     "express": "^5.2.1",
+    "node-fetch": "^2.7.0",
     "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "@types/node-fetch": "^2.6.11",
+    "@types/ws": "^8.5.10"
   }
 }

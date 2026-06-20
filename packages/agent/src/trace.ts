@@ -29,7 +29,7 @@ export class TraceCollector {
   }
 
   /** Record a timed phase. Call start(), do work, then call end(). */
-  public startPhase(phase: TraceEvent['phase'], action: string): () => void {
+  public startPhase(phase: TraceEvent['phase'], action: string): (metadata?: Record<string, any>) => void {
     const phaseStart = performance.now();
     return (metadata?: Record<string, any>) => {
       this.events.push({
