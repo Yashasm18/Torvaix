@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"No tests specified yet\""
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",

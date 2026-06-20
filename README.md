@@ -15,6 +15,10 @@
 [![MCP](https://img.shields.io/badge/MCP_Standard-8A2BE2?style=for-the-badge)](#)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#)
 
+[![CI Pipeline](https://github.com/Yashasm18/Torvaix/actions/workflows/ci.yml/badge.svg)](https://github.com/Yashasm18/Torvaix/actions/workflows/ci.yml)
+[![CodeQL Security](https://github.com/Yashasm18/Torvaix/actions/workflows/codeql.yml/badge.svg)](https://github.com/Yashasm18/Torvaix/actions/workflows/codeql.yml)
+[![Docker Image](https://github.com/Yashasm18/Torvaix/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Yashasm18/Torvaix/actions/workflows/docker-publish.yml)
+
 <br />
 <p align="center">
   <a href="#-quick-start">Quick Start</a> ·

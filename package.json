@@ -16,7 +16,9 @@
     "dev": "concurrently \"npm run dev:services\" \"wait-on http://localhost:3000 && open-cli http://localhost:3000\"",
     "dev:services": "npm run dev --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present"
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -27,6 +29,7 @@
     "@types/node": "^26.0.0",
     "@types/ws": "^8.18.1",
     "concurrently": "^10.0.3",
+    "kill-port": "^2.0.1",
     "open-cli": "^9.0.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

@@ -33,8 +33,7 @@ jobs:
         run: npm ci
       - name: Prepare Static Export
         run: |
-          rm -rf apps/web/src/app/\(workspace\)
-          rm -rf apps/web/src/app/api
+          node -e "const fs=require('fs'); fs.rmSync('apps/web/src/app/(workspace)', {recursive:true, force:true}); fs.rmSync('apps/web/src/app/api', {recursive:true, force:true});"
       - name: Build with Next.js
         run: npm run build
       - name: Upload artifact

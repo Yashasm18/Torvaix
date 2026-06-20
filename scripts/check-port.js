@@ -1,14 +1,24 @@
 const net = require('net');
+const killPort = require('kill-port');
 
-const checkPort = (port) => {
+const checkAndKillPort = (port) => {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        console.error(`\n❌ ERROR: Port ${port} is already in use.\n❌ Please stop the existing process and retry.\n`);
-        process.exit(1);
+        console.log(`\n⚠️  Port ${port} is occupied. Attempting to free it automatically...`);
+        killPort(port)
+          .then(() => {
+            console.log(`✅ Successfully freed port ${port}.`);
+            resolve();
+          })
+          .catch((killErr) => {
+            console.error(`\n❌ ERROR: Failed to free port ${port}. Please kill it manually.\n`, killErr);
+            reject(killErr);
+          });
+      } else {
+        reject(err);
       }
-      reject(err);
     });
     server.once('listening', () => {
       server.close();
@@ -18,11 +28,7 @@ const checkPort = (port) => {
   });
 };
 
-// Only check the web server's port (3000).
-// Port 3001 (agent server) starts in parallel and handles its own conflicts.
-checkPort(3000)
+// Check the web server's port (3000).
+checkAndKillPort(3000)
   .then(() => process.exit(0))
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  .catch(() => process.exit(1));
