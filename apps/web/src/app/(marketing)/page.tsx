@@ -203,6 +203,7 @@ bootstrapTorvaix();`;
 
 export default function LandingPage() {
   const [terminalState, setTerminalState] = useState<'open' | 'minimized' | 'closed'>('open');
+  const [isCopied, setIsCopied] = useState(false);
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
@@ -549,7 +550,10 @@ export default function LandingPage() {
       </section>
 
       {/* ════════════════════ CTA / INSTALL SECTION ════════════════════ */}
-      <section id="install" className="relative z-10 py-32 px-4 border-t border-white/5">
+      <section id="install" className="relative z-10 py-32 px-4 border-t border-white/5 bg-[#20242D]" style={{
+        backgroundImage: 'radial-gradient(circle at center, rgba(255,255,255,0.06) 1px, transparent 1px)',
+        backgroundSize: '32px 32px'
+      }}>
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -565,27 +569,42 @@ export default function LandingPage() {
           </div>
           
           <h2 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-slate-100 mb-6 tracking-tight">
-            TORVAIX is yours.
+            Torvaix is yours.
           </h2>
           
-          <p className="text-base md:text-lg text-slate-400 mb-12 max-w-2xl mx-auto font-sans leading-relaxed">
-            TORVAIX is open source and local-first. Run your own models, own your memory, and work with autonomous agents inside a connected knowledge workspace.
+          <p className="text-base md:text-lg text-slate-400 mb-8 max-w-2xl mx-auto font-sans leading-relaxed">
+            Torvaix is an open-source AI Knowledge Operating System. Run your own models, own your memory, and work with intelligent agents inside a connected knowledge workspace.
           </p>
 
-          <div className="relative bg-[#0d1117] border border-white/10 rounded-xl p-5 md:p-6 mb-10 text-left font-mono text-sm overflow-x-auto mx-auto max-w-3xl flex items-center justify-between group shadow-inner">
-            <div className="text-slate-300 pr-24 whitespace-pre font-jetbrains leading-[2.2]">
-              <span className="text-[#fca5a5]">$</span> git clone https://github.com/Yashasm18/Torvaix.git{'\n'}
-              <span className="text-[#fca5a5]">$</span> cd torvaix{'\n'}
-              <span className="text-[#fca5a5]">$</span> npm install{'\n'}
-              <span className="text-[#fca5a5]">$</span> ollama serve{'\n'}
-              <span className="text-[#fca5a5]">$</span> docker run -d -p 6333:6333 qdrant/qdrant{'\n'}
-              <span className="text-[#fca5a5]">$</span> npm run dev
+          {/* Prerequisites */}
+          <div className="flex flex-col items-center mb-8">
+            <span className="text-[10px] text-slate-500 font-mono mb-3 uppercase tracking-[0.15em]">Requirements</span>
+            <div className="flex flex-wrap justify-center gap-2">
+              {['Node.js 20+', 'Ollama', 'Docker'].map(req => (
+                <span key={req} className="px-3 py-1.5 bg-[#0d1117] border border-white/5 rounded-md text-xs font-mono text-slate-400">
+                  {req}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="relative bg-[#0d1117] border border-white/10 rounded-xl p-5 md:p-6 mb-10 text-left font-mono text-sm overflow-x-auto mx-auto max-w-3xl flex items-start justify-between group shadow-inner">
+            <div className="text-slate-300 pr-24 whitespace-pre font-jetbrains leading-[1.8]">
+              <span className="text-[#fca5a5]">$</span> git clone https://github.com/Yashasm18/Torvaix.git && cd Torvaix
             </div>
             <button 
-              onClick={() => navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git\ncd torvaix\nnpm install\nollama serve\ndocker run -d -p 6333:6333 qdrant/qdrant\nnpm run dev")}
-              className="absolute top-4 right-4 md:top-6 md:right-6 bg-white/5 hover:bg-white/10 text-slate-400 border border-white/20 rounded-md px-4 py-2 text-xs transition-colors hover:text-white"
+              onClick={() => {
+                navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git && cd Torvaix");
+                setIsCopied(true);
+                setTimeout(() => setIsCopied(false), 2000);
+              }}
+              className={`absolute top-4 right-4 md:top-6 md:right-6 border rounded-md px-4 py-2 text-xs transition-all duration-300 ${
+                isCopied 
+                  ? 'bg-[#00D4AA]/10 border-[#00D4AA]/50 text-[#00D4AA] shadow-[0_0_15px_rgba(0,212,170,0.4)]' 
+                  : 'bg-white/5 hover:bg-white/10 text-slate-400 border-white/20 hover:text-white'
+              }`}
             >
-              Copy
+              {isCopied ? 'Copied!' : 'Copy'}
             </button>
           </div>
 

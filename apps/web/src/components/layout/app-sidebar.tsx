@@ -86,6 +86,7 @@ export function AppSidebar() {
     { title: "Workspace", icon: Home, href: "/app" },
     { title: "Projects", icon: Folder, href: "/app/projects" },
     { title: "Knowledge", icon: BookOpen, href: "/app/knowledge" },
+    { title: "Graph", icon: Database, href: "/app/graph" },
     { title: "Agents", icon: Bot, href: "/app/agents" },
     { title: "Tasks", icon: CheckSquare, href: "/app/tasks" },
     { title: "Intelligence", icon: Cpu, href: "/app/intelligence" },

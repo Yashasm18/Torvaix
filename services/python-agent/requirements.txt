@@ -1,0 +1,7 @@
+fastapi==0.111.0
+uvicorn==0.30.1
+pydantic==2.7.4
+spacy==3.7.5
+transformers==4.41.2
+sentence-transformers==3.0.1
+networkx==3.3
