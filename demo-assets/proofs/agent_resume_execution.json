@@ -1,0 +1,11 @@
+{
+    "status": "pending_confirmation",
+    "output": "Security Confirmation Required for bash. Please approve.",
+    "messages": [
+        {
+            "role": "system",
+            "content": "Tool Result: Hello World\n"
+        }
+    ],
+    "pendingActionId": "d56901bd-d7c7-4918-92ed-8a12618afc5a"
+}

@@ -1,0 +1,1 @@
+0:"\n\n🛡️ **SECURITY LAYER TRIGGERED**\nThe agent wants to execute a potentially dangerous action.\nPending Action ID: `18d8b72d-3e9c-4c12-a21e-7e59760a7b88`\n\n*(Please approve this action via the Torvaix CLI or backend API, UI approval buttons coming soon)*"

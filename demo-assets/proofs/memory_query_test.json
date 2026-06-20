@@ -1,0 +1,23 @@
+{
+    "success": true,
+    "results": [
+        {
+            "id": "7074dd0e-8c10-488f-940a-2ee1a77645e7",
+            "content": "My favorite framework is Next.js",
+            "source": "User Chat",
+            "score": 0.7437331
+        },
+        {
+            "id": "bc4f321b-7da0-41cb-aaeb-7777cb6c129c",
+            "content": "The user prefers dark mode UI themes",
+            "source": "User Preference",
+            "score": 0.45944324
+        },
+        {
+            "id": "da199f7f-afd4-4ff5-9b17-e1fbea5d64b3",
+            "content": "Torvaix is a workspace-first AI Operating System for the Kaggle Capstone",
+            "source": "Project Documentation",
+            "score": 0.45726997
+        }
+    ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@torvaix/mcp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@types/node": "^20.19.42",
+    "node-fetch": "^3.3.2",
+    "typescript": "^5.9.3",
+    "zod": "^3.25.76"
+  }
+}

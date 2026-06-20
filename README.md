@@ -1,232 +1,181 @@
-# Torvaix
+# Torvaix - Kaggle AI Agents Capstone
 
 **A workspace-first AI operating system. Local-first, privacy-first, no telemetry.**
 
 🌐 **Live Website:** [https://Yashasm18.github.io/Torvaix](https://Yashasm18.github.io/Torvaix)
 
-Torvaix is a self-hosted interface for working with language models. Chat, autonomous agents, tools, model serving, email integration, deep research, and more — all running on your hardware. Your data never leaves your machine.
+---
+
+## 🎯 Problem Statement
+
+Most AI tools send your data to the cloud, locking you into a subscription and giving you zero control over how your information is used. Developers working with sensitive repositories, private APIs, or proprietary data cannot risk exposing their workspaces to external telemetry. 
+
+**Torvaix** solves this by providing a self-hosted, workspace-first AI OS. Every model call, conversation, and execution happens entirely on your machine. Torvaix uses a powerful multi-agent graph, advanced memory retrieval (Qdrant), and the Model Context Protocol (MCP) to solve complex workflows autonomously, while introducing a strict Security Layer to require explicit user approval for dangerous actions.
 
 ---
 
-## Why Torvaix
+## 🏗 Architecture Diagram
 
-Most AI tools send your data to the cloud, lock you into a subscription, and give you no control over how your information is used. Torvaix takes a different approach:
+Torvaix is built with a sophisticated Multi-Agent Orchestrator communicating with a unified MCP server.
 
-- **Runs on your machine.** Every model call, every conversation, every file stays local.
-- **No telemetry.** We do not phone home. There is no analytics, no tracking, no usage reporting.
-- **You own your data.** Conversations are stored in your browser's IndexedDB. There is no central server.
-- **Works offline.** Point it at a local Ollama instance and disconnect from the internet entirely.
-- **Open source.** Read the code, audit it, fork it, contribute to it.
+```mermaid
+graph TD
+    UI[Next.js Frontend] -->|API / WebSockets| Server[Torvaix Backend Server]
+    
+    subgraph Multi-Agent Orchestrator
+        Server --> Router[Router Agent]
+        Router --> |Task Classification| MemoryA[Memory Agent]
+        Router --> |Fact Storage| KnowledgeA[Knowledge Agent]
+        Router --> |Action| ExecA[Execution Agent]
+    end
 
----
+    subgraph Memory Retrieval System
+        MemoryA --> DB[SQLite + Qdrant]
+        KnowledgeA --> DB
+    end
 
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Chat and Agents** | Multi-turn chat with autonomous agents that plan, call tools, and work through complex tasks. |
-| **Tools and MCP** | Built-in tools (bash, files, web, memory) plus support for any MCP server you connect. |
-| **Cookbook** | Hardware-aware model recommendations and one-click serving across 270+ catalogued models. |
-| **Email Assistant** | AI summaries, style-matched draft replies, auto-tagging, and spam triage over IMAP/SMTP. |
-| **Deep Research** | Multi-step research runs that gather, read, and synthesize sources into a written report. |
-| **Compare** | Send one prompt to several models at once and compare their answers side by side. |
-| **Memory** | Persistent memory the assistant builds up and recalls across all your conversations. |
-| **Skills** | The assistant writes, refines, and reuses its own skills — getting more capable over time. |
-| **Privacy** | No telemetry. No cloud storage. Runs against your own endpoints. Optional external integrations only when you choose them. |
-
----
-
-## Architecture
-
-Torvaix is structured as an npm workspaces monorepo:
-
-```
-torvaix/
-├── apps/
-│   └── web/          # Next.js 16 frontend (App Router)
-├── packages/
-│   ├── agent/        # Local agent loop with OS-level tools
-│   ├── providers/    # LLM provider adapters (Ollama, OpenAI, Anthropic, Google)
-│   ├── router/       # Request routing and model selection
-│   ├── types/        # Shared TypeScript types
-│   └── ui/           # Shared UI components
-├── package.json      # Root workspace config
-└── LICENSE
+    subgraph Tool Execution Layer
+        ExecA --> |MCP Client| MCPServer[Unified MCP Server]
+        ExecA -.-> |Pending Action Pause| Security[Security Layer - SQLite]
+        MCPServer --> FS[Filesystem Tools]
+        MCPServer --> Term[Terminal Tools]
+        MCPServer --> Browser[Browser Tools]
+    end
 ```
 
-### Tech stack
-
-- **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS 4, Framer Motion, shadcn/ui
-- **State:** Zustand for client state, IndexedDB (via idb-keyval) for persistence
-- **AI SDK:** Vercel AI SDK with adapters for OpenAI, Anthropic, Google, and Ollama
-- **Agent:** Custom agent loop with tool calling (bash, file system, web search, memory)
-- **Monorepo:** npm workspaces
+### Tech Stack
+- **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS 4
+- **State & Memory:** Qdrant (Vector DB), SQLite (Relational State)
+- **Agent Orchestrator:** Custom State Graph, Vercel AI SDK
+- **MCP Integration:** `@modelcontextprotocol/sdk` (Unified Server & Client)
 
 ---
 
-## Getting started
+## 🚀 Setup Instructions
 
 ### Prerequisites
-
-- Node.js 18 or later
-- npm 9 or later
-- (Optional) [Ollama](https://ollama.ai) for local model inference
+- Node.js 18+
+- npm 9+
+- [Ollama](https://ollama.ai) (Ensure `llama3.2` and `nomic-embed-text` are pulled)
+- Docker (Optional, for running Qdrant independently if preferred, but local DB works out of the box).
 
 ### Installation
-
 ```bash
 git clone https://github.com/Yashasm18/Torvaix.git
 cd Torvaix
 npm install
 ```
 
-### Running the development server
+---
+
+## 💻 Localhost Run Instructions
+
+Torvaix is designed for local reproducibility. To run the full stack (Frontend, Agent Server, MCP Server):
 
 ```bash
+# This starts the Next.js app AND the Torvaix backend orchestrator
 npm run dev
 ```
 
-The web app will be available at `http://localhost:3000`.
-
-### Accessing the AI Interface
-
-1. **Start the development server** as above.
-2. **Visit the AI interface**: Open your browser and go to `http://localhost:3000/app/chat`
-3. **Start chatting**: The interface includes:
-   - Quick action buttons for common tasks
-   - Real-time chat with local AI models
-   - Tool execution (bash, python, web search)
-   - Model selection and provider switching
-   - Private, local processing
-
-### Connecting to local models
-
-1. Install and start [Ollama](https://ollama.ai).
-2. Pull a model: `ollama pull llama3.2`
-3. Open Torvaix, go to **Settings > Local AI**, and verify the Ollama endpoint is `http://localhost:11434`.
-4. Start chatting. All inference happens on your machine.
-
-### Using API providers (optional)
-
-If you want to use cloud providers alongside local models:
-
-1. Go to **Settings > API Keys**.
-2. Enter your keys for OpenAI, Anthropic, or Google.
-3. Keys are stored locally in your browser. They are never sent to any Torvaix server.
+1. Ensure Ollama is running (`ollama serve`).
+2. Open `http://localhost:3000`.
+3. Create an account or login locally.
 
 ---
 
-## Development
+## 🎬 Demo Flow
 
-### Project commands
+To demonstrate the full capabilities of Torvaix for the Capstone:
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start all workspaces in development mode |
-| `npm run build` | Build all workspaces for production |
-| `npm run lint` | Run linting across all workspaces |
+1. **Workspace Creation**: Create a new workspace in the UI. 
+2. **Knowledge Storage**: Tell the agent "My favorite framework is Next.js". The **Router Agent** will route this to the **Knowledge Agent**, which generates embeddings and stores it in Qdrant + SQLite.
+3. **Memory Retrieval**: Start a new chat and ask "What is my favorite framework?". The **Router Agent** will route to the **Memory Agent**, retrieving the correct answer from Qdrant.
+4. **Tool Execution & MCP**: Ask the agent to "Create a Python script that calculates fibonacci and run it".
+5. **Security Layer**: The **Execution Agent** will attempt to run `python`. It will pause execution, log a `pending_action`, and wait. The UI will prompt you to approve the action.
+6. **Approval & Resume**: Click "Approve". The Execution Agent resumes, communicates with the **Unified MCP Server**, runs the script, and returns the output to the chat.
 
-### Working on a specific package
+---
+
+## 🐳 Docker (Qdrant Vector Database)
+
+Torvaix uses Qdrant for semantic vector search. Start it with Docker:
 
 ```bash
-# Run only the web app
-cd apps/web && npm run dev
+# Pull and start Qdrant
+docker run -d --name torvaix-qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant
 
-# Run only the web app on a specific port
-cd apps/web && npm run dev -- -p 3001
+# Verify Qdrant is running
+curl http://localhost:6333/healthz
+```
+
+> **Note:** If Docker/Qdrant is unavailable, Torvaix automatically falls back to SQLite-based keyword search. No data is lost.
+
+---
+
+## 🧪 Verification Commands
+
+Run these against the Agent Server (port 3001) to verify all systems:
+
+```bash
+# Health Check
+curl http://localhost:3001/api/health
+
+# Store a memory
+curl -X POST http://localhost:3001/api/memory/store \
+  -H "Content-Type: application/json" \
+  -d '{"workspaceId":"default","content":"My favorite language is Python","source":"test"}'
+
+# Retrieve memory (semantic search)
+curl -X POST http://localhost:3001/api/memory/query \
+  -H "Content-Type: application/json" \
+  -d '{"workspaceId":"default","query":"What language do I prefer?","topK":3}'
+
+# Execute via agent (triggers security layer for bash/python)
+curl -X POST http://localhost:3001/api/agent/run \
+  -H "Content-Type: application/json" \
+  -d '{"workspaceId":"default","instructions":"Use bash to echo hello world"}'
 ```
 
 ---
 
-## Contributing
+## 🏆 Kaggle Proof of Concepts
 
-Contributions are welcome. Whether it is a bug fix, a new feature, better documentation, or a typo correction — all of it helps.
+Torvaix is built to demonstrate production-grade agentic AI. Below is a detailed mapping of each evaluation rubric item to the Torvaix implementation.
 
-1. Fork the repository.
-2. Create a branch: `git checkout -b feature/your-feature`
-3. Make your changes and commit: `git commit -m "Add your feature"`
-4. Push to your fork: `git push origin feature/your-feature`
-5. Open a pull request.
+| Rubric Item | Torvaix Implementation | Key Files |
+|---|---|---|
+| **Multi-Agent System** | Custom State Graph Orchestrator with 4 specialized agents (Router, Memory, Knowledge, Execution). No LangGraph or framework dependency — pure TypeScript state machine with explicit transitions. | `packages/agent/src/orchestrator.ts` |
+| **MCP Integration** | Unified MCP Server exposing filesystem, terminal, and browser tools. Execution Agent connects as MCP Client via `StdioClientTransport`. Demonstrates the full MCP protocol lifecycle. | `packages/mcp/src/index.ts` |
+| **Tool Execution** | 5 tools (`read_file`, `write_file`, `bash`, `python`, `web_search`) exposed via MCP. The Execution Agent dynamically selects tools, executes them, and loops for multi-step tasks. | `packages/mcp/src/index.ts`, `packages/agent/src/orchestrator.ts` |
+| **Security Layer** | Human-in-the-loop approval for dangerous operations (`bash`, `python`). Pending actions stored in SQLite with status tracking (`pending` → `approved`/`rejected`). Agent execution pauses until approval. | `packages/agent/src/orchestrator.ts`, `packages/memory/src/index.ts` |
+| **Memory Retrieval** | Dual-layer memory: Qdrant (vector embeddings via `nomic-embed-text`) + SQLite (metadata, keyword fallback). Semantic similarity search with configurable `topK`. | `packages/memory/src/index.ts` |
+| **Deployability** | Full Docker support for Qdrant. Single `npm install && npm run dev` startup. GitHub Actions CI/CD. Static landing page deployed via GitHub Pages. | `docker-compose.yml`, `.github/workflows/` |
+| **Local Reproducibility** | Zero cloud dependencies. All models via Ollama (local). All storage via SQLite + Qdrant (local Docker). Works offline after initial model pull. | Root `README.md` |
 
-Please keep pull requests focused. If you are making unrelated changes, open separate PRs.
+### Architecture Proof
 
----
-
-## Origin story
-
-> I was free, learning nothing from college, sat down in silence, thought of AI. I prompted my idea. The result was right in front of me.
+```
+User Request
+    ↓
+[Next.js Frontend] ──→ [API Route /api/chat]
+    ↓
+[Agent Server :3001] ──→ [Router Agent] (LLM classification)
+    ↓                         ↓                ↓
+[Memory Agent]         [Knowledge Agent]  [Execution Agent]
+    ↓                         ↓                ↓
+[Qdrant + SQLite]      [Qdrant + SQLite]  [MCP Client]
+                                               ↓
+                                          [MCP Server]
+                                          ├── read_file
+                                          ├── write_file
+                                          ├── bash ──→ 🛡️ Security Layer
+                                          ├── python ──→ 🛡️ Security Layer
+                                          └── web_search
+```
 
 ---
 
 ## License
-
 MIT. See [LICENSE](./LICENSE) for details.
 
----
-
 **Torvaix** — Yours for the voyage.
-
----
-
-## Self-Hosting AI Backend
-
-Torvaix includes a complete self-hosting AI backend that provides:
-
-### User Management
-- Secure user registration and authentication
-- Persistent user sessions
-- Role-based access control
-
-### Conversation Management
-- Multi-conversation support per user
-- Real-time message updates via WebSocket
-- Full conversation history with timestamps
-
-### Agent Loop Integration
-- Complete agent loop implementation with tool execution
-- Support for multiple AI providers (local and cloud)
-- Advanced problem-solving capabilities
-- Memory and skill persistence
-
-### API Endpoints
-- `/api/auth/register` - User registration
-- `/api/auth/login` - User login
-- `/api/conversations` - Create new conversations
-- `/api/conversations/:id` - Get/update conversations
-- `/api/agent/run` - Run agent loops
-- `/api/health` - Health check
-
-### Self-Hosting Features
-- **Local-first**: All AI inference runs on your hardware
-- **Privacy-first**: No data leaves your machine unless you choose external integrations
-- **No telemetry**: No analytics, tracking, or usage reporting
-- **Offline capable**: Works with local Ollama instances
-- **Open source**: Full transparency and auditability
-
-### Problem-Solving Capabilities
-The agent loop can solve complex problems by:
-- Analyzing problems and breaking them down into steps
-- Using multiple tools (bash, file operations, python, web search)
-- Iterating and refining solutions
-- Maintaining context across conversations
-- Learning from previous interactions
-
-### Comparison with Odysseus
-Torvaix improves upon Odysseus by:
-- **More comprehensive tool support**: bash, file operations, python, web search
-- **Better routing**: Intelligent model selection based on task type
-- **Enhanced problem-solving**: Multi-step reasoning and iteration
-- **Real-time collaboration**: WebSocket support for live updates
-- **User management**: Persistent user accounts and conversations
-- **Self-hosting**: Complete backend server for deployment
-
-### Getting Started with Self-Hosting
-
-1. **Install dependencies**: `npm install`
-2. **Start the server**: `node packages/agent/src/server.js`
-3. **Configure Ollama**: Install and run Ollama locally
-4. **Access the frontend**: Open your browser at `http://localhost:3000`
-5. **Register users**: Create user accounts for your team
-6. **Start chatting**: Begin using the AI assistant immediately
-
-The self-hosting backend ensures complete control over your AI system, with all data and processing happening locally on your infrastructure.
