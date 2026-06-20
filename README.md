@@ -133,7 +133,14 @@ curl -X POST http://localhost:3001/api/agent/run \
 
 ---
 
+## License
+
+Torvaix is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+If you run a modified version of Torvaix over a network, you must make the modified source code available to users under the same license.
+
+---
+
 <div align="center">
   <p><b>Torvaix</b> — Yours for the voyage.</p>
-  <p>Built for the Kaggle AI Agents Capstone.</p>
 </div>
