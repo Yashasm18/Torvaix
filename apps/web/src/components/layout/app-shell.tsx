@@ -19,16 +19,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <SidebarProvider>
       <AppSidebar />
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-background">
-        {/* Global Activity Layer */}
-        <motion.div 
-          className="h-6 w-full bg-primary/10 border-b border-primary/20 flex items-center px-4 gap-2 text-xs font-mono text-primary z-50 shrink-0"
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 24 }}
-          transition={{ delay: 0.5 }}
-        >
-          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-          <span className="truncate">Agent Researching Market Trends...</span>
-        </motion.div>
+
 
         <motion.header 
           className="h-14 border-b border-border/50 flex items-center px-4 gap-3 shrink-0 bg-surface/50 backdrop-blur-md"

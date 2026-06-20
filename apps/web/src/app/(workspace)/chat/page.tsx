@@ -5,18 +5,22 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Bot, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal } from "lucide-react";
+import { Send, Bot, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal, XCircle } from "lucide-react";
 import { useDBStore } from "@/store/db-store";
 import { useMemoryContextStore } from "@/store/memory-context-store";
 import { AppLogo } from "@/components/ui/app-logo";
+import { MemoryModal } from "@/components/chat/memory-modal";
+
 
 export default function ChatPage() {
   const [currentModel] = useState('llama3.2');
   const [provider] = useState('ollama');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const { activeWorkspaceId } = useDBStore();
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append } = useChat({
     api: '/api/chat',
     body: {
       model: currentModel,
@@ -125,7 +129,7 @@ export default function ChatPage() {
           </motion.div>
         ) : (
           <AnimatePresence>
-            {messages.map((message) => (
+            {messages.map((message, index) => (
               <motion.div
                 key={message.id}
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -148,6 +152,14 @@ export default function ChatPage() {
                       : 'bg-surface border border-border text-foreground'
                     } flex flex-col gap-4 w-full shadow-sm`}> 
                       
+                      {/* Loading State for empty assistant message */}
+                      {isLoading && message.role === 'assistant' && !message.content && (!message.toolInvocations || message.toolInvocations.length === 0) && index === messages.length - 1 && (
+                        <div className="flex items-center gap-3 text-muted-foreground">
+                          <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                          <span className="text-sm font-medium animate-pulse text-primary">Thinking through your workspace...</span>
+                        </div>
+                      )}
+
                       {/* Tool Invocations Timeline */}
                       {message.toolInvocations && message.toolInvocations.length > 0 && (
                         <div className="flex flex-col gap-3 w-full font-mono text-sm">
@@ -184,17 +196,114 @@ export default function ChatPage() {
                       )}
 
                       {/* Text Content */}
-                      {message.content && (
-                        <p className="text-[15px] whitespace-pre-wrap leading-relaxed text-foreground/90">
-                          {message.content}
-                        </p>
-                      )}
+                      {message.content && (() => {
+                        const securityMatch = message.content.match(/Pending Action ID: `([a-f0-9-]+)`/);
+                        
+                        if (securityMatch && message.role === 'assistant') {
+                          const pendingId = securityMatch[1];
+                          const isHistorical = messages.findIndex(m => m.id === message.id) < messages.length - 1;
+                          
+                          return (
+                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">
+                              <div className="flex items-center gap-3 px-5 py-3 bg-amber-500/10 border-b border-amber-500/20">
+                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                  <Shield className="w-4 h-4 text-amber-400" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-semibold text-amber-300">Security Approval Required</p>
+                                  <p className="text-xs text-amber-400/70">Torvaix needs your permission to execute a system command</p>
+                                </div>
+                              </div>
+                              <div className="px-5 py-4 flex flex-col gap-3">
+                                <p className="text-sm text-muted-foreground">
+                                  The agent is requesting access to run a potentially dangerous action on your machine. 
+                                  Review and approve to continue, or deny to try a safer approach.
+                                </p>
+                                <div className="flex items-center gap-3">
+                                  <Button 
+                                    size="sm" 
+                                    disabled={isHistorical || isLoading}
+                                    className="bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30 font-medium"
+                                    onClick={async () => {
+                                      await fetch('/api/agent/approve', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ pendingActionId: pendingId, status: 'approved' })
+                                      });
+                                      append({
+                                        role: 'user',
+                                        content: `I have approved the action.\n__PENDING_ACTION_ID__:${pendingId}`
+                                      });
+                                    }}
+                                  >
+                                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                                    Approve Execution
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    disabled={isHistorical || isLoading}
+                                    className="border-red-500/30 text-red-400 hover:bg-red-500/10 font-medium"
+                                    onClick={async () => {
+                                      await fetch('/api/agent/approve', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ pendingActionId: pendingId, status: 'rejected' })
+                                      });
+                                      append({
+                                        role: 'user',
+                                        content: `I have denied the action. Please try a different approach.\n__PENDING_ACTION_ID__:${pendingId}`
+                                      });
+                                    }}
+                                  >
+                                    <XCircle className="w-4 h-4 mr-2" />
+                                    Deny
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        // Regular message content (no security trigger)
+                        return (
+                          <p className="text-[15px] whitespace-pre-wrap leading-relaxed text-foreground/90">
+                            {message.content}
+                          </p>
+                        );
+                      })()}
 
                     </div>
                   </div>
                 </div>
               </motion.div>
             ))}
+            
+            {/* Standalone Thinking Bubble (when request is inflight but assistant message hasn't arrived) */}
+            {isLoading && messages[messages.length - 1]?.role === 'user' && (
+              <motion.div
+                className="flex justify-start"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+              >
+                <div className="max-w-xs md:max-w-2xl lg:max-w-3xl xl:max-w-4xl order-2"> 
+                  <div className="flex items-start gap-3 flex-row"> 
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm bg-primary/20 text-primary border border-primary/30"> 
+                      <AppLogo size={16} animated={true} />
+                    </div>
+                    
+                    <div className="rounded-2xl p-5 bg-surface border border-border text-foreground flex flex-col gap-4 w-full shadow-sm"> 
+                        <div className="flex items-center gap-3 text-muted-foreground">
+                          <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                          <span className="text-sm font-medium animate-pulse text-primary">Thinking through your workspace...</span>
+                        </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
           </AnimatePresence>
         )}
         <div ref={messagesEndRef} />
@@ -226,24 +335,54 @@ export default function ChatPage() {
             {/* Input Toolbar */}
             <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50 px-1">
               <div className="flex items-center gap-1">
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  title="Attach File"
+                >
                   <Paperclip className="h-4 w-4" />
                 </Button>
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-purple-400 transition-colors">
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  className="hidden" 
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setInput(prev => prev + (prev ? ' ' : '') + `[Attached: ${file.name}] `);
+                    }
+                  }}
+                />
+                
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setMemoryOpen(true)}
+                  className="h-8 w-8 text-muted-foreground hover:text-purple-400 transition-colors"
+                  title="Context & Memory"
+                >
                   <BrainCircuit className="h-4 w-4" />
                 </Button>
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary transition-colors">
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary transition-colors" title="Select Agent/Tool">
                   <AppLogo size={16} animated={false} />
                 </Button>
+                
+                <Button
+                  type="submit"
+                  disabled={!input.trim() || isLoading}
+                  size="sm"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg h-8 transition-all disabled:opacity-50"
+                >
+                  {isLoading ? ( <Loader2 className="w-4 h-4 animate-spin" /> ) : ( <Send className="w-4 h-4" /> )}
+                </Button>
               </div>
-              <Button
-                type="submit"
-                disabled={!input.trim() || isLoading}
-                size="sm"
-                className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg h-8 transition-all disabled:opacity-50"
-              >
-                {isLoading ? ( <Loader2 className="w-4 h-4 animate-spin" /> ) : ( <Send className="w-4 h-4" /> )}
-              </Button>
             </div>
           </div>
           
@@ -256,6 +395,9 @@ export default function ChatPage() {
           </div>
         </form>
       </motion.div>
+
+      {/* Modals */}
+      <MemoryModal open={memoryOpen} onOpenChange={setMemoryOpen} />
     </div>
   );
 }

@@ -114,6 +114,9 @@ export class MemoryStore {
     try {
       this.db.exec(`ALTER TABLE memories ADD COLUMN retrievalCount INTEGER DEFAULT 0;`);
     } catch (e) { /* Column might already exist */ }
+
+    // Ensure default workspace exists to avoid FOREIGN KEY constraints failing
+    this.db.exec(`INSERT OR IGNORE INTO workspaces (id, name) VALUES ('default', 'Default Workspace');`);
   }
 
   public async initQdrant() {

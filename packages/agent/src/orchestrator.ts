@@ -3,6 +3,7 @@ import { MemoryStore } from '@torvaix/memory';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import path from 'path';
+import crypto from 'crypto';
 
 export interface AgentState {
   workspaceId: string;
@@ -18,6 +19,7 @@ export class AgentOrchestrator {
   private memoryStore: MemoryStore;
   private mcpClient: Client | null = null;
   private mcpTransport: StdioClientTransport | null = null;
+  private sessionApproved = false; // Once user approves one tool, auto-approve rest of session
   private modelUrl = 'http://localhost:11434/api/generate';
 
   constructor(memoryStore: MemoryStore) {
@@ -28,7 +30,7 @@ export class AgentOrchestrator {
     if (this.mcpClient) return;
 
     // We start the MCP server as a subprocess using tsx
-    const mcpServerPath = path.resolve(process.cwd(), 'packages/mcp/src/index.ts');
+    const mcpServerPath = path.resolve(__dirname, '../../mcp/src/index.ts');
     
     this.mcpTransport = new StdioClientTransport({
       command: 'npx',
@@ -153,7 +155,7 @@ Synthesize a helpful answer.
   }
 
   // NODE: Execution (Tool Calling via MCP)
-  private async nodeExecution(state: AgentState): Promise<AgentState> {
+  private async nodeExecution(state: AgentState, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
     console.log('[Execution Agent] Planning execution...');
 
     // If there is a pending action, it means it was just approved
@@ -161,9 +163,16 @@ Synthesize a helpful answer.
        const pending = this.memoryStore.getPendingAction(state.pendingActionId);
        if (pending && pending.status === 'approved') {
          console.log(`[Execution Agent] Resuming approved action: ${pending.action}`);
+         this.sessionApproved = true; // User trusts this session now
          
          // Execute tool via MCP
          let resultText = '';
+         const toolCallId = crypto.randomUUID();
+         
+         if (onStreamChunk) {
+           onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: pending.action, args: JSON.parse(pending.params) })}\n`);
+         }
+
          try {
            const result = await this.mcpClient?.callTool({
              name: pending.action,
@@ -178,8 +187,15 @@ Synthesize a helpful answer.
            this.memoryStore.logExecution(state.workspaceId, pending.action, JSON.parse(pending.params), resultText, 'error');
          }
 
+         if (onStreamChunk) {
+           onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
+         }
+
          state.messages.push({ role: 'system', content: `Tool Result: ${resultText}` });
          state.pendingActionId = undefined; // Cleared
+         // Continue the execution loop (don't stop here)
+         state.nextNode = 'execution';
+         return state;
        } else if (pending && pending.status === 'rejected') {
          console.log(`[Execution Agent] Action rejected by user: ${pending.action}`);
          state.messages.push({ role: 'system', content: `User rejected the execution of ${pending.action}.` });
@@ -189,31 +205,59 @@ Synthesize a helpful answer.
 
     // Now decide the next tool or finish
     const contextStr = state.messages.map(m => `[${m.role}] ${m.content}`).join('\n');
-    const prompt = `You are the Execution Agent. You have access to tools: read_file, write_file, bash, python, web_search.
+    const prompt = `You are the Execution Agent. You execute ONE step at a time.
+
+Available tools:
+- write_file: Write content to a file. Args: {"filePath": "path", "content": "file content"}
+- read_file: Read a file. Args: {"filePath": "path"}
+- bash: Run a shell command. Args: {"command": "shell command"}
+- python: Execute Python code. Args: {"code": "python code"}
+- web_search: Search the web. Args: {"query": "search query"}
+
 Current task: "${state.instructions}"
-History:
-${contextStr}
+${contextStr ? `History:\n${contextStr}` : ''}
 
-If you need to use a tool, reply with exactly this JSON format:
-{"done": false, "tool": "bash", "args": {"command": "echo 'Hello World'"}}
+CRITICAL RULES:
+1. Return EXACTLY ONE JSON object. Never return multiple.
+2. Do ONE step at a time. You will be called again for the next step.
+3. To create a file, use write_file, NOT bash echo.
+4. To run a Python file, use bash with: {"command": "python3 filename.py"}
 
-If you have finished the task or no tools are needed, reply with exactly this JSON format:
-{"done": true, "message": "Final answer here..."}
+If you need to use a tool, reply:
+{"done": false, "tool": "write_file", "args": {"filePath": "hello.py", "content": "print('Hello')"}}
 
-Respond with ONLY the raw JSON object. Do not wrap it in markdown. Do not add any conversational text.`;
+If the task is complete (all steps done), reply:
+{"done": true, "message": "Summary of what was accomplished"}
+
+Reply with ONLY ONE JSON object. Nothing else.`;
 
     const rawResponse = await this.callLLM(prompt);
     
+    // Robust bracket-counting JSON extractor
+    let extractedJson: string | null = null;
+    const startIdx = rawResponse.indexOf('{');
+    if (startIdx !== -1) {
+      let depth = 0;
+      for (let i = startIdx; i < rawResponse.length; i++) {
+        if (rawResponse[i] === '{') depth++;
+        else if (rawResponse[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            extractedJson = rawResponse.substring(startIdx, i + 1);
+            break;
+          }
+        }
+      }
+    }
+
     try {
-      // Find JSON block in the raw response
-      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      if (!extractedJson) {
         state.output = rawResponse; // Fallback if it just replied with text
         state.nextNode = 'end';
         return state;
       }
 
-      const decision = JSON.parse(jsonMatch[0]);
+      const decision = JSON.parse(extractedJson);
 
       if (decision.done === true || !decision.tool) {
         state.output = decision.message || "Execution completed.";
@@ -225,7 +269,7 @@ Respond with ONLY the raw JSON object. Do not wrap it in markdown. Do not add an
       const tool = decision.tool;
       const isDangerous = tool === 'bash' || tool === 'python';
       
-      if (isDangerous) {
+      if (isDangerous && !this.sessionApproved) {
         console.log(`[Execution Agent] Pausing for security confirmation on ${tool}`);
         const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, decision.args);
         
@@ -234,11 +278,19 @@ Respond with ONLY the raw JSON object. Do not wrap it in markdown. Do not add an
         // Paused loop by ending execution, NextJS will resume by re-invoking with pendingActionId
         state.nextNode = 'end'; 
         return state;
+      } else if (isDangerous && this.sessionApproved) {
+        console.log(`[Execution Agent] Auto-approved ${tool} (session trust)`);
       }
 
       // Execute safe tool immediately
       console.log(`[Execution Agent] Executing safe tool: ${tool}`);
       let resultText = '';
+      const toolCallId = crypto.randomUUID();
+
+      if (onStreamChunk) {
+        onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: tool, args: decision.args })}\n`);
+      }
+
       try {
         const result = await this.mcpClient?.callTool({
           name: tool,
@@ -249,6 +301,10 @@ Respond with ONLY the raw JSON object. Do not wrap it in markdown. Do not add an
       } catch (e: any) {
         resultText = `Tool execution failed: ${e.message}`;
         this.memoryStore.logExecution(state.workspaceId, tool, decision.args, resultText, 'error');
+      }
+
+      if (onStreamChunk) {
+        onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
       }
 
       state.messages.push({ role: 'system', content: `Tool ${tool} Result: ${resultText}` });
@@ -266,14 +322,14 @@ Respond with ONLY the raw JSON object. Do not wrap it in markdown. Do not add an
   }
 
   // Run the Graph
-  public async run(initialState: Partial<AgentState>): Promise<AgentState> {
+  public async run(initialState: Partial<AgentState>, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
     await this.initMcp();
 
     let state: AgentState = {
       workspaceId: initialState.workspaceId || 'default',
       instructions: initialState.instructions || '',
       messages: initialState.messages || [],
-      nextNode: initialState.nextNode || 'router',
+      nextNode: initialState.pendingActionId ? 'execution' : (initialState.nextNode || 'router'),
       output: '',
       pendingActionId: initialState.pendingActionId,
       iteration: 0
@@ -294,7 +350,7 @@ Respond with ONLY the raw JSON object. Do not wrap it in markdown. Do not add an
             state = await this.nodeKnowledge(state);
             break;
           case 'execution':
-            state = await this.nodeExecution(state);
+            state = await this.nodeExecution(state, onStreamChunk);
             break;
         }
       }

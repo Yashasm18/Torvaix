@@ -16,6 +16,7 @@ import {
   Plus,
   Database,
   Terminal,
+  MessageSquare,
   Loader2,
   Activity
 } from "lucide-react"
@@ -40,6 +41,7 @@ import { getSystemStatusAction } from "@/actions/memory-actions"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -83,7 +85,8 @@ export function AppSidebar() {
   }
 
   const navItems = [
-    { title: "Workspace", icon: Home, href: "/" },
+    { title: "Chat", icon: MessageSquare, href: "/chat" },
+    { title: "Workspace", icon: Home, href: "/app" },
     { title: "Projects", icon: Folder, href: "/projects" },
     { title: "Knowledge", icon: BookOpen, href: "/knowledge" },
     { title: "Graph", icon: Database, href: "/graph" },
@@ -109,17 +112,18 @@ export function AppSidebar() {
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56 bg-popover border-border">
-            <DropdownMenuLabel>Switch Workspace</DropdownMenuLabel>
-            <DropdownMenuSeparator className="bg-border" />
-            {workspaces.map((workspace) => (
-              <DropdownMenuItem 
-                key={workspace.id} 
-                onClick={() => setActiveWorkspaceId(workspace.id)}
-                className="cursor-pointer hover:bg-accent hover:text-accent-foreground"
-              >
-                {workspace.name}
-              </DropdownMenuItem>
-            ))}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Switch Workspace</DropdownMenuLabel>
+              {workspaces.map((workspace) => (
+                <DropdownMenuItem 
+                  key={workspace.id} 
+                  onClick={() => setActiveWorkspaceId(workspace.id)}
+                  className="cursor-pointer hover:bg-accent hover:text-accent-foreground"
+                >
+                  {workspace.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
             <DropdownMenuSeparator className="bg-border" />
             <DropdownMenuItem onClick={handleCreateWorkspace} className="cursor-pointer text-primary hover:bg-primary/10">
               <Plus className="mr-2 h-4 w-4" /> Create Workspace
@@ -146,10 +150,12 @@ export function AppSidebar() {
             <SidebarMenu className="gap-1">
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton render={<Link href={item.href} />} className="flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.title}</span>
-                  </SidebarMenuButton>
+                  <Link href={item.href} className="w-full">
+                    <SidebarMenuButton tooltip={item.title} className="flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </SidebarMenuButton>
+                  </Link>
                 </SidebarMenuItem>
               ))}
               </SidebarMenu>

@@ -2,41 +2,36 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { messages, workspaceId } = await req.json();
-    const lastMsg = messages[messages.length - 1].content;
+    const { messages, workspaceId, pendingActionId: bodyPendingId } = await req.json();
+    let lastMsg = messages[messages.length - 1].content;
+    let pendingActionId = bodyPendingId;
 
-    // Proxy the request to the Torvaix Agent Server (running on port 3001)
-    const agentRes = await fetch('http://localhost:3001/api/agent/run', {
+    const match = lastMsg.match(/__PENDING_ACTION_ID__:([a-f0-9-]+)/);
+    if (match) {
+      pendingActionId = match[1];
+      lastMsg = lastMsg.replace(/__PENDING_ACTION_ID__:([a-f0-9-]+)/, '').trim();
+    }
+
+    // Proxy the request to the Torvaix Agent Server with streaming enabled
+    const agentRes = await fetch('http://localhost:3001/api/agent/run?stream=true', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         workspaceId: workspaceId || 'default',
         instructions: lastMsg,
-        messages: messages.slice(0, -1) // pass context history
+        messages: messages.slice(0, -1), // pass context history
+        pendingActionId
       })
     });
 
-    const data = await agentRes.json();
-    
-    // We need to stream the result back so the Next.js `useChat` hook parses it correctly.
-    // The Vercel AI SDK DataStream protocol formats plain text chunks like: `0:"hello world"\n`
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      start(controller) {
-        let outputText = data.output;
-        
-        // If the agent requires security confirmation, inject a special payload
-        if (data.status === 'pending_confirmation') {
-           outputText = `\n\n🛡️ **SECURITY LAYER TRIGGERED**\nThe agent wants to execute a potentially dangerous action.\nPending Action ID: \`${data.pendingActionId}\`\n\n*(Please approve this action via the Torvaix CLI or backend API, UI approval buttons coming soon)*`;
-        }
+    if (!agentRes.ok) {
+      const err = await agentRes.text();
+      throw new Error(`Agent Server Error: ${err}`);
+    }
 
-        const formatted = `0:${JSON.stringify(outputText)}\n`;
-        controller.enqueue(encoder.encode(formatted));
-        controller.close();
-      }
-    });
-
-    return new Response(stream, {
+    // The agent server now streams Vercel AI DataStream protocol chunks (`0:`, `9:`, `a:`)
+    // We can just pipe its body directly back to the client!
+    return new Response(agentRes.body, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
         'x-vercel-ai-data-stream': 'v1'

@@ -135,7 +135,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
     case "bash": {
-        const { command } = BashArgsSchema.parse(args);
+        const { command: rawCommand } = BashArgsSchema.parse(args);
+        // macOS ships python3, not python
+        const command = rawCommand.replace(/\bpython\b(?!3)/g, 'python3');
         const { stdout, stderr } = await execAsync(command);
         return {
           content: [{ type: "text", text: stdout || stderr }],

@@ -20,7 +20,8 @@ const nextConfig: NextConfig = {
   },
   typescript: {
     ignoreBuildErrors: !!isGithubActions,
-  }
+  },
+  devIndicators: false
 };
 
 export default nextConfig;

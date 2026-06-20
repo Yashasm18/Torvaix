@@ -18,7 +18,9 @@ const checkPort = (port) => {
   });
 };
 
-Promise.all([checkPort(3000), checkPort(3001)])
+// Only check the web server's port (3000).
+// Port 3001 (agent server) starts in parallel and handles its own conflicts.
+checkPort(3000)
   .then(() => process.exit(0))
   .catch((err) => {
     console.error(err);

@@ -97,7 +97,13 @@ app.post('/api/conversations', async (req, res) => {
 app.post('/api/agent/run', async (req, res) => {
   try {
     const { instructions, workspaceId, messages = [], pendingActionId } = req.body;
+    const isStream = req.query.stream === 'true';
     
+    if (isStream) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Transfer-Encoding', 'chunked');
+    }
+
     const orchestrator = new AgentOrchestrator(memoryStore);
     
     const finalState = await orchestrator.run({
@@ -105,18 +111,32 @@ app.post('/api/agent/run', async (req, res) => {
       instructions,
       messages,
       pendingActionId
-    });
+    }, isStream ? ((chunk: string) => res.write(chunk)) : undefined);
     
-    // Send response back
-    res.json({
-      status: finalState.pendingActionId ? 'pending_confirmation' : 'completed',
-      output: finalState.output,
-      messages: finalState.messages,
-      pendingActionId: finalState.pendingActionId
-    });
+    if (isStream) {
+      // Send the final output as a text chunk
+      let outputText = finalState.output;
+      if (finalState.pendingActionId) {
+        outputText = `\n\n🛡️ **SECURITY LAYER TRIGGERED**\nThe agent wants to execute a potentially dangerous action.\nPending Action ID: \`${finalState.pendingActionId}\``;
+      }
+      res.write(`0:${JSON.stringify(outputText)}\n`);
+      res.end();
+    } else {
+      // Send legacy JSON response back
+      res.json({
+        status: finalState.pendingActionId ? 'pending_confirmation' : 'completed',
+        output: finalState.output,
+        messages: finalState.messages,
+        pendingActionId: finalState.pendingActionId
+      });
+    }
   } catch (error: any) {
     console.error('Agent error:', error);
-    res.status(500).json({ error: 'Agent loop failed', details: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Agent loop failed', details: error.message });
+    } else {
+      res.end(`\n\nError: Agent loop failed - ${error.message}`);
+    }
   }
 });
 
