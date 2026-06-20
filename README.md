@@ -1,9 +1,7 @@
 <div align="center">
   
-<h1>
-  <img src="apps/web/src/app/icon.svg" width="40" align="center" alt="Torvaix Logo" />
-  Torvaix
-</h1>
+<img src="apps/web/public/torvaix-brand-logo.png" height="50" alt="Torvaix Logo" />
+<br />
 
 **A workspace-first AI operating system. Local-first, privacy-first, zero telemetry.**
 
