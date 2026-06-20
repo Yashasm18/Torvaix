@@ -572,13 +572,17 @@ export default function LandingPage() {
             Torvaix is yours.
           </h2>
           
-          <p className="text-base md:text-lg text-slate-400 mb-8 max-w-2xl mx-auto font-sans leading-relaxed">
-            Torvaix is an open-source AI Knowledge Operating System. Run your own models, own your memory, and work with intelligent agents inside a connected knowledge workspace.
+          <p className="text-xl md:text-2xl text-slate-300 mb-4 max-w-3xl mx-auto font-sans leading-relaxed font-medium">
+            Open-source. Local-first. Memory-native. No telemetry, no lock-in, no forgetting.
+          </p>
+
+          <p className="text-sm md:text-base text-slate-500 mb-8 max-w-2xl mx-auto font-sans leading-relaxed">
+            Run your own models, own your memory, and work with intelligent agents inside a connected knowledge workspace.
           </p>
 
           {/* Prerequisites */}
           <div className="flex flex-col items-center mb-8">
-            <span className="text-[10px] text-slate-500 font-mono mb-3 uppercase tracking-[0.15em]">Requirements</span>
+            <span className="text-[10px] text-slate-500 font-mono mb-3 uppercase tracking-[0.15em]">Bring your own stack</span>
             <div className="flex flex-wrap justify-center gap-2">
               {['Node.js 20+', 'Ollama', 'Docker'].map(req => (
                 <span key={req} className="px-3 py-1.5 bg-[#0d1117] border border-white/5 rounded-md text-xs font-mono text-slate-400">
@@ -589,12 +593,17 @@ export default function LandingPage() {
           </div>
 
           <div className="relative bg-[#0d1117] border border-white/10 rounded-xl p-5 md:p-6 mb-10 text-left font-mono text-sm overflow-x-auto mx-auto max-w-3xl flex items-start justify-between group shadow-inner">
-            <div className="text-slate-300 pr-24 whitespace-pre font-jetbrains leading-[1.8]">
-              <span className="text-[#fca5a5]">$</span> git clone https://github.com/Yashasm18/Torvaix.git && cd Torvaix
+            <div className="text-slate-300 pr-24 whitespace-pre font-jetbrains leading-[1.8] flex flex-col gap-1">
+              <div><span className="text-[#fca5a5]">$</span> git clone https://github.com/Yashasm18/Torvaix.git</div>
+              <div><span className="text-[#fca5a5]">$</span> cd Torvaix</div>
+              <div><span className="text-[#fca5a5]">$</span> npm install</div>
+              <div><span className="text-[#fca5a5]">$</span> docker compose up -d</div>
+              <div><span className="text-[#fca5a5]">$</span> ollama serve</div>
+              <div><span className="text-[#fca5a5]">$</span> npm run dev</div>
             </div>
             <button 
               onClick={() => {
-                navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git && cd Torvaix");
+                navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git\ncd Torvaix\nnpm install\ndocker compose up -d\nollama serve\nnpm run dev");
                 setIsCopied(true);
                 setTimeout(() => setIsCopied(false), 2000);
               }}
