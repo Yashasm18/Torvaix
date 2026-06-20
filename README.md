@@ -1,6 +1,6 @@
 <div align="center">
   
-<img src="https://raw.githubusercontent.com/Yashasm18/Torvaix/main/apps/web/public/torvaix-brand-logo.png" height="75" alt="Torvaix Logo" />
+<img src="https://raw.githubusercontent.com/Yashasm18/Torvaix/main/apps/web/public/torvaix-brand-logo.png" height="60" alt="Torvaix Logo" />
 <br />
 
 **A workspace-first AI operating system for memory, agents, knowledge, and execution.**
