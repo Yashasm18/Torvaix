@@ -4,6 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import path from 'path';
 import crypto from 'crypto';
+import { TraceCollector } from './trace';
 
 export interface AgentState {
   workspaceId: string;
@@ -13,6 +14,7 @@ export interface AgentState {
   output: string;
   pendingActionId?: string;
   iteration: number;
+  trace?: TraceCollector;
 }
 
 export class AgentOrchestrator {
@@ -75,6 +77,7 @@ export class AgentOrchestrator {
   // NODE: Router
   private async nodeRouter(state: AgentState): Promise<AgentState> {
     console.log('[Router Agent] Routing task...');
+    const endTrace = state.trace?.startPhase('router', 'Classifying request');
     
     const prompt = `Classify this user request into exactly ONE category.
 
@@ -104,6 +107,8 @@ Reply with ONLY one word: memory, knowledge, or execution`;
       decision = 'execution';
     }
 
+    endTrace?.({ decision });
+    console.log(`[Router Agent] Decision: ${decision}`);
     state.nextNode = decision as any;
     return state;
   }
@@ -111,12 +116,14 @@ Reply with ONLY one word: memory, knowledge, or execution`;
   // NODE: Memory (Retrieval)
   private async nodeMemory(state: AgentState): Promise<AgentState> {
     console.log('[Memory Agent] Retrieving context...');
+    const endTrace = state.trace?.startPhase('memory', 'Retrieving memories');
     
     try {
       await this.memoryStore.initQdrant();
       const results = await this.memoryStore.queryMemory(state.workspaceId, state.instructions, 5);
       
-      let context = results.length > 0 
+      const hit = results.length > 0;
+      let context = hit 
         ? results.map(r => `[Score: ${r.score.toFixed(2)}] ${r.content}`).join('\n')
         : 'No relevant memories found.';
 
@@ -130,10 +137,12 @@ Synthesize a helpful answer.
       const response = await this.callLLM(prompt);
       state.output = response;
       state.nextNode = 'end';
+      endTrace?.({ hit, resultCount: results.length, topScore: results[0]?.score });
       
     } catch (e: any) {
       state.output = `Memory Error: ${e.message}`;
       state.nextNode = 'end';
+      endTrace?.({ hit: false, error: e.message });
     }
 
     return state;
@@ -142,14 +151,17 @@ Synthesize a helpful answer.
   // NODE: Knowledge (Storage)
   private async nodeKnowledge(state: AgentState): Promise<AgentState> {
     console.log('[Knowledge Agent] Storing fact...');
+    const endTrace = state.trace?.startPhase('knowledge', 'Storing memory');
     try {
       await this.memoryStore.initQdrant();
       await this.memoryStore.storeMemory(state.workspaceId, state.instructions, 'User Chat');
       state.output = "I have stored this information in my memory.";
       state.nextNode = 'end';
+      endTrace?.({ stored: true });
     } catch (e: any) {
       state.output = `Knowledge Error: ${e.message}`;
       state.nextNode = 'end';
+      endTrace?.({ stored: false, error: e.message });
     }
     return state;
   }
@@ -157,6 +169,7 @@ Synthesize a helpful answer.
   // NODE: Execution (Tool Calling via MCP)
   private async nodeExecution(state: AgentState, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
     console.log('[Execution Agent] Planning execution...');
+    const endTrace = state.trace?.startPhase('execution', 'Planning next step');
 
     // If there is a pending action, it means it was just approved
     if (state.pendingActionId) {
@@ -271,15 +284,18 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       
       if (isDangerous && !this.sessionApproved) {
         console.log(`[Execution Agent] Pausing for security confirmation on ${tool}`);
+        state.trace?.addEvent('approval', 'Waiting for user approval', { tool, args: decision.args });
         const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, decision.args);
         
         state.pendingActionId = pendingId;
         state.output = `Security Confirmation Required for ${tool}. Please approve.`;
         // Paused loop by ending execution, NextJS will resume by re-invoking with pendingActionId
+        endTrace?.({ tool, status: 'awaiting_approval' });
         state.nextNode = 'end'; 
         return state;
       } else if (isDangerous && this.sessionApproved) {
         console.log(`[Execution Agent] Auto-approved ${tool} (session trust)`);
+        state.trace?.addEvent('approval', 'Auto-approved (session trust)', { tool });
       }
 
       // Execute safe tool immediately
@@ -308,6 +324,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       }
 
       state.messages.push({ role: 'system', content: `Tool ${tool} Result: ${resultText}` });
+      endTrace?.({ tool, status: 'completed' });
       
       // Loop back to Execution Agent to see if it needs more tools
       state.nextNode = 'execution';
@@ -325,6 +342,8 @@ Reply with ONLY ONE JSON object. Nothing else.`;
   public async run(initialState: Partial<AgentState>, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
     await this.initMcp();
 
+    const trace = new TraceCollector();
+
     let state: AgentState = {
       workspaceId: initialState.workspaceId || 'default',
       instructions: initialState.instructions || '',
@@ -332,7 +351,8 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       nextNode: initialState.pendingActionId ? 'execution' : (initialState.nextNode || 'router'),
       output: '',
       pendingActionId: initialState.pendingActionId,
-      iteration: 0
+      iteration: 0,
+      trace
     };
 
     try {
@@ -355,9 +375,11 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         }
       }
     } finally {
-      // If we are completely done (no pending action), we can optionally close MCP
-      // But usually we keep it alive or close it based on app lifecycle.
-      // await this.closeMcp();
+      trace.addEvent('complete', 'Agent run finished', { iterations: state.iteration, totalMs: trace.getTotalDurationMs() });
+      // Stream the trace data to the frontend via the `o:` chunk type
+      if (onStreamChunk) {
+        onStreamChunk(`e:${trace.serialize()}\n`);
+      }
     }
 
     return state;

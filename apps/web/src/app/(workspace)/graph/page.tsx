@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from 'react';
-import ForceGraph2D, { ForceGraphMethods } from 'react-force-graph-2d';
+import type { ForceGraphMethods } from 'react-force-graph-2d';
+import dynamic from 'next/dynamic';
+const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 import { useTheme } from 'next-themes';
 
 interface Node {
@@ -33,7 +35,7 @@ export default function GraphPage() {
   const [graphData, setGraphData] = useState<{ nodes: Node[], links: Link[] }>({ nodes: [], links: [] });
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const containerRef = useRef<HTMLDivElement>(null);
-  const fgRef = useRef<ForceGraphMethods>();
+  const fgRef = useRef<any>(null);
   const { theme } = useTheme();
   
   const isDark = theme === 'dark' || !theme; // Default to dark

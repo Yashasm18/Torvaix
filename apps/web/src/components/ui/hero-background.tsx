@@ -37,7 +37,7 @@ export function HeroBackground() {
       ctx.fillRect(0, 0, w, h)
 
       const drawCurve = (
-        color: string,
+        color: string | CanvasGradient,
         offsetY: number,
         frequency: number,
         amplitude: number,

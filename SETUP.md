@@ -76,25 +76,39 @@ Torvaix will orchestrate the startup sequence and automatically open your worksp
 
 ---
 
-## 🏗️ Architecture: What Starts?
+## 🏗️ Architecture: Execution Flow
 
-When you run Torvaix, a deeply integrated local stack spins up:
+When you run Torvaix, requests follow a strict state machine through the agent framework:
 
 ```mermaid
-flowchart LR
-    A[Frontend UI\nlocalhost:3000] <-->|Workspace Data| B(Agent Server)
-    B <-->|Semantic Search| C[(Qdrant\nDocker)]
-    B <-->|Inference| D[[Ollama\nLocal Models]]
+stateDiagram-v2
+    [*] --> Request
+    Request --> Router : Classify Task
     
-    style A fill:#2D3748,stroke:#4A5568,color:#fff
-    style B fill:#2B6CB0,stroke:#2C5282,color:#fff
-    style C fill:#276749,stroke:#2F855A,color:#fff
-    style D fill:#C05621,stroke:#DD6B20,color:#fff
+    state Router {
+        direction LR
+        Knowledge --> Store
+        Memory --> Retrieve
+        Execution --> Plan
+    }
+    
+    Plan --> SecurityGate : Dangerous Tool?
+    
+    state SecurityGate {
+        PendingAction --> UserApproval : Pause
+        UserApproval --> ExecuteTool : Approved
+    }
+    
+    ExecuteTool --> MCP
+    MCP --> Plan : Next Step
+    
+    Store --> [*]
+    Retrieve --> [*]
 ```
 
 * **Frontend (`localhost:3000`)**: Your primary workspace UI where you interact with agents.
 * **Agent Server**: Runs in the background managing multi-agent orchestration, memory retrieval, execution flow, and tool routing.
-* **Qdrant**: Powered by Docker, this is the brain for long-term semantic memory and document embeddings.
+* **Qdrant / SQLite**: Powered by Docker and local storage, this is the brain for long-term semantic memory and document embeddings.
 * **Ollama**: Your local AI engine handling reasoning and execution planning.
 
 ---

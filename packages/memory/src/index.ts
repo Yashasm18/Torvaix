@@ -105,6 +105,30 @@ export class MemoryStore {
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(workspaceId) REFERENCES workspaces(id)
       );
+
+      -- Companion Layer (Experimental): Pairing tokens
+      CREATE TABLE IF NOT EXISTS companion_tokens (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        scope TEXT NOT NULL DEFAULT 'readonly',
+        expiresAt DATETIME NOT NULL,
+        claimedByDeviceId TEXT,
+        revoked INTEGER NOT NULL DEFAULT 0,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Companion Layer (Experimental): Trusted devices
+      CREATE TABLE IF NOT EXISTS companion_devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        fingerprint TEXT NOT NULL UNIQUE,
+        scope TEXT NOT NULL DEFAULT 'readonly',
+        lastSeenAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        sessionToken TEXT,
+        sessionExpiresAt DATETIME,
+        revoked INTEGER NOT NULL DEFAULT 0,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
     
     // Attempt to alter table if the columns don't exist (for existing dev databases)
@@ -438,5 +462,80 @@ export class MemoryStore {
     const stmt = this.db.prepare('INSERT INTO execution_logs (id, workspaceId, action, params, result, status) VALUES (?, ?, ?, ?, ?, ?)');
     stmt.run(id, workspaceId, action, JSON.stringify(params), JSON.stringify(result), status);
     return id;
+  }
+
+  // --- Companion Layer (Experimental) ---
+
+  /** Create a one-time pairing token with an expiry and scope. */
+  public createPairingToken(scope: 'readonly' | 'admin' = 'readonly', expiryMinutes: number = 10): { id: string, token: string } {
+    const id = uuidv4();
+    const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
+    const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString();
+    const stmt = this.db.prepare('INSERT INTO companion_tokens (id, token, scope, expiresAt) VALUES (?, ?, ?, ?)');
+    stmt.run(id, token, scope, expiresAt);
+    return { id, token };
+  }
+
+  /** Claim a pairing token — registers a new trusted device. Returns device ID or null. */
+  public claimPairingToken(token: string, deviceName: string, fingerprint: string): string | null {
+    const stmt = this.db.prepare('SELECT * FROM companion_tokens WHERE token = ? AND revoked = 0');
+    const row = stmt.get(token) as any;
+    if (!row) return null;
+    if (new Date(row.expiresAt) < new Date()) return null; // expired
+    if (row.claimedByDeviceId) return null; // already claimed
+
+    // Create the trusted device
+    const deviceId = uuidv4();
+    const insertDevice = this.db.prepare('INSERT INTO companion_devices (id, name, fingerprint, scope) VALUES (?, ?, ?, ?)');
+    try {
+      insertDevice.run(deviceId, deviceName, fingerprint, row.scope);
+    } catch (e: any) {
+      // fingerprint already registered (unique constraint)
+      const existing = this.db.prepare('SELECT id FROM companion_devices WHERE fingerprint = ?').get(fingerprint) as any;
+      if (existing) return existing.id;
+      return null;
+    }
+
+    // Mark token as claimed
+    const update = this.db.prepare('UPDATE companion_tokens SET claimedByDeviceId = ? WHERE id = ?');
+    update.run(deviceId, row.id);
+
+    return deviceId;
+  }
+
+  /** Create a session for a trusted device. Returns session token. */
+  public createDeviceSession(deviceId: string, expiryHours: number = 24): string | null {
+    const device = this.db.prepare('SELECT * FROM companion_devices WHERE id = ? AND revoked = 0').get(deviceId) as any;
+    if (!device) return null;
+
+    const sessionToken = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
+    const sessionExpiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000).toISOString();
+
+    const stmt = this.db.prepare('UPDATE companion_devices SET sessionToken = ?, sessionExpiresAt = ?, lastSeenAt = CURRENT_TIMESTAMP WHERE id = ?');
+    stmt.run(sessionToken, sessionExpiresAt, deviceId);
+
+    return sessionToken;
+  }
+
+  /** Validate a session token. Returns device info or null. */
+  public validateSession(sessionToken: string): { deviceId: string, scope: string, name: string } | null {
+    const stmt = this.db.prepare('SELECT * FROM companion_devices WHERE sessionToken = ? AND revoked = 0');
+    const device = stmt.get(sessionToken) as any;
+    if (!device) return null;
+    if (new Date(device.sessionExpiresAt) < new Date()) return null;
+
+    // Touch lastSeenAt
+    this.db.prepare('UPDATE companion_devices SET lastSeenAt = CURRENT_TIMESTAMP WHERE id = ?').run(device.id);
+    return { deviceId: device.id, scope: device.scope, name: device.name };
+  }
+
+  /** Revoke a trusted device. */
+  public revokeDevice(deviceId: string) {
+    this.db.prepare('UPDATE companion_devices SET revoked = 1, sessionToken = NULL WHERE id = ?').run(deviceId);
+  }
+
+  /** List all companion devices. */
+  public listCompanionDevices(): any[] {
+    return this.db.prepare('SELECT id, name, fingerprint, scope, lastSeenAt, revoked, createdAt FROM companion_devices ORDER BY createdAt DESC').all();
   }
 }

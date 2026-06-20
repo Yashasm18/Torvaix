@@ -51,34 +51,51 @@ Most AI tools send your data to the cloud, locking you into a subscription and g
 
 ## 🏗 System Architecture
 
-Torvaix is built with a sophisticated Multi-Agent Orchestrator communicating with a unified MCP server.
-
 ```mermaid
 graph TD
-    UI[Next.js Frontend] -->|API / WebSockets| Server[Torvaix Backend Server]
+    User([User]) --> Workspace[Torvaix Workspace]
+    Workspace --> Router[Router Agent]
     
-    subgraph Multi-Agent Orchestrator
-        Server --> Router[Router Agent]
-        Router --> |Task Classification| MemoryA[Memory Agent]
-        Router --> |Fact Storage| KnowledgeA[Knowledge Agent]
-        Router --> |Action| ExecA[Execution Agent]
-    end
-
-    subgraph Memory Retrieval System
-        MemoryA --> DB[SQLite + Qdrant]
-        KnowledgeA --> DB
-    end
-
-    subgraph Tool Execution Layer
-        ExecA --> |MCP Client| MCPServer[Unified MCP Server]
-        ExecA -.-> |Pending Action Pause| Security[Security Layer - SQLite]
-        MCPServer --> FS[Filesystem Tools]
-        MCPServer --> Term[Terminal Tools]
-        MCPServer --> Browser[Browser Tools]
-    end
+    Router -->|Fact Storage| Knowledge[Knowledge Agent]
+    Router -->|Context Recall| Memory[Memory Agent]
+    Router -->|Action| Exec[Execution Agent]
+    
+    Exec --> MCP[MCP Toolchain]
+    
+    Knowledge --> Storage[(Qdrant / SQLite / Ollama)]
+    Memory --> Storage
+    
+    style User fill:#2D3748,stroke:#4A5568,color:#fff
+    style Workspace fill:#2B6CB0,stroke:#2C5282,color:#fff
+    style Router fill:#4A5568,stroke:#2D3748,color:#fff
+    style Storage fill:#276749,stroke:#2F855A,color:#fff
+    style Exec fill:#DD6B20,stroke:#C05621,color:#fff
+    style MCP fill:#805AD5,stroke:#6B46C1,color:#fff
 ```
 
 ---
+
+## 🔍 Observability (Agent Trace)
+
+Torvaix provides real-time transparency into agent reasoning. The collapsible **Agent Trace** panel in the UI surfaces:
+- Routing decisions (Memory vs Knowledge vs Execution)
+- Context retrieval hits, misses, and vector confidence scores
+- Millisecond-precision tool execution timings
+- Security approval pauses
+
+## 📱 Companion Layer (Experimental)
+
+A strictly isolated, SQLite-backed bridging protocol for secure LAN continuity. Connect secondary trusted devices (like mobile phones) to your Torvaix node via one-time pairing tokens with explicit `readonly` or `admin` scopes. 
+See [COMPANION.md](COMPANION.md) for architecture.
+
+## ⏱️ Benchmarks
+
+Torvaix prioritizes extreme low-latency local performance. Our benchmark suite measures workspace loading, memory retrieval, and execution gating. 
+Run the suite via:
+```bash
+npm run benchmark
+```
+Results are saved to `BENCHMARKS.md` and historically snapshotted to track regressions.
 
 ## 🚀 Quick Start
 

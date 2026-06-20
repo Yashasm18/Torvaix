@@ -91,6 +91,16 @@ Restrict tool scopes whenever possible.
 
 Audit connected tools before use.
 
+## Companion Layer (Experimental) Security
+
+The Companion Layer allows trusted external devices to connect to your Torvaix instance. Because this bridges external devices into your execution environment, the security model is strictly enforced:
+
+* **Token Theft Prevention**: Pairing tokens are strictly one-time use and expire within 10 minutes of generation. Once claimed, they are permanently invalid.
+* **Replay Prevention**: A device claims a token by submitting a unique cryptographic fingerprint. Torvaix binds the session exclusively to this fingerprint. Replay attacks with an already-claimed token will fail.
+* **Scope Isolation**: Devices are granted explicit scopes (`readonly` or `admin`). A `readonly` device can view memory and read workspaces but cannot invoke tools, run terminal commands, or alter the filesystem.
+* **Session Expiry**: Sessions expire naturally and must be re-validated.
+* **Manual Revocation**: At any time, you can manually revoke a device. This instantly invalidates its session token, dropping all active access.
+
 ## Model Provider Security
 
 Torvaix supports both local and external model providers.

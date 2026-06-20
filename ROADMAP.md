@@ -14,17 +14,20 @@ What exists today is just the first layer. What comes next is about making that 
 ```mermaid
 timeline
     title Torvaix Evolution Path
+    section Completed
+        Execution Visibility : Live trace streaming, reasoning transparency
+        Companion Layer (Experimental) : LAN pairing, mobile continuity, remote handoff
     section Near-Term
         Workspace Intelligence : Deeper retrieval, semantic context, rich metadata
         Agent Reliability : Strong routing, safe multi-step planning
         Toolchain Expansion : Browser automation, code sandboxes, file intelligence
-        Execution Visibility : Live streaming, reasoning transparency
     section Mid-Term
-        Companion Layer : LAN pairing, mobile continuity, remote handoff
-        Collaboration : Shared workspaces, team memory, task ownership
+        Companion Hardening : External relays, e2e encryption, mobile native apps
+        Cloud Sync : Opt-in syncing across multiple trusted instances
+        Team Workspaces : Shared workspaces, collaborative team memory, task ownership
         Intelligent Routing : Local vs external balancing, fallback providers
     section Long-Term
-        Autonomous Workflows : Background research, event-driven tasks
+        Autonomous Background Agents : Event-driven tasks, continuous local research
         Knowledge Graphs : Semantic clusters, relationship mapping
         Torvaix OS Layer : A complete environment where tools become native
 ```
@@ -44,8 +47,8 @@ Torvaix already routes elegantly between memory, execution, and knowledge agents
 ### Expanding the Execution Toolchain
 The Model Context Protocol (MCP) layer is merely the prologue. We are aggressively expanding our toolchain to include seamless browser automation, structured API integrations, and profound local file intelligence. Coupled with secure code execution sandboxes, Torvaix will evolve into a boundless extensible execution layer rather than just a conversational interface.
 
-### Unveiling Real-Time Execution
-Agent execution should never be a black box. We are introducing transparent, real-time execution visibility. Expect live tool streaming, comprehensive execution timelines, and reasoning visibility that exposes the "thought process" of your agents. With added tool status indicators and immediate interruption controls, you will always remain the absolute conductor of your operating system.
+### ~~Unveiling Real-Time Execution (Completed)~~
+Agent execution is no longer a black box. Torvaix features a collapsible Agent Trace panel that provides live tool streaming, comprehensive execution timelines, and reasoning visibility, exposing the complete "thought process" of your agents with millisecond-precision.
 
 ```mermaid
 flowchart TD
@@ -70,10 +73,13 @@ flowchart TD
 
 Once the local foundation is impenetrable, we will push Torvaix beyond the confines of a single local workspace.
 
-### The Companion Bridge
-Torvaix will introduce a lightweight companion layer designed to bridge trusted devices. This architecture will enable secure LAN pairing, allowing for seamless mobile workspace continuity and remote session handoffs. Imagine leaving your desk and instantly accessing your Torvaix memory on your phone—one central Torvaix node powering multiple trusted surfaces securely.
+### ~~The Companion Bridge (Completed - Experimental)~~
+Torvaix now includes an experimental lightweight companion layer bridging trusted devices. This architecture enables secure LAN pairing via one-time tokens, allowing for seamless mobile workspace continuity and remote session handoffs. 
 
-### Multiplayer Collaboration
+### Companion Hardening & Cloud Sync
+While the experimental Companion Layer works well on LAN, we are architecting Companion Hardening (e2e encryption, external relays) and optional Cloud Sync. This will allow trusted Torvaix nodes to securely synchronize state globally without sacrificing local-first privacy.
+
+### Multiplayer Collaboration & Team Workspaces
 Workspaces should not remain solitary forever. We are architecting a future where Torvaix scales from personal productivity to team workflows. This involves engineering shared workspaces, collaborative team memory layers, and agents that can take ownership of tasks within a group. Your execution logs and knowledge graphs will become assets you can securely share with trusted peers.
 
 ### Intelligent Model Routing
@@ -85,7 +91,7 @@ Not every task demands the same computational weight. We are building an intelli
 
 This is the horizon where Torvaix transforms from an application into a complete paradigm shift.
 
-### Perpetual Autonomous Workflows
+### Perpetual Autonomous Background Agents
 We envision persistent agents that operate autonomously, far beyond the confines of a chat window. These operators will conduct extensive background research, process your inboxes, and relentlessly index your local knowledge base. Through scheduled execution and event-driven workflows, your agents will continue working and compiling context even when you have stepped away from the screen.
 
 ### Living Knowledge Graphs

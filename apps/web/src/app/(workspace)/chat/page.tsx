@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Bot, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal, XCircle } from "lucide-react";
+import { Send, Bot, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal, XCircle, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck } from "lucide-react";
 import { useDBStore } from "@/store/db-store";
 import { useMemoryContextStore } from "@/store/memory-context-store";
 import { AppLogo } from "@/components/ui/app-logo";
@@ -29,6 +29,42 @@ export default function ChatPage() {
     }
   });
 
+  // --- Agent Trace State ---
+  interface TraceEvent {
+    phase: string;
+    action: string;
+    durationMs?: number;
+    metadata?: Record<string, any>;
+    timestamp: number;
+  }
+  interface TraceData {
+    totalMs: number;
+    events: TraceEvent[];
+  }
+  const [traceMap, setTraceMap] = useState<Map<number, TraceData>>(new Map());
+  const [expandedTraces, setExpandedTraces] = useState<Set<number>>(new Set());
+
+  const toggleTrace = (index: number) => {
+    setExpandedTraces(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  const phaseIcon = (phase: string) => {
+    switch (phase) {
+      case 'router': return <Cpu className="w-3.5 h-3.5 text-blue-400" />;
+      case 'memory': return <HardDrive className="w-3.5 h-3.5 text-purple-400" />;
+      case 'knowledge': return <Database className="w-3.5 h-3.5 text-green-400" />;
+      case 'execution': return <Terminal className="w-3.5 h-3.5 text-amber-400" />;
+      case 'approval': return <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />;
+      case 'complete': return <CheckCircle2 className="w-3.5 h-3.5 text-primary" />;
+      default: return <Activity className="w-3.5 h-3.5 text-muted-foreground" />;
+    }
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -47,6 +83,27 @@ export default function ChatPage() {
         if ('result' in latestQuery && Array.isArray(latestQuery.result)) {
            useMemoryContextStore.getState().setRetrievedMemories(latestQuery.result);
         }
+      }
+    }
+  }, [messages]);
+
+  // Parse trace data from raw SSE chunks
+  useEffect(() => {
+    const lastAssistantIdx = messages.length - 1;
+    const lastMsg = messages[lastAssistantIdx];
+    if (!lastMsg || lastMsg.role !== 'assistant') return;
+    // The trace data arrives as `e:` prefixed JSON in the stream annotations
+    // We check for it in data-stream annotations if useChat exposes them,
+    // but since we use a custom protocol, we parse from the message annotations
+    const annotations = (lastMsg as any).annotations;
+    if (annotations && Array.isArray(annotations)) {
+      for (const ann of annotations) {
+        try {
+          const parsed = typeof ann === 'string' ? JSON.parse(ann) : ann;
+          if (parsed.totalMs && parsed.events) {
+            setTraceMap(prev => new Map(prev).set(lastAssistantIdx, parsed));
+          }
+        } catch { /* not trace data */ }
       }
     }
   }, [messages]);
@@ -195,6 +252,60 @@ export default function ChatPage() {
                         </div>
                       )}
 
+                      {/* Agent Trace Panel — Collapsed by default */}
+                      {message.role === 'assistant' && traceMap.has(index) && (() => {
+                        const trace = traceMap.get(index)!;
+                        const isExpanded = expandedTraces.has(index);
+                        return (
+                          <div className="border border-border/50 rounded-lg overflow-hidden">
+                            <button
+                              onClick={() => toggleTrace(index)}
+                              className="flex items-center justify-between w-full px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Activity className="w-3.5 h-3.5 text-primary" />
+                                <span className="font-medium">Agent Trace</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                                  {trace.totalMs.toFixed(0)}ms · {trace.events.length} steps
+                                </span>
+                              </div>
+                              {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            </button>
+                            {isExpanded && (
+                              <div className="px-3 pb-3 space-y-1.5 border-t border-border/30">
+                                {trace.events.map((ev, i) => (
+                                  <div key={i} className="flex items-center gap-2 text-[11px] py-1 px-2 rounded bg-background/50">
+                                    {phaseIcon(ev.phase)}
+                                    <span className="font-medium text-foreground/80 capitalize">{ev.phase}</span>
+                                    <span className="text-muted-foreground">{ev.action}</span>
+                                    {ev.durationMs !== undefined && (
+                                      <span className="ml-auto flex items-center gap-1 text-muted-foreground">
+                                        <Clock className="w-3 h-3" />
+                                        {ev.durationMs.toFixed(0)}ms
+                                      </span>
+                                    )}
+                                    {ev.metadata?.decision && (
+                                      <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px]">
+                                        → {ev.metadata.decision}
+                                      </span>
+                                    )}
+                                    {ev.metadata?.hit !== undefined && (
+                                      <span className={`px-1.5 py-0.5 rounded text-[10px] ${ev.metadata.hit ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                                        {ev.metadata.hit ? `${ev.metadata.resultCount} hits` : 'miss'}
+                                      </span>
+                                    )}
+                                    {ev.metadata?.tool && (
+                                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 text-[10px]">
+                                        {ev.metadata.tool}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {/* Text Content */}
                       {message.content && (() => {
                         const securityMatch = message.content.match(/Pending Action ID: `([a-f0-9-]+)`/);

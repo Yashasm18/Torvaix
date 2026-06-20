@@ -172,6 +172,117 @@ app.post('/api/memory/query', async (req, res) => {
   }
 });
 
+// ===================================================================
+// COMPANION LAYER (EXPERIMENTAL)
+// Secure device pairing, session continuation, and capability discovery.
+// This layer is fully isolated from core orchestration.
+// ===================================================================
+
+// Generate a one-time pairing token
+app.post('/api/companion/pair/create', async (req, res) => {
+  try {
+    const { scope = 'readonly', expiryMinutes = 10 } = req.body;
+    console.log('[EXPERIMENTAL][Companion] Creating pairing token...');
+    const result = memoryStore.createPairingToken(scope, expiryMinutes);
+    res.status(201).json({
+      success: true,
+      pairingToken: result.token,
+      scope,
+      expiresInMinutes: expiryMinutes,
+      experimental: true
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to create pairing token', details: error.message });
+  }
+});
+
+// Claim a pairing token (device registration)
+app.post('/api/companion/pair/claim', async (req, res) => {
+  try {
+    const { token, deviceName, fingerprint } = req.body;
+    if (!token || !deviceName || !fingerprint) {
+      return res.status(400).json({ error: 'Missing required fields: token, deviceName, fingerprint' });
+    }
+
+    console.log(`[EXPERIMENTAL][Companion] Device "${deviceName}" attempting to pair...`);
+    const deviceId = memoryStore.claimPairingToken(token, deviceName, fingerprint);
+    if (!deviceId) {
+      return res.status(401).json({ error: 'Invalid, expired, or already-claimed pairing token' });
+    }
+
+    // Auto-create a session for the newly paired device
+    const sessionToken = memoryStore.createDeviceSession(deviceId);
+    res.json({
+      success: true,
+      deviceId,
+      sessionToken,
+      experimental: true
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Pairing failed', details: error.message });
+  }
+});
+
+// Create/refresh a session for an already-paired device
+app.post('/api/companion/session', async (req, res) => {
+  try {
+    const { deviceId } = req.body;
+    if (!deviceId) return res.status(400).json({ error: 'Missing deviceId' });
+
+    const sessionToken = memoryStore.createDeviceSession(deviceId);
+    if (!sessionToken) return res.status(401).json({ error: 'Device not found or revoked' });
+
+    res.json({ success: true, sessionToken, experimental: true });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Session creation failed', details: error.message });
+  }
+});
+
+// Validate an active session (capability discovery)
+app.post('/api/companion/session/validate', async (req, res) => {
+  try {
+    const { sessionToken } = req.body;
+    if (!sessionToken) return res.status(400).json({ error: 'Missing sessionToken' });
+
+    const session = memoryStore.validateSession(sessionToken);
+    if (!session) return res.status(401).json({ error: 'Invalid or expired session' });
+
+    res.json({
+      success: true,
+      ...session,
+      capabilities: session.scope === 'admin'
+        ? ['read', 'write', 'execute', 'memory', 'workspaces']
+        : ['read', 'memory'],
+      experimental: true
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Session validation failed', details: error.message });
+  }
+});
+
+// List all companion devices
+app.get('/api/companion/devices', async (req, res) => {
+  try {
+    const devices = memoryStore.listCompanionDevices();
+    res.json({ success: true, devices, experimental: true });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to list devices', details: error.message });
+  }
+});
+
+// Revoke a companion device
+app.post('/api/companion/devices/revoke', async (req, res) => {
+  try {
+    const { deviceId } = req.body;
+    if (!deviceId) return res.status(400).json({ error: 'Missing deviceId' });
+
+    memoryStore.revokeDevice(deviceId);
+    res.json({ success: true, message: 'Device revoked', experimental: true });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to revoke device', details: error.message });
+  }
+});
+
 // WebSocket for real-time communication
 wss.on('connection', (ws: any) => {
   const connectionId = crypto.randomBytes(16).toString('hex');
@@ -199,6 +310,7 @@ server.listen(PORT, () => {
   console.log(`Health check: http://localhost:${PORT}/api/health`);
   console.log(`Agent API:    http://localhost:${PORT}/api/agent/run`);
   console.log(`Memory API:   http://localhost:${PORT}/api/memory/store`);
+  console.log(`Companion:    http://localhost:${PORT}/api/companion/pair/create [EXPERIMENTAL]`);
 });
 
 export default app;

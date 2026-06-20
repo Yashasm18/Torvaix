@@ -35,7 +35,9 @@ jobs:
         run: |
           node -e "const fs=require('fs'); fs.rmSync('apps/web/src/app/(workspace)', {recursive:true, force:true}); fs.rmSync('apps/web/src/app/api', {recursive:true, force:true});"
       - name: Build with Next.js
-        run: npm run build
+        run: |
+          sed -i 's/output: "standalone"/output: "export"/' apps/web/next.config.ts
+          npm run build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

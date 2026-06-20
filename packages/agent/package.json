@@ -1,1 +1,12 @@
-{"name":"@torvaix/agent","version":"1.0.0","scripts":{"start":"tsx src/server.ts","dev":"tsx src/server.ts"},"dependencies":{"express":"^5.2.1","ws":"^8.21.0"}}
+{
+  "name": "@torvaix/agent",
+  "version": "0.1.0",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "ws": "^8.21.0"
+  }
+}

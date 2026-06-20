@@ -42,3 +42,11 @@ Thumbs.db
 *.db
 *.db-journal
 torvaix_metadata.db
+
+# Benchmarks & Tests
+benchmarks/history/*.json
+BENCHMARKS.md
+
+# Media/Demo
+media_*.png
+*.gif
