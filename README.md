@@ -1,12 +1,19 @@
 <div align="center">
   
-# 🌌 Torvaix
+<h1>
+  <img src="apps/web/src/app/icon.svg" width="40" align="center" alt="Torvaix Logo" />
+  Torvaix
+</h1>
 
 **A workspace-first AI operating system. Local-first, privacy-first, zero telemetry.**
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-Available-00D4AA?style=for-the-badge&logo=vercel)](https://Yashasm18.github.io/Torvaix)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![Kaggle Capstone](https://img.shields.io/badge/Kaggle-Capstone-20BEFF?style=for-the-badge&logo=kaggle)](#)
+[![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=next.js&logoColor=white)](#)
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](#)
+[![Ollama](https://img.shields.io/badge/Ollama-111111?style=for-the-badge&logo=ollama&logoColor=white)](#)
+[![Qdrant](https://img.shields.io/badge/Qdrant-FF5252?style=for-the-badge&logo=qdrant&logoColor=white)](#)
+[![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](#)
+[![MCP](https://img.shields.io/badge/MCP_Standard-8A2BE2?style=for-the-badge)](#)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#)
 
 *Your data belongs to you. Keep it that way.*
 
