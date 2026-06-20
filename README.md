@@ -1,9 +1,9 @@
 <div align="center">
   
-<img src="apps/web/public/torvaix-brand-logo.png" height="50" alt="Torvaix Logo" />
+<img src="apps/web/public/torvaix-brand-logo.png" height="75" alt="Torvaix Logo" />
 <br />
 
-**A workspace-first AI operating system. Local-first, privacy-first, zero telemetry.**
+**A workspace-first AI operating system for memory, agents, knowledge, and execution.**
 
 [![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=next.js&logoColor=white)](#)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](#)
