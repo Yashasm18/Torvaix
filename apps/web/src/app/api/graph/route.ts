@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getAllNodesAndEdges } from '@torvaix/graph';
 
+export const dynamic = "force-static";
+
 export async function GET() {
   try {
     const data = getAllNodesAndEdges();

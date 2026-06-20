@@ -83,14 +83,14 @@ export function AppSidebar() {
   }
 
   const navItems = [
-    { title: "Workspace", icon: Home, href: "/app" },
-    { title: "Projects", icon: Folder, href: "/app/projects" },
-    { title: "Knowledge", icon: BookOpen, href: "/app/knowledge" },
-    { title: "Graph", icon: Database, href: "/app/graph" },
-    { title: "Agents", icon: Bot, href: "/app/agents" },
-    { title: "Tasks", icon: CheckSquare, href: "/app/tasks" },
-    { title: "Intelligence", icon: Cpu, href: "/app/intelligence" },
-    { title: "Automation", icon: Zap, href: "/app/automation" },
+    { title: "Workspace", icon: Home, href: "/" },
+    { title: "Projects", icon: Folder, href: "/projects" },
+    { title: "Knowledge", icon: BookOpen, href: "/knowledge" },
+    { title: "Graph", icon: Database, href: "/graph" },
+    { title: "Agents", icon: Bot, href: "/agents" },
+    { title: "Tasks", icon: CheckSquare, href: "/tasks" },
+    { title: "Intelligence", icon: Cpu, href: "/intelligence" },
+    { title: "Automation", icon: Zap, href: "/automation" },
   ]
 
   return (
