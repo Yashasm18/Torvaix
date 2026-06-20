@@ -70,16 +70,21 @@ npm install
 
 ## 💻 Localhost Run Instructions
 
-Torvaix is designed for local reproducibility. To run the full stack (Frontend, Agent Server, MCP Server):
+Torvaix is designed for a seamless local developer experience.
 
 ```bash
-# This starts the Next.js app AND the Torvaix backend orchestrator
+# 1. Install dependencies
+npm install
+
+# 2. Start all services
 npm run dev
 ```
 
+> **What happens?** The Agent Server and Next.js Frontend will start simultaneously. Once ready, your default browser will automatically open to `http://localhost:3000`. If port 3000 is occupied, the startup will fail safely instead of silently switching ports.
+
+**Prerequisites to check before running:**
 1. Ensure Ollama is running (`ollama serve`).
-2. Open `http://localhost:3000`.
-3. Create an account or login locally.
+2. If using Qdrant via Docker, ensure it's up. Otherwise, it falls back to SQLite.
 
 ---
 
