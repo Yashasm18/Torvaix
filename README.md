@@ -15,6 +15,14 @@
 [![MCP](https://img.shields.io/badge/MCP_Standard-8A2BE2?style=for-the-badge)](#)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#)
 
+<br />
+<p align="center">
+  <a href="#-quick-start">Quick Start</a> ·
+  <a href="SETUP.md">Setup Guide</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="ROADMAP.md">Roadmap</a>
+</p>
+
 *Your data belongs to you. Keep it that way.*
 
 </div>
