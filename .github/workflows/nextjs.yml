@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -36,8 +36,19 @@ jobs:
           node -e "const fs=require('fs'); fs.rmSync('apps/web/src/app/(workspace)', {recursive:true, force:true}); fs.rmSync('apps/web/src/app/api', {recursive:true, force:true});"
       - name: Build with Next.js
         run: |
-          sed -i 's/output: "standalone"/output: "export"/' apps/web/next.config.ts
-          npm run build
+          node -e "
+            const fs = require('fs');
+            const configPath = 'apps/web/next.config.ts';
+            const config = fs.readFileSync(configPath, 'utf8');
+            fs.writeFileSync(
+              configPath,
+              config.replace(
+                'output: \"standalone\"',
+                'output: \"export\",\n  basePath: \"/Torvaix\"'
+              )
+            );
+          "
+          npm run build --workspace=web
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

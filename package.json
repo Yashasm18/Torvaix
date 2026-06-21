@@ -4,6 +4,9 @@
   "private": true,
   "description": "Torvaix: Workspace-first AI Operating System — local-first, privacy-first, no telemetry.",
   "license": "AGPL-3.0",
+  "engines": {
+    "node": ">=22"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/Yashasm18/Torvaix.git"
