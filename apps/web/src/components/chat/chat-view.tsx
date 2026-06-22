@@ -234,7 +234,7 @@ export function ChatView({ chatId }: { chatId: string }) {
               <Zap className="h-8 w-8 opacity-30" />
               <p>Send a message to begin.</p>
               <p className="text-xs opacity-60">
-                Try: "Remember that my favorite framework is Next.js"
+Try: &quot;Remember that my favorite framework is Next.js&quot;
               </p>
             </div>
           )}
