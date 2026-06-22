@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
-    "@torvaix/types": "*"
+    "@torvaix/types": "*",
+    "@torvaix/providers": "*"
   }
 }

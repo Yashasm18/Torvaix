@@ -1,16 +1,17 @@
 {
   "name": "@torvaix/mcp",
   "version": "0.1.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Torvaix MCP toolchain — unified tool server and client manager",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
     "test": "echo \"No tests specified yet\""
   },
   "keywords": [],
   "author": "",
   "license": "AGPL-3.0",
-  "type": "commonjs",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.1",
     "@types/node": "^20.19.42",
     "node-fetch": "^3.3.2",
     "typescript": "^5.9.3",

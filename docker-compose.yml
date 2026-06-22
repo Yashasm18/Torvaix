@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.12.0
     container_name: torvaix-qdrant
     ports:
       - "6333:6333"
@@ -14,8 +14,75 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
       interval: 10s
       timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: torvaix-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # Pull default models on first start
+    entrypoint: >
+      sh -c '
+        ollama serve &
+        OLLAMA_PID=$$!
+        sleep 10
+        echo "[Ollama] Pulling default models..."
+        ollama pull llama3.2 || true
+        ollama pull nomic-embed-text || true
+        echo "[Ollama] Models ready."
+        wait $$OLLAMA_PID
+      '
+
+  torvaix:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: torvaix-app
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - OLLAMA_URL=http://ollama:11434
+      - QDRANT_URL=http://qdrant:6333
+      - AGENT_PORT=3001
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - TORVAIX_MODEL=${TORVAIX_MODEL:-llama3.2}
+      # Optional: cloud provider API keys for fallback
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+    env_file:
+      - .env
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
       retries: 3
+      start_period: 60s
 
 volumes:
   qdrant_data:
+    driver: local
+  ollama_data:
     driver: local

@@ -21,7 +21,13 @@
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "vitest",
+    "test:ci": "vitest run",
+    "test:memory": "vitest run packages/memory",
+    "test:providers": "vitest run packages/providers",
+    "test:router": "vitest run packages/router",
+    "test:agent": "vitest run packages/agent",
+    "test:mcp": "vitest run packages/mcp",
     "benchmark": "npx tsx scripts/benchmark.ts"
   },
   "dependencies": {
@@ -37,6 +43,7 @@
     "open-cli": "^9.0.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
+    "vitest": "^2.1.0",
     "wait-on": "^9.0.10"
   }
 }

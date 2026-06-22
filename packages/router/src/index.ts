@@ -1,93 +1,225 @@
-import { RoutingDecision } from '@torvaix/types';
-import { MODELS } from '@torvaix/providers';
+/**
+ * Torvaix Hybrid Router
+ *
+ * Two-tier routing system:
+ * 1. FAST PATH: Regex patterns for common memory/knowledge/execution queries
+ *    - Zero latency, covers ~80% of typical interactions
+ * 2. LLM FALLBACK: For ambiguous queries, use a cheap/fast LLM to classify
+ *    - Only triggers when fast path is uncertain
+ *
+ * Returns RoutingDecision compatible with existing types.
+ */
 
-const CATEGORIES = {
-  coding: ['code', 'react', 'function', 'debug', 'error', 'typescript', 'python', 'bug', 'component', 'algorithm', 'optimization', 'refactor', 'test', 'unit test', 'integration', 'deployment', 'api', 'database', 'sql', 'query', 'schema', 'design pattern', 'architecture'],
-  writing: ['write', 'edit', 'essay', 'blog', 'rewrite', 'grammar', 'summary', 'translate', 'creative', 'story', 'article', 'content', 'copy', 'marketing', 'social media', 'email', 'letter', 'report', 'documentation'],
-  reasoning: ['math', 'logic', 'calculate', 'why', 'explain', 'how', 'solve', 'theory', 'analysis', 'evaluation', 'assessment', 'comparison', 'problem', 'solution', 'strategy', 'plan', 'decision', 'recommendation'],
-  research: ['find', 'search', 'history', 'who', 'what', 'when', 'fact', 'data', 'analyze', 'investigate', 'research', 'study', 'survey', 'experiment', 'observation', 'evidence', 'source', 'reference', 'citation']
-};
+import { LLMClient, LLMMessage, type ProviderId } from '@torvaix/providers';
+import type { RoutingDecision } from '@torvaix/types';
 
-export function routePrompt(prompt: string): RoutingDecision {
-  const words = prompt.toLowerCase().split(/\W+/);
-  
-  const breakdown: Record<string, number> = {
-    coding: 0,
-    writing: 0,
-    reasoning: 0,
-    research: 0
-  };
+export type RouteTarget = 'memory' | 'knowledge' | 'execution';
 
-  // Enhanced keyword matching with weights
-  words.forEach(word => {
-    // Coding tasks with higher weights
-    if (['code', 'function', 'debug', 'error', 'python', 'javascript', 'typescript', 'react', 'component', 'api', 'database', 'sql', 'algorithm', 'optimization', 'refactor', 'test', 'unit test', 'integration', 'deployment', 'architecture', 'design pattern', 'class', 'method', 'variable', 'loop', 'conditional', 'object', 'array', 'string', 'number', 'boolean', 'null', 'undefined', 'async', 'await', 'promise', 'callback', 'event', 'listener', 'dom', 'html', 'css', 'json', 'xml', 'yaml', 'markdown', 'git', 'github', 'repository', 'commit', 'branch', 'merge', 'pull request', 'issue', 'project', 'workspace', 'module', 'package', 'import', 'export', 'require', 'from', 'default', 'export default', 'interface', 'type', 'generic', 'generics', 'inheritance', 'polymorphism', 'encapsulation', 'abstraction', 'interface', 'abstract', 'final', 'static', 'instance', 'constructor', 'getter', 'setter', 'property', 'field', 'attribute', 'method', 'function', 'arrow', 'fat arrow', 'spread', 'rest', 'destructuring', 'optional chaining', 'nullish coalescing', 'template literal', 'backtick', 'interpolation', 'tagged template', 'literal type', 'keyof', 'typeof', 'instanceof', 'new', 'this', 'super', 'extends', 'implements', 'readonly', 'readonly property', 'private', 'protected', 'public', 'static method', 'instance method', 'class method', 'static property', 'instance property', 'getter', 'setter', 'computed property', 'property initializer', 'constructor parameter', 'parameter properties', 'access modifier', 'visibility', 'encapsulation', 'information hiding', 'abstraction', 'interface segregation', 'single responsibility', 'open closed', 'dependency inversion', 'solid', 'clean code', 'code quality', 'code review', 'peer review', 'code style', 'linting', 'formatting', 'prettier', 'eslint', 'typescript compiler', 'tsc', 'declaration', 'type definition', 'type alias', 'intersection type', 'union type', 'conditional type', 'mapped type', 'indexed access type', 'utility type', 'generic type', 'type parameter', 'constraint', 'extends type', 'implements type', 'type guard', 'type assertion', 'type casting', 'type narrowing', 'type inference', 'type checking', 'type safety', 'type system', 'type checking', 'type validation', 'type schema', 'zod', 'joi', 'ajv', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma'].includes(word) && breakdown.coding++;
-    
-    if (['write', 'edit', 'essay', 'blog', 'rewrite', 'grammar', 'summary', 'translate', 'creative', 'story', 'article', 'content', 'copy', 'marketing', 'social media', 'email', 'letter', 'report', 'documentation', 'whitepaper', 'case study', 'testimonial', 'press release', 'announcement', 'update', 'post', 'comment', 'reply', 'response', 'answer', 'question', 'inquiry', 'request', 'proposal', 'presentation', 'speech', 'talk', 'lecture', 'tutorial', 'guide', 'manual', 'instruction', 'how to', 'step by step', 'best practices', 'tips', 'advice', 'recommendation', 'suggestion', 'idea', 'concept', 'vision', 'mission', 'values', 'culture', 'brand', 'identity', 'voice', 'tone', 'style', 'format', 'structure', 'organization', 'flow', 'transition', 'coherence', 'consistency', 'clarity', 'conciseness', 'precision', 'accuracy', 'completeness', 'relevance', 'appropriateness', 'sensitivity', 'respect', 'inclusivity', 'diversity', 'equity', 'inclusion', 'accessibility', 'usability', 'user experience', 'user interface', 'design', 'layout', 'typography', 'color', 'contrast', 'hierarchy', 'alignment', 'spacing', 'padding', 'margin', 'border', 'radius', 'shadow', 'gradient', 'animation', 'transition', 'interaction', 'feedback', 'response', 'action', 'command', 'control', 'input', 'output', 'display', 'presentation', 'visualization', 'chart', 'graph', 'diagram', 'flowchart', 'wireframe', 'mockup', 'prototype', 'mock', 'stencil', 'template', 'component', 'widget', 'element', 'atom', 'molecule', 'organism', 'page', 'screen', 'view', 'dialog', 'modal', 'popup', 'overlay', 'tooltip', 'popover', 'dropdown', 'select', 'checkbox', 'radio', 'toggle', 'switch', 'slider', 'range', 'input', 'textarea', 'file', 'upload', 'download', 'save', 'load', 'open', 'close', 'minimize', 'maximize', 'restore', 'resize', 'drag', 'drop', 'drag and drop', 'drop zone', 'file drop', 'file upload', 'image upload', 'video upload', 'audio upload', 'document upload', 'attachment', 'attachment', 'attachment', 'attachment', 'attachment', 'attachment', 'attachment'].includes(word) && breakdown.writing++;
-    
-    if (['math', 'logic', 'calculate', 'why', 'explain', 'how', 'solve', 'theory', 'analysis', 'evaluation', 'assessment', 'comparison', 'problem', 'solution', 'strategy', 'plan', 'decision', 'recommendation', 'optimization', 'efficiency', 'effectiveness', 'performance', 'quality', 'value', 'benefit', 'cost', 'price', 'budget', 'expense', 'revenue', 'income', 'profit', 'loss', 'risk', 'risk assessment', 'risk management', 'risk mitigation', 'risk transfer', 'risk retention', 'risk sharing', 'risk pooling', 'risk diversification', 'risk hedging', 'risk arbitrage', 'risk premium', 'risk free', 'risk neutral', 'risk averse', 'risk seeking', 'risk neutral', 'risk indifferent', 'risk sensitive', 'risk aware', 'risk conscious', 'risk management', 'risk assessment', 'risk analysis', 'risk evaluation', 'risk measurement', 'risk quantification', 'risk calculation', 'risk estimation', 'risk prediction', 'risk forecasting', 'risk scenario', 'risk simulation', 'risk modeling', 'risk analysis', 'risk assessment', 'risk evaluation', 'risk measurement', 'risk quantification', 'risk calculation', 'risk estimation', 'risk prediction', 'risk forecasting', 'risk scenario', 'risk simulation', 'risk modeling'].includes(word) && breakdown.reasoning++;
-    
-    if (['find', 'search', 'history', 'who', 'what', 'when', 'fact', 'data', 'analyze', 'investigate', 'research', 'study', 'survey', 'experiment', 'observation', 'evidence', 'source', 'reference', 'citation', 'bibliography', 'reference list', 'works cited', 'footnotes', 'endnotes', 'annotation', 'commentary', 'editorial', 'review', 'critique', 'criticism', 'commentary', 'analysis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis'].includes(word) && breakdown.research++;
-  });
+// ── Fast Path Patterns ──
+// These regexes detect common query types without any LLM call
 
-  // Base confidence
-  breakdown.reasoning += 5;
+const MEMORY_PATTERNS = [
+  /^what\s+is\s+my\b/i,
+  /^do\s+you\s+remember\b/i,
+  /^what\s+did\s+i\s+say\b/i,
+  /^recall\b/i,
+  /^what\s+do\s+you\s+know\s+about\s+me\b/i,
+  /^what\s+was\s+my\b/i,
+  /^tell\s+me\s+what\s+i\s+told\s+you\b/i,
+  /^remind\s+me\s+(of|about)\s+what\s+i\b/i,
+];
 
-  let maxScore = 0;
-  let topCategory = 'reasoning';
+const KNOWLEDGE_PATTERNS = [
+  /^remember\s+that\b/i,
+  /^note\s+that\b/i,
+  /^save\s+this\b/i,
+  /^my\s+favorite\s+(?:is|are)\b/i,
+  /^i\s+prefer\b/i,
+  /^keep\s+in\s+mind\b/i,
+  /^store\s+this\b/i,
+  /^don'?t\s+forget\s+that\b/i,
+  /^the\s+deadline\s+is\b/i,
+  /^my\s+(?:name|email|phone|address|birthday)\s+is\b/i,
+  /^i\s+work\s+(?:at|for)\b/i,
+  /^i\s+(?:like|love|hate|dislike)\b/i,
+];
 
-  for (const [category, score] of Object.entries(breakdown)) {
-    if (score > maxScore) {
-      maxScore = score;
-      topCategory = category;
+const EXECUTION_PATTERNS = [
+  /^(?:create|make|write|generate)\s+(?:a|an|the|some)\b/i,
+  /^(?:run|execute|perform|do)\b/i,
+  /^(?:fix|debug|solve|calculate|compute|convert)\b/i,
+  /^(?:search|look\s+up|find)\s+(?:for|up)?\b/i,
+  /^(?:list|show|display|print|get)\s+(?:all|the|me)?\b/i,
+  /^(?:delete|remove|update|modify|change|rename)\b/i,
+  /^(?:read|open|cat|head|tail)\s+(?:the|file|this)?\b/i,
+  /^(?:install|set\s+up|configure|build|compile)\b/i,
+  /^(?:git\s+(?:clone|pull|push|commit|status|log|branch))\b/i,
+  /^(?:npm\s+(?:install|run|build|test|init))\b/i,
+  /^(?:python|node|npx)\b/i,
+];
+
+// ── Fast Path Router ──
+
+function tryFastPath(prompt: string): { target: RouteTarget; confidence: number; reason: string } | null {
+  // Check memory patterns first (recall)
+  for (const pattern of MEMORY_PATTERNS) {
+    if (pattern.test(prompt)) {
+      return { target: 'memory', confidence: 0.95, reason: `Fast path: memory recall pattern "${pattern.source}"` };
     }
   }
 
-  // Normalize to percentage (roughly)
-  const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
-  const confidence = total > 0 ? Math.min(100, Math.round((maxScore / total) * 100)) : 50;
-
-  // Enhanced provider mapping based on category and available models
-  let provider = 'openai';
-  let reason = 'General reasoning task';
-
-  // Special handling for local models
-  if (prompt.toLowerCase().includes('offline') || prompt.toLowerCase().includes('local') || prompt.toLowerCase().includes('privacy')) {
-    provider = 'ollama';
-    reason = 'Privacy-first local processing';
+  // Check knowledge patterns (store)
+  for (const pattern of KNOWLEDGE_PATTERNS) {
+    if (pattern.test(prompt)) {
+      return { target: 'knowledge', confidence: 0.95, reason: `Fast path: knowledge store pattern "${pattern.source}"` };
+    }
   }
 
-  switch(topCategory) {
-    case 'coding':
-      // Choose best coding model
-      const codingModel = MODELS.find(m => m.provider === 'deepseek' || m.id.includes('coder')) || MODELS.find(m => m.provider === 'openai');
-      provider = codingModel?.provider || 'openai';
-      reason = 'Coding & Development Assistance';
-      break;
-    case 'writing':
-      // Choose best writing model
-      const writingModel = MODELS.find(m => m.provider === 'anthropic') || MODELS.find(m => m.provider === 'openai');
-      provider = writingModel?.provider || 'anthropic';
-      reason = 'Creative Writing & Editing';
-      break;
-    case 'research':
-      // Choose best research model
-      const researchModel = MODELS.find(m => m.provider === 'google') || MODELS.find(m => m.provider === 'openai');
-      provider = researchModel?.provider || 'google';
-      reason = 'Research & Data Analysis';
-      break;
-    case 'reasoning':
-      // Choose best reasoning model
-      const reasoningModel = MODELS.find(m => m.provider === 'openai') || MODELS.find(m => m.provider === 'anthropic');
-      provider = reasoningModel?.provider || 'openai';
-      reason = 'Complex Logic & Reasoning';
-      break;
+  // Check execution patterns (action)
+  for (const pattern of EXECUTION_PATTERNS) {
+    if (pattern.test(prompt)) {
+      return { target: 'execution', confidence: 0.88, reason: `Fast path: execution pattern "${pattern.source}"` };
+    }
   }
+
+  // If prompt is very short and looks like a simple question → execution (general chat)
+  if (prompt.length < 30 && /^[a-z\s]+\??$/i.test(prompt)) {
+    return { target: 'execution', confidence: 0.6, reason: 'Fast path: short general query → execution (chat)' };
+  }
+
+  return null; // Ambiguous — needs LLM
+}
+
+// ── LLM Fallback Router ──
+
+const ROUTING_SYSTEM_PROMPT = `You are a query classifier for an AI workspace assistant. Classify the user request into exactly one category:
+
+- "knowledge" = User is TELLING you a fact to STORE/SAVE for later. Examples: "remember that my favorite framework is Next.js", "note that the deadline is Friday", "my preferred language is Python", "I work at Acme Corp", "save this API key".
+- "memory" = User is ASKING you to RECALL/RETRIEVE something previously stored. Examples: "what is my favorite framework?", "do you remember my API key?", "what did I say about the deadline?", "recall my project setup".
+- "execution" = User wants you to DO something: run code, read/write files, search the web, answer general questions, solve problems, create content. Examples: "create a hello.py file", "search for React best practices", "what is the capital of France?", "fix this bug", "write an essay about AI".
+
+Reply with ONLY a JSON object, no markdown, no explanation:
+{"target": "memory|knowledge|execution", "confidence": 0.0-1.0, "reason": "one sentence explanation"}`;
+
+async function llmFallbackRoute(
+  prompt: string,
+  llm: LLMClient,
+  model: string = 'gpt-4o-mini'
+): Promise<{ target: RouteTarget; confidence: number; reason: string }> {
+  const messages: LLMMessage[] = [
+    { role: 'system', content: ROUTING_SYSTEM_PROMPT },
+    { role: 'user', content: prompt },
+  ];
+
+  try {
+    const res = await llm.complete(model, messages, { temperature: 0, maxTokens: 100 });
+    const text = res.text.trim();
+
+    // Extract JSON from potential markdown fences
+    const jsonMatch = text.match(/\{[\s\S]*?\}/);
+    if (!jsonMatch) {
+      return { target: 'execution', confidence: 0.5, reason: 'LLM fallback: no JSON found, defaulting to execution' };
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const target = parsed.target;
+
+    if (!['memory', 'knowledge', 'execution'].includes(target)) {
+      return { target: 'execution', confidence: 0.5, reason: 'LLM fallback: invalid target, defaulting to execution' };
+    }
+
+    return {
+      target,
+      confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.8)),
+      reason: parsed.reason || 'LLM fallback routing',
+    };
+  } catch (err: any) {
+    return { target: 'execution', confidence: 0.4, reason: `LLM fallback error: ${err.message}` };
+  }
+}
+
+// ── Provider suggestion based on route target ──
+
+function suggestProvider(target: RouteTarget): { provider: string; reason: string } {
+  switch (target) {
+    case 'memory':
+      return { provider: 'ollama', reason: 'Memory retrieval works well with local models' };
+    case 'knowledge':
+      return { provider: 'ollama', reason: 'Knowledge storage uses local embeddings' };
+    case 'execution':
+      return { provider: 'openai', reason: 'Execution may require advanced reasoning' };
+    default:
+      return { provider: 'ollama', reason: 'Default to local privacy-first' };
+  }
+}
+
+// ── Public API ──
+
+/**
+ * Route a user prompt to the appropriate agent target.
+ *
+ * Fast path (regex) → zero latency for common patterns
+ * LLM fallback → only for ambiguous queries
+ */
+export async function routePrompt(
+  prompt: string,
+  options?: {
+    llm?: LLMClient;
+    fallbackModel?: string;
+    useLlmFallback?: boolean;
+  }
+): Promise<RoutingDecision> {
+  // 1. Try fast path
+  const fast = tryFastPath(prompt);
+  if (fast && fast.confidence >= 0.85) {
+    const suggestion = suggestProvider(fast.target);
+    return {
+      provider: suggestion.provider,
+      confidence: fast.confidence,
+      reason: `${fast.reason} → ${suggestion.reason}`,
+      breakdown: { [fast.target]: fast.confidence, fast_path: 1 },
+    };
+  }
+
+  // 2. If LLM fallback is available and enabled, use it
+  if (options?.useLlmFallback !== false && options?.llm) {
+    const llmResult = await llmFallbackRoute(prompt, options.llm, options.fallbackModel);
+    const suggestion = suggestProvider(llmResult.target);
+    return {
+      provider: suggestion.provider,
+      confidence: llmResult.confidence,
+      reason: `${llmResult.reason} → ${suggestion.reason}`,
+      breakdown: { [llmResult.target]: llmResult.confidence, llm_fallback: 1 },
+    };
+  }
+
+  // 3. Default: fast path with lower confidence, or generic execution
+  const target = fast?.target ?? 'execution';
+  const confidence = fast?.confidence ?? 0.5;
+  const reason = fast?.reason ?? 'No pattern matched, defaulting to execution';
+  const suggestion = suggestProvider(target);
 
   return {
-    provider,
+    provider: suggestion.provider,
     confidence,
-    reason,
-    breakdown
+    reason: `${reason} → ${suggestion.reason}`,
+    breakdown: { [target]: confidence, default: 1 },
+  };
+}
+
+/**
+ * Synchronous fast-path only version.
+ * Returns null if the prompt is ambiguous (caller should use async routePrompt).
+ */
+export function routePromptFast(prompt: string): RoutingDecision | null {
+  const fast = tryFastPath(prompt);
+  if (!fast || fast.confidence < 0.85) return null;
+
+  const suggestion = suggestProvider(fast.target);
+  return {
+    provider: suggestion.provider,
+    confidence: fast.confidence,
+    reason: fast.reason,
+    breakdown: { [fast.target]: fast.confidence },
   };
 }

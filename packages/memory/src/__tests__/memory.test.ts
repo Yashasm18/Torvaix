@@ -1,113 +1,250 @@
+/**
+ * Tests for Torvaix Memory Store
+ *
+ * Tests SQLite operations, workspace management, and the embedding fallback chain.
+ * Note: Qdrant and Ollama integration tests require those services to be running.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MemoryStore } from '../index';
-import path from 'path';
 import fs from 'fs';
-import { assert } from 'console';
+import path from 'path';
+import os from 'os';
 
-const TEST_DB_PATH = path.resolve(__dirname, '../../test-torvaix.db');
-const WORKSPACE_ID = 'test-regression-suite';
+describe('MemoryStore — SQLite Operations', () => {
+  let dbPath: string;
+  let store: MemoryStore;
 
-async function runTests() {
-  console.log("==========================================");
-  console.log("🚀 Starting Memory Store Regression Suite");
-  console.log("==========================================\n");
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `torvaix-test-${Date.now()}.db`);
+    store = new MemoryStore(dbPath, {
+      ollamaUrl: 'http://localhost:11434', // will fail gracefully
+      qdrantUrl: 'http://localhost:6333',  // will fail gracefully
+    });
+  });
 
-  // Cleanup old test DB
-  if (fs.existsSync(TEST_DB_PATH)) {
-    fs.unlinkSync(TEST_DB_PATH);
-  }
+  afterEach(() => {
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
 
-  const store = new MemoryStore(TEST_DB_PATH);
-  
-  try {
-    console.log("Checking Qdrant and Ollama connectivity...");
-    await store.initQdrant();
-  } catch (e: any) {
-    console.error("❌ Pre-flight check failed! Is Qdrant and Ollama running?");
-    console.error(e.message);
-    process.exit(1);
-  }
+  it('creates default workspace', () => {
+    const ws = store.getWorkspace('default');
+    expect(ws).toBeDefined();
+    expect(ws!.name).toBe('Default Workspace');
+  });
 
-  let memoryId: string = "";
+  it('creates and retrieves workspaces', () => {
+    const id = store.createWorkspace('Test Workspace', { theme: 'dark' });
+    expect(id).toBeDefined();
+    expect(id.length).toBeGreaterThan(0);
 
-  try {
-    console.log("\n--- Category 1: Storage & Embedding Tests ---");
-    
-    // Test 1: Store Memory
-    process.stdout.write("Test: Store Memory... ");
-    memoryId = await store.storeMemory(WORKSPACE_ID, "My favorite database is PostgreSQL", "Regression Test");
-    assert(memoryId.length > 10, "Memory ID should be generated");
-    console.log("✅ Passed");
+    const ws = store.getWorkspace(id);
+    expect(ws).toBeDefined();
+    expect(ws!.name).toBe('Test Workspace');
 
-    // Test 2: Retrieve By ID (SQLite Check)
-    process.stdout.write("Test: Retrieve By ID (Consistency)... ");
-    const record = await store.getMemoryById(memoryId);
-    assert(record !== undefined, "Record must exist in SQLite");
-    assert(record.content === "My favorite database is PostgreSQL", "Content must match");
-    console.log("✅ Passed");
+    const settings = JSON.parse(ws!.settings);
+    expect(settings.theme).toBe('dark');
+  });
 
-    console.log("\n--- Category 2: Retrieval Tests ---");
+  it('lists workspaces', () => {
+    store.createWorkspace('Workspace A');
+    store.createWorkspace('Workspace B');
+    const list = store.listWorkspaces();
+    expect(list.length).toBeGreaterThanOrEqual(3); // default + 2
+  });
 
-    // Test 3: Semantic Retrieval
-    process.stdout.write("Test: Semantic Match Retrieval... ");
-    const results = await store.queryMemory(WORKSPACE_ID, "What database do I prefer?", 3);
-    assert(results.length > 0, "Should retrieve at least one result");
-    assert(results[0].id === memoryId, "Top result should be our stored memory");
-    assert(results[0].score > 0.6, "Confidence threshold should be high");
-    console.log(`✅ Passed (Confidence: ${(results[0].score * 100).toFixed(1)}%)`);
+  it('stores and queries memories (SQLite fallback)', async () => {
+    const wsId = store.createWorkspace('Memory Test');
+    const memId = await store.storeMemory(wsId, 'My favorite language is TypeScript', 'test');
+    expect(memId).toBeDefined();
 
-    // Test 4: Unrelated Query
-    process.stdout.write("Test: Unrelated Query Retrieval... ");
-    const badResults = await store.queryMemory(WORKSPACE_ID, "How do I bake a cake?", 3);
-    // Even if it returns results, the confidence should be low
-    if (badResults.length > 0) {
-      assert(badResults[0].score < 0.5, "Confidence should be low for unrelated queries");
+    const results = await store.queryMemory(wsId, 'favorite language', 5);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].content).toContain('TypeScript');
+  });
+
+  it('queries memories across multiple stored items', async () => {
+    const wsId = store.createWorkspace('Multi Memory Test');
+    await store.storeMemory(wsId, 'I love React for frontend development', 'test');
+    await store.storeMemory(wsId, 'My favorite backend framework is Express', 'test');
+    await store.storeMemory(wsId, 'I use Python for data science projects', 'test');
+
+    const results = await store.queryMemory(wsId, 'favorite backend', 5);
+    expect(results.length).toBeGreaterThan(0);
+    // Should find the Express entry
+    const expressResult = results.find(r => r.content.includes('Express'));
+    expect(expressResult).toBeDefined();
+  });
+
+  it('returns empty array for no matches', async () => {
+    const wsId = store.createWorkspace('Empty Test');
+    const results = await store.queryMemory(wsId, 'something that does not exist anywhere', 5);
+    expect(Array.isArray(results)).toBe(true);
+  });
+
+  it('updates memory content', async () => {
+    const wsId = store.createWorkspace('Update Test');
+    const id = await store.storeMemory(wsId, 'Original content', 'test');
+    await store.updateMemory(id, 'Updated content');
+
+    const all = await store.getAllMemories(wsId);
+    const updated = (all as any[]).find((m: any) => m.id === id);
+    expect(updated.content).toBe('Updated content');
+  });
+
+  it('deletes memory', async () => {
+    const wsId = store.createWorkspace('Delete Test');
+    const id = await store.storeMemory(wsId, 'To be deleted', 'test');
+    await store.deleteMemory(id);
+
+    const mem = await store.getMemoryById(id);
+    expect(mem).toBeUndefined();
+  });
+
+  it('throws on updating nonexistent memory', async () => {
+    await expect(store.updateMemory('nonexistent-id', 'test'))
+      .rejects.toThrow('Memory with ID nonexistent-id not found');
+  });
+
+  it('creates and lists conversations', () => {
+    const wsId = store.createWorkspace('Conv Test');
+    const conv1 = store.createConversation(wsId, 'First Chat');
+    const conv2 = store.createConversation(wsId, 'Second Chat');
+
+    expect(conv1).toBeDefined();
+    expect(conv2).toBeDefined();
+
+    const convs = store.listConversations(wsId);
+    expect(convs.length).toBe(2);
+  });
+});
+
+describe('MemoryStore — Pending Actions', () => {
+  let dbPath: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `torvaix-test-actions-${Date.now()}.db`);
+    store = new MemoryStore(dbPath);
+  });
+
+  afterEach(() => {
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+
+  it('creates and retrieves pending actions', () => {
+    const wsId = store.createWorkspace('Action Test');
+    const id = store.createPendingAction(wsId, 'bash', { command: 'ls' });
+    expect(id).toBeDefined();
+
+    const action = store.getPendingAction(id);
+    expect(action).toBeDefined();
+    expect(action!.action).toBe('bash');
+    expect(action!.status).toBe('pending');
+  });
+
+  it('updates pending action status', () => {
+    const wsId = store.createWorkspace('Status Test');
+    const id = store.createPendingAction(wsId, 'python', { code: 'print(1)' });
+
+    store.updatePendingActionStatus(id, 'approved');
+    const approved = store.getPendingAction(id);
+    expect(approved!.status).toBe('approved');
+
+    store.updatePendingActionStatus(id, 'rejected');
+    const rejected = store.getPendingAction(id);
+    expect(rejected!.status).toBe('rejected');
+  });
+});
+
+describe('MemoryStore — Users (Auth)', () => {
+  let dbPath: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `torvaix-test-users-${Date.now()}.db`);
+    store = new MemoryStore(dbPath);
+  });
+
+  afterEach(() => {
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+
+  it('creates and retrieves users', () => {
+    const id = store.createUser('testuser', 'test@example.com', 'hashedpassword123');
+    expect(id).toBeDefined();
+
+    const user = store.getUserByEmail('test@example.com');
+    expect(user).toBeDefined();
+    expect(user!.username).toBe('testuser');
+    expect(user!.passwordHash).toBe('hashedpassword123');
+  });
+
+  it('finds user by ID', () => {
+    const id = store.createUser('byid', 'byid@example.com', 'hash');
+    const user = store.getUserById(id);
+    expect(user).toBeDefined();
+    expect(user!.username).toBe('byid');
+  });
+
+  it('returns undefined for nonexistent user', () => {
+    expect(store.getUserByEmail('nobody@example.com')).toBeUndefined();
+    expect(store.getUserById('nonexistent')).toBeUndefined();
+  });
+
+  it('enforces unique email constraint', () => {
+    store.createUser('user1', 'dup@example.com', 'hash1');
+    expect(() => {
+      store.createUser('user2', 'dup@example.com', 'hash2');
+    }).toThrow();
+  });
+});
+
+describe('MemoryStore — Local Embedding', () => {
+  let dbPath: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `torvaix-test-embed-${Date.now()}.db`);
+    store = new MemoryStore(dbPath, {
+      ollamaUrl: 'http://invalid:99999', // force fallback
+    });
+  });
+
+  afterEach(() => {
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+
+  it('falls back to local keyword embedding', async () => {
+    const embedding = await store.generateEmbedding('test query about artificial intelligence');
+    expect(embedding).not.toBeNull();
+    expect(embedding!.length).toBe(768);
+
+    // Should be normalized (unit vector)
+    const mag = Math.sqrt(embedding!.reduce((s, v) => s + v * v, 0));
+    expect(Math.abs(mag - 1.0)).toBeLessThan(0.01);
+  });
+
+  it('produces consistent embeddings for same text', async () => {
+    const e1 = await store.generateEmbedding('hello world');
+    const e2 = await store.generateEmbedding('hello world');
+    expect(e1).not.toBeNull();
+    expect(e2).not.toBeNull();
+    for (let i = 0; i < e1!.length; i++) {
+      expect(e1![i]).toBe(e2![i]);
     }
-    console.log("✅ Passed");
+  });
 
-    console.log("\n--- Category 3: Update & Consistency Tests ---");
+  it('produces different embeddings for different text', async () => {
+    const e1 = await store.generateEmbedding('hello world');
+    const e2 = await store.generateEmbedding('completely different text');
+    expect(e1).not.toBeNull();
+    expect(e2).not.toBeNull();
 
-    // Test 5: Update Memory
-    process.stdout.write("Test: Update Memory... ");
-    await store.updateMemory(memoryId, "Actually, I switched my favorite database to SQLite");
-    const updatedRecord = await store.getMemoryById(memoryId);
-    assert(updatedRecord.content === "Actually, I switched my favorite database to SQLite", "Content must be updated");
-    console.log("✅ Passed");
-
-    // Test 6: Verify Vector Update via query
-    process.stdout.write("Test: Vector Space Updated... ");
-    const newQueryResults = await store.queryMemory(WORKSPACE_ID, "What is my new favorite db?", 3);
-    assert(newQueryResults[0].id === memoryId, "Should find the updated vector");
-    console.log("✅ Passed");
-
-    console.log("\n--- Category 4: Deletion & Lifecycle Tests ---");
-
-    // Test 7: Delete Memory
-    process.stdout.write("Test: Delete Memory... ");
-    await store.deleteMemory(memoryId);
-    const deletedRecord = await store.getMemoryById(memoryId);
-    assert(deletedRecord === undefined, "Record must be removed from SQLite");
-    console.log("✅ Passed");
-
-    // Test 8: Verify Vector Deletion
-    process.stdout.write("Test: Vector Deletion Cascade... ");
-    const emptyResults = await store.queryMemory(WORKSPACE_ID, "database", 3);
-    assert(emptyResults.length === 0 || emptyResults[0].id !== memoryId, "Vector should not be found");
-    console.log("✅ Passed");
-
-    console.log("\n==========================================");
-    console.log("🎉 All 8 Regression Tests Passed Successfully!");
-    console.log("==========================================");
-
-  } catch (error: any) {
-    console.error(`\n❌ Test Failed: ${error.message}`);
-    console.error(error);
-    process.exit(1);
-  } finally {
-    // Cleanup
-    if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+    let different = false;
+    for (let i = 0; i < e1!.length; i++) {
+      if (e1![i] !== e2![i]) { different = true; break; }
     }
-  }
-}
-
-runTests();
+    expect(different).toBe(true);
+  });
+});

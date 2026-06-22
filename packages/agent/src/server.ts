@@ -1,18 +1,46 @@
-import express from 'express';
+/**
+ * Torvaix Agent Server
+ *
+ * Hardened Express server with:
+ * - SQLite-backed user persistence (bcrypt password hashing)
+ * - JWT session management
+ * - Rate limiting
+ * - Auth middleware on protected routes
+ * - All existing APIs preserved: agent, memory, companion
+ */
+
+import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import path from 'path';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { AgentOrchestrator } from './orchestrator';
 import { MemoryStore } from '@torvaix/memory';
+import { LLMClient } from '@torvaix/providers';
+
+// ── Environment & Config ──
+
+const JWT_SECRET = process.env.JWT_SECRET ?? (() => {
+  const secret = crypto.randomBytes(64).toString('hex');
+  console.warn('[Auth] JWT_SECRET not set — using random secret. Sessions will not persist across restarts!');
+  return secret;
+})();
+
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX = 60; // requests per window per user
+const AGENT_RATE_LIMIT_MAX = 30; // stricter for agent runs
+
+// ── App Setup ──
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Memory store for orchestrated agents
 const memoryDbPath = path.join(process.cwd(), 'torvaix_metadata.db');
 const memoryStore = new MemoryStore(memoryDbPath);
+const llmClient = new LLMClient();
 
 app.use(express.json({ limit: '50mb' }));
 
@@ -25,43 +53,111 @@ app.use((req, res, next) => {
   next();
 });
 
-// In-memory storage (can be migrated to SQLite if needed)
-const users = new Map<string, any>();
-const activeConnections = new Map<string, WebSocket>();
+// ── Auth Types ──
 
-// Health check
-app.get('/api/health', async (req, res) => {
+interface AuthRequest extends Request {
+  user?: { userId: string; email: string };
+}
+
+// ── Rate Limiting ──
+
+interface RateLimitEntry {
+  requests: number[]; // timestamps
+}
+
+const rateLimits = new Map<string, RateLimitEntry>();
+
+function rateLimit(maxRequests: number = RATE_LIMIT_MAX) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    const key = req.user?.userId ?? req.ip ?? 'anonymous';
+    const now = Date.now();
+    const windowStart = now - RATE_LIMIT_WINDOW_MS;
+
+    let entry = rateLimits.get(key);
+    if (!entry) {
+      entry = { requests: [] };
+      rateLimits.set(key, entry);
+    }
+
+    // Clean old requests
+    entry.requests = entry.requests.filter(t => t > windowStart);
+
+    if (entry.requests.length >= maxRequests) {
+      res.status(429).json({ error: 'Rate limit exceeded. Please slow down.' });
+      return;
+    }
+
+    entry.requests.push(now);
+    next();
+  };
+}
+
+// ── Auth Middleware ──
+
+function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Authentication required. Provide a Bearer token.' });
+    return;
+  }
+
+  try {
+    const token = header.slice(7);
+    const decoded = jwt.verify(token, JWT_SECRET, { clockTolerance: 60 }) as any;
+    req.user = { userId: decoded.userId, email: decoded.email };
+    next();
+  } catch (err: any) {
+    res.status(401).json({ error: 'Invalid or expired token. Please log in again.' });
+  }
+}
+
+// ── Public Routes ──
+
+// Health check (no auth required)
+app.get('/api/health', async (_req, res) => {
   const qdrantOk = await memoryStore.initQdrant();
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    services: {
-      sqlite: true,
-      qdrant: qdrantOk,
-    }
+    services: { sqlite: true, qdrant: qdrantOk },
+    version: '0.1.0',
   });
 });
 
-// User management
+// ── Auth Routes ──
+
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
-    if (!username || !email || !password) return res.status(400).json({ error: 'Missing required fields' });
-    if (users.has(email)) return res.status(409).json({ error: 'User already exists' });
-    
-    const userId = crypto.randomBytes(16).toString('hex');
-    const user = {
-      id: userId, username, email,
-      password: crypto.createHash('sha256').update(password).digest('hex'),
-      createdAt: new Date().toISOString(),
-      lastLogin: new Date().toISOString()
-    };
-    users.set(email, user);
-    // Auto-create default workspace for user
+
+    if (!username || !email || !password) {
+      res.status(400).json({ error: 'Missing required fields: username, email, password' });
+      return;
+    }
+    if (password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: 'Invalid email format' });
+      return;
+    }
+
+    // Check if email exists
+    const existing = memoryStore.getUserByEmail(email);
+    if (existing) {
+      res.status(409).json({ error: 'Email already registered' });
+      return;
+    }
+
+    const hash = await bcrypt.hash(password, 12);
+    const userId = memoryStore.createUser(username, email, hash);
     memoryStore.createWorkspace('Default Workspace', { userId });
-    
-    res.status(201).json({ userId, username, email });
-  } catch (error) {
+
+    const token = jwt.sign({ userId, email }, JWT_SECRET, { expiresIn: '7d' });
+    res.status(201).json({ token, userId, username });
+  } catch (error: any) {
+    console.error('[Auth] Registration error:', error);
     res.status(500).json({ error: 'Registration failed' });
   }
 });
@@ -69,65 +165,101 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = users.get(email);
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-    
-    const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
-    if (user.password !== hashedPassword) return res.status(401).json({ error: 'Invalid credentials' });
-    
-    user.lastLogin = new Date().toISOString();
-    res.json({ userId: user.id, username: user.username, email: user.email });
-  } catch (error) {
+    if (!email || !password) {
+      res.status(400).json({ error: 'Missing email or password' });
+      return;
+    }
+
+    const user = memoryStore.getUserByEmail(email);
+    if (!user) {
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
+    }
+
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
+    }
+
+    memoryStore.touchUserLogin(user.id);
+
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, userId: user.id, username: user.username });
+  } catch (error: any) {
+    console.error('[Auth] Login error:', error);
     res.status(500).json({ error: 'Login failed' });
   }
 });
 
-// Conversation management via MemoryStore
-app.post('/api/conversations', async (req, res) => {
+app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
+  const user = memoryStore.getUserById(req.user!.userId);
+  if (!user) {
+    res.status(404).json({ error: 'User not found' });
+    return;
+  }
+  res.json({ userId: user.id, username: user.username, email: user.email });
+});
+
+// ── Protected Routes ──
+
+app.post('/api/conversations', requireAuth, rateLimit(), (req: AuthRequest, res) => {
   try {
     const { workspaceId, title = 'New Conversation' } = req.body;
-    const conversationId = memoryStore.createConversation(workspaceId, title);
+    const conversationId = memoryStore.createConversation(workspaceId ?? 'default', title);
     res.status(201).json({ id: conversationId, title });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: 'Failed to create conversation' });
   }
 });
 
-// Agent loop integration via Orchestrator
-app.post('/api/agent/run', async (req, res) => {
+// Agent loop — stricter rate limit
+app.post('/api/agent/run', requireAuth, rateLimit(AGENT_RATE_LIMIT_MAX), async (req: AuthRequest, res) => {
   try {
     const { instructions, workspaceId, messages = [], pendingActionId } = req.body;
     const isStream = req.query.stream === 'true';
-    
+
     if (isStream) {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Transfer-Encoding', 'chunked');
     }
 
-    const orchestrator = new AgentOrchestrator(memoryStore);
-    
-    const finalState = await orchestrator.run({
-      workspaceId: workspaceId || 'default',
-      instructions,
-      messages,
-      pendingActionId
-    }, isStream ? ((chunk: string) => res.write(chunk)) : undefined);
-    
+    const orchestrator = new AgentOrchestrator(memoryStore, {
+      llm: llmClient,
+      model: process.env.TORVAIX_MODEL,
+    });
+
+    // If resuming from approval, the orchestrator needs to know
+    if (pendingActionId) {
+      const pending = memoryStore.getPendingAction(pendingActionId);
+      if (pending) {
+        orchestrator.approveTool(pending.action, pending.workspaceId);
+      }
+    }
+
+    const finalState = await orchestrator.run(
+      {
+        workspaceId: workspaceId ?? 'default',
+        instructions,
+        messages,
+        pendingActionId,
+      },
+      isStream ? ((chunk: string) => res.write(chunk)) : undefined
+    );
+
     if (isStream) {
-      // Send the final output as a text chunk
       let outputText = finalState.output;
       if (finalState.pendingActionId) {
-        outputText = `\n\n🛡️ **SECURITY LAYER TRIGGERED**\nThe agent wants to execute a potentially dangerous action.\nPending Action ID: \`${finalState.pendingActionId}\``;
+        outputText = `\n\n**SECURITY LAYER TRIGGERED**\nThe agent wants to execute a potentially dangerous action.\nPending Action ID: \`${finalState.pendingActionId}\``;
       }
       res.write(`0:${JSON.stringify(outputText)}\n`);
       res.end();
     } else {
-      // Send legacy JSON response back
       res.json({
         status: finalState.pendingActionId ? 'pending_confirmation' : 'completed',
         output: finalState.output,
         messages: finalState.messages,
-        pendingActionId: finalState.pendingActionId
+        pendingActionId: finalState.pendingActionId,
       });
     }
   } catch (error: any) {
@@ -141,45 +273,44 @@ app.post('/api/agent/run', async (req, res) => {
 });
 
 // Approve Pending Action
-app.post('/api/agent/approve', async (req, res) => {
+app.post('/api/agent/approve', requireAuth, rateLimit(), (req: AuthRequest, res) => {
   try {
-    const { pendingActionId, status } = req.body; // status = 'approved' | 'rejected'
+    const { pendingActionId, status } = req.body as { pendingActionId: string; status: 'approved' | 'rejected' };
+    if (!pendingActionId || !status) {
+      res.status(400).json({ error: 'Missing pendingActionId or status' });
+      return;
+    }
     memoryStore.updatePendingActionStatus(pendingActionId, status);
     res.json({ success: true, status });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: 'Failed to update pending action' });
   }
 });
 
-// Direct memory endpoints for testing/debugging
-app.post('/api/memory/store', async (req, res) => {
+// Direct memory endpoints
+app.post('/api/memory/store', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
   try {
     const { workspaceId, content, source } = req.body;
-    const id = await memoryStore.storeMemory(workspaceId || 'default', content, source || 'API');
+    const id = await memoryStore.storeMemory(workspaceId ?? 'default', content, source ?? 'API');
     res.json({ success: true, id });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to store memory', details: error.message });
   }
 });
 
-app.post('/api/memory/query', async (req, res) => {
+app.post('/api/memory/query', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
   try {
     const { workspaceId, query, topK } = req.body;
-    const results = await memoryStore.queryMemory(workspaceId || 'default', query, topK || 5);
+    const results = await memoryStore.queryMemory(workspaceId ?? 'default', query, topK ?? 5);
     res.json({ success: true, results });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to query memory', details: error.message });
   }
 });
 
-// ===================================================================
-// COMPANION LAYER (EXPERIMENTAL)
-// Secure device pairing, session continuation, and capability discovery.
-// This layer is fully isolated from core orchestration.
-// ===================================================================
+// ── Companion Layer (Experimental) — preserved as-is ──
 
-// Generate a one-time pairing token
-app.post('/api/companion/pair/create', async (req, res) => {
+app.post('/api/companion/pair/create', requireAuth, async (req, res) => {
   try {
     const { scope = 'readonly', expiryMinutes = 10 } = req.body;
     console.log('[EXPERIMENTAL][Companion] Creating pairing token...');
@@ -189,79 +320,65 @@ app.post('/api/companion/pair/create', async (req, res) => {
       pairingToken: result.token,
       scope,
       expiresInMinutes: expiryMinutes,
-      experimental: true
+      experimental: true,
     });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to create pairing token', details: error.message });
   }
 });
 
-// Claim a pairing token (device registration)
 app.post('/api/companion/pair/claim', async (req, res) => {
   try {
     const { token, deviceName, fingerprint } = req.body;
     if (!token || !deviceName || !fingerprint) {
-      return res.status(400).json({ error: 'Missing required fields: token, deviceName, fingerprint' });
+      res.status(400).json({ error: 'Missing required fields: token, deviceName, fingerprint' });
+      return;
     }
-
     console.log(`[EXPERIMENTAL][Companion] Device "${deviceName}" attempting to pair...`);
     const deviceId = memoryStore.claimPairingToken(token, deviceName, fingerprint);
     if (!deviceId) {
-      return res.status(401).json({ error: 'Invalid, expired, or already-claimed pairing token' });
+      res.status(401).json({ error: 'Invalid, expired, or already-claimed pairing token' });
+      return;
     }
-
-    // Auto-create a session for the newly paired device
     const sessionToken = memoryStore.createDeviceSession(deviceId);
-    res.json({
-      success: true,
-      deviceId,
-      sessionToken,
-      experimental: true
-    });
+    res.json({ success: true, deviceId, sessionToken, experimental: true });
   } catch (error: any) {
     res.status(500).json({ error: 'Pairing failed', details: error.message });
   }
 });
 
-// Create/refresh a session for an already-paired device
 app.post('/api/companion/session', async (req, res) => {
   try {
     const { deviceId } = req.body;
-    if (!deviceId) return res.status(400).json({ error: 'Missing deviceId' });
-
+    if (!deviceId) { res.status(400).json({ error: 'Missing deviceId' }); return; }
     const sessionToken = memoryStore.createDeviceSession(deviceId);
-    if (!sessionToken) return res.status(401).json({ error: 'Device not found or revoked' });
-
+    if (!sessionToken) { res.status(401).json({ error: 'Device not found or revoked' }); return; }
     res.json({ success: true, sessionToken, experimental: true });
   } catch (error: any) {
     res.status(500).json({ error: 'Session creation failed', details: error.message });
   }
 });
 
-// Validate an active session (capability discovery)
 app.post('/api/companion/session/validate', async (req, res) => {
   try {
     const { sessionToken } = req.body;
-    if (!sessionToken) return res.status(400).json({ error: 'Missing sessionToken' });
-
+    if (!sessionToken) { res.status(400).json({ error: 'Missing sessionToken' }); return; }
     const session = memoryStore.validateSession(sessionToken);
-    if (!session) return res.status(401).json({ error: 'Invalid or expired session' });
-
+    if (!session) { res.status(401).json({ error: 'Invalid or expired session' }); return; }
     res.json({
       success: true,
       ...session,
       capabilities: session.scope === 'admin'
         ? ['read', 'write', 'execute', 'memory', 'workspaces']
         : ['read', 'memory'],
-      experimental: true
+      experimental: true,
     });
   } catch (error: any) {
     res.status(500).json({ error: 'Session validation failed', details: error.message });
   }
 });
 
-// List all companion devices
-app.get('/api/companion/devices', async (req, res) => {
+app.get('/api/companion/devices', requireAuth, async (_req, res) => {
   try {
     const devices = memoryStore.listCompanionDevices();
     res.json({ success: true, devices, experimental: true });
@@ -270,12 +387,10 @@ app.get('/api/companion/devices', async (req, res) => {
   }
 });
 
-// Revoke a companion device
-app.post('/api/companion/devices/revoke', async (req, res) => {
+app.post('/api/companion/devices/revoke', requireAuth, async (req, res) => {
   try {
     const { deviceId } = req.body;
-    if (!deviceId) return res.status(400).json({ error: 'Missing deviceId' });
-
+    if (!deviceId) { res.status(400).json({ error: 'Missing deviceId' }); return; }
     memoryStore.revokeDevice(deviceId);
     res.json({ success: true, message: 'Device revoked', experimental: true });
   } catch (error: any) {
@@ -283,11 +398,14 @@ app.post('/api/companion/devices/revoke', async (req, res) => {
   }
 });
 
-// WebSocket for real-time communication
+// ── WebSocket (preserved) ──
+
+const activeConnections = new Map<string, any>();
+
 wss.on('connection', (ws: any) => {
   const connectionId = crypto.randomBytes(16).toString('hex');
   activeConnections.set(connectionId, ws);
-  
+
   ws.on('message', async (message: string) => {
     try {
       const data = JSON.parse(message.toString());
@@ -298,16 +416,19 @@ wss.on('connection', (ws: any) => {
       console.error('WebSocket message error:', error);
     }
   });
-  
+
   ws.on('close', () => {
     activeConnections.delete(connectionId);
   });
 });
 
+// ── Startup ──
+
 const PORT = process.env.AGENT_PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Torvaix Agent Server running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
+  console.log(`Auth:         http://localhost:${PORT}/api/auth/register | /api/auth/login`);
   console.log(`Agent API:    http://localhost:${PORT}/api/agent/run`);
   console.log(`Memory API:   http://localhost:${PORT}/api/memory/store`);
   console.log(`Companion:    http://localhost:${PORT}/api/companion/pair/create [EXPERIMENTAL]`);
