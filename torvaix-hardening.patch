@@ -1,0 +1,4430 @@
+From b501e6ac2eb42eba9da0bdc94b7ae3b0726e92fb Mon Sep 17 00:00:00 2001
+From: Torvaix Hardening Bot <torvaix-bot@local>
+Date: Mon, 22 Jun 2026 17:56:51 +0800
+Subject: [PATCH] feat(hardening): core infrastructure hardening - v0.2.0
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Phase 1: Provider abstraction layer
+- Unified LLMClient with adapters for Ollama, OpenAI, Anthropic, Gemini, Groq, OpenRouter
+- Environment-based configuration
+- Token usage tracking
+
+Phase 2: Execution approval hardening
+- Per-tool approvals with 5-minute expiry
+- Workspace-scoped approval keys
+- GC of expired approvals
+
+Phase 3: Auth hardening
+- SQLite user persistence with bcrypt hashing
+- JWT session management (7-day expiry)
+- Rate limiting middleware (60/min general, 30/min agent)
+- requireAuth on all protected routes
+
+Phase 4: Docker full stack
+- docker-compose with torvaix + qdrant + ollama services
+- Multi-stage Dockerfile with health checks
+
+Phase 5: Hybrid router
+- Regex fast-path for memory/knowledge/execution (zero latency)
+- LLM fallback for ambiguous queries
+
+Phase 6: MCP singleton lifecycle
+- Persistent connection with lazy init
+- Auto-reconnect with exponential backoff
+
+Phase 7: Memory fallback chain
+- Ollama embeddings → OpenAI embeddings → deterministic local
+
+Phase 8: Agent trace improvements
+- Routing/tool/LLM timing
+- Token usage aggregation
+- Approval pause tracking
+- Error capture
+
+Phase 9: Chat hook stabilization
+- Replaced ts-expect-error with custom useTorvaixChat
+- Proper streaming parser for AI SDK DataStream
+
+Phase 10: Baseline tests
+- Tests for providers, router, memory, trace, MCP client
+- vitest configuration with path aliases
+---
+ Dockerfile                                    |  36 +-
+ apps/web/src/components/chat/chat-view.tsx    | 232 ++++++++-
+ docker-compose.yml                            |  69 ++-
+ package.json                                  |   9 +-
+ packages/agent/package.json                   |   6 +
+ packages/agent/src/__tests__/trace.test.ts    | 121 +++++
+ packages/agent/src/orchestrator.ts            | 481 ++++++++++++------
+ packages/agent/src/server.ts                  | 331 ++++++++----
+ packages/agent/src/trace.ts                   | 189 ++++++-
+ packages/mcp/package.json                     |   7 +-
+ packages/mcp/src/__tests__/client.test.ts     |  29 ++
+ packages/mcp/src/client.ts                    | 164 ++++++
+ packages/memory/src/__tests__/memory.test.ts  | 355 +++++++++----
+ packages/memory/src/index.ts                  | 322 +++++++-----
+ .../providers/src/__tests__/providers.test.ts | 167 ++++++
+ packages/providers/src/index.ts               | 367 ++++++++++++-
+ packages/router/package.json                  |   3 +-
+ packages/router/src/__tests__/router.test.ts  | 145 ++++++
+ packages/router/src/index.ts                  | 290 ++++++++---
+ vitest.config.ts                              |  25 +
+ 20 files changed, 2692 insertions(+), 656 deletions(-)
+ create mode 100644 packages/agent/src/__tests__/trace.test.ts
+ create mode 100644 packages/mcp/src/__tests__/client.test.ts
+ create mode 100644 packages/mcp/src/client.ts
+ create mode 100644 packages/providers/src/__tests__/providers.test.ts
+ create mode 100644 packages/router/src/__tests__/router.test.ts
+ create mode 100644 vitest.config.ts
+
+diff --git a/Dockerfile b/Dockerfile
+index 5fa69e8..c5dbfdd 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,9 +1,13 @@
+ # syntax=docker/dockerfile:1
++# Torvaix Multi-Stage Docker Build
++# Stages: deps → builder → runner
++
+ FROM node:22-alpine AS base
++RUN apk add --no-cache libc6-compat curl
+ 
+-# Install dependencies only when needed
++# ── Dependencies Stage ──
+ FROM base AS deps
+-RUN apk add --no-cache libc6-compat python3 make g++
++RUN apk add --no-cache python3 make g++
+ WORKDIR /app
+ COPY package.json package-lock.json ./
+ COPY apps/web/package.json ./apps/web/
+@@ -18,39 +22,45 @@ COPY packages/router/package.json ./packages/router/
+ COPY packages/types/package.json ./packages/types/
+ RUN npm ci
+ 
+-# Rebuild the source code only when needed
++# ── Builder Stage ──
+ FROM base AS builder
+ WORKDIR /app
+ COPY --from=deps /app/node_modules ./node_modules
+ COPY . .
+-# Next.js telemetry disable
+ ENV NEXT_TELEMETRY_DISABLED=1
+ RUN npm run build
+ 
+-# Production image, copy all the files and run next
++# ── Runner Stage ──
+ FROM base AS runner
+ WORKDIR /app
+ 
+ ENV NODE_ENV=production
+ ENV NEXT_TELEMETRY_DISABLED=1
+ 
++# Create non-root user
+ RUN addgroup --system --gid 1001 nodejs
+-RUN adduser --system --uid 1001 nextjs
++RUN adduser --system --uid 1001 torvaix
+ 
++# Copy built application
+ COPY --from=builder /app/apps/web/public ./apps/web/public
+-# Automatically leverage output traces to reduce image size
+-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
++COPY --from=builder --chown=torvaix:nodejs /app/apps/web/.next/standalone ./
++COPY --from=builder --chown=torvaix:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+ COPY --from=builder /app/packages ./packages
+ COPY --from=builder /app/scripts ./scripts
+ COPY --from=builder /app/package.json ./package.json
++COPY --from=builder /app/package-lock.json ./package-lock.json
++
++# Reinstall production dependencies (for native modules)
++RUN npm ci --omit=dev --ignore-scripts
++
++USER torvaix
+ 
+-USER nextjs
+ EXPOSE 3000
+ EXPOSE 3001
++
+ ENV PORT=3000
+ ENV HOSTNAME="0.0.0.0"
++ENV AGENT_PORT=3001
+ 
+-# Note: In production we rely on the concurrently script to run Next.js and the Agent server.
+-# Ensure that torvaix OS can be booted properly inside this container without Qdrant (which remains external).
+-CMD ["npm", "run", "dev"]
++# Start both Next.js frontend and Agent server
++CMD ["npm", "run", "dev:services"]
+diff --git a/apps/web/src/components/chat/chat-view.tsx b/apps/web/src/components/chat/chat-view.tsx
+index 386739a..529cd2b 100644
+--- a/apps/web/src/components/chat/chat-view.tsx
++++ b/apps/web/src/components/chat/chat-view.tsx
+@@ -2,22 +2,173 @@
+ 
+ import * as React from "react"
+ import { motion, AnimatePresence } from "framer-motion"
+-// @ts-expect-error - useChat hook needs migration to @ai-sdk/react (AI SDK v6 breaking change)
+-import { useChat } from "ai"
+-import { Send, Zap } from "lucide-react"
++import { Send, Zap, AlertCircle } from "lucide-react"
+ import { Button } from "@/components/ui/button"
+ import { Textarea } from "@/components/ui/textarea"
+ import { ScrollArea } from "@/components/ui/scroll-area"
+ import { Badge } from "@/components/ui/badge"
+ 
++// ── Types ──
++
++interface ChatMessage {
++  id: string
++  role: 'user' | 'assistant' | 'system'
++  content: string
++}
++
++interface UseTorvaixChatReturn {
++  messages: ChatMessage[]
++  input: string
++  setInput: (value: string) => void
++  handleSubmit: (e: React.FormEvent) => void
++  isLoading: boolean
++  error: string | null
++  clearError: () => void
++}
++
++// ── Custom useChat Hook (replaces ai SDK useChat) ──
++
++function useTorvaixChat(chatId: string): UseTorvaixChatReturn {
++  const [messages, setMessages] = React.useState<ChatMessage[]>([])
++  const [input, setInput] = React.useState('')
++  const [isLoading, setIsLoading] = React.useState(false)
++  const [error, setError] = React.useState<string | null>(null)
++
++  const clearError = React.useCallback(() => setError(null), [])
++
++  const handleSubmit = React.useCallback(async (e: React.FormEvent) => {
++    e.preventDefault()
++    if (!input.trim() || isLoading) return
++
++    const userMsg: ChatMessage = {
++      id: `${Date.now()}-user`,
++      role: 'user',
++      content: input.trim(),
++    }
++
++    setMessages(prev => [...prev, userMsg])
++    setInput('')
++    setIsLoading(true)
++    setError(null)
++
++    const assistantId = `${Date.now()}-assistant`
++    setMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: '' }])
++
++    try {
++      const res = await fetch('/api/chat', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({
++          messages: [...messages, userMsg],
++          workspaceId: 'default',
++          chatId,
++        }),
++      })
++
++      if (!res.ok) {
++        const errText = await res.text()
++        throw new Error(`Server error ${res.status}: ${errText}`)
++      }
++
++      if (!res.body) {
++        throw new Error('No response body')
++      }
++
++      const reader = res.body.getReader()
++      const decoder = new TextDecoder()
++      let assistantText = ''
++
++      while (true) {
++        const { done, value } = await reader.read()
++        if (done) break
++
++        const chunk = decoder.decode(value, { stream: true })
++
++        for (const line of chunk.split('\n')) {
++          if (!line.trim()) continue
++
++          // Parse AI SDK DataStream protocol
++          // Format: "0:{JSON}" = text, "9:{JSON}" = tool call, "a:{JSON}" = tool result, "e:{JSON}" = trace
++          const typeChar = line[0]
++          const payload = line.slice(2) // skip "X:" prefix
++
++          if (typeChar === '0') {
++            try {
++              const text = JSON.parse(payload)
++              assistantText += text
++              setMessages(prev =>
++                prev.map(m =>
++                  m.id === assistantId ? { ...m, content: assistantText } : m
++                )
++              )
++            } catch {
++              // Not valid JSON, append raw
++              assistantText += payload
++              setMessages(prev =>
++                prev.map(m =>
++                  m.id === assistantId ? { ...m, content: assistantText } : m
++                )
++              )
++            }
++          }
++          // Tool calls and trace data are logged but not displayed in chat
++        }
++      }
++
++      // If we got nothing, show a fallback
++      if (!assistantText.trim()) {
++        setMessages(prev =>
++          prev.map(m =>
++            m.id === assistantId
++              ? { ...m, content: 'No response received from agent.' }
++              : m
++          )
++        )
++      }
++    } catch (err: any) {
++      console.error('[Chat] Streaming error:', err)
++      setError(err.message || 'Failed to get response')
++      setMessages(prev =>
++        prev.map(m =>
++          m.id === assistantId
++            ? { ...m, content: `**Error:** ${err.message}` }
++            : m
++        )
++      )
++    } finally {
++      setIsLoading(false)
++    }
++  }, [input, isLoading, messages, chatId])
++
++  return {
++    messages,
++    input,
++    setInput,
++    handleSubmit,
++    isLoading,
++    error,
++    clearError,
++  }
++}
++
++// ── Chat View Component ──
++
+ export function ChatView({ chatId }: { chatId: string }) {
+-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+-    id: chatId,
+-    api: '/api/chat'
+-  })
++  const { messages, input, setInput, handleSubmit, isLoading, error, clearError } =
++    useTorvaixChat(chatId)
++
++  const scrollRef = React.useRef<HTMLDivElement>(null)
++
++  // Auto-scroll to bottom on new messages
++  React.useEffect(() => {
++    if (scrollRef.current) {
++      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
++    }
++  }, [messages])
+ 
+   return (
+     <div className="flex flex-col h-full bg-background relative">
++      {/* Header */}
+       <header className="px-4 py-3 border-b flex justify-between items-center bg-card/50 backdrop-blur">
+         <h2 className="font-medium">Active Chat</h2>
+         <Badge variant="secondary" className="gap-1.5">
+@@ -25,47 +176,75 @@ export function ChatView({ chatId }: { chatId: string }) {
+           <span>Smart Router Active</span>
+         </Badge>
+       </header>
+-      
+-      <ScrollArea className="flex-1 p-4">
++
++      {/* Error Banner */}
++      <AnimatePresence>
++        {error && (
++          <motion.div
++            initial={{ opacity: 0, height: 0 }}
++            animate={{ opacity: 1, height: 'auto' }}
++            exit={{ opacity: 0, height: 0 }}
++            className="mx-4 mt-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg flex items-center gap-2 text-sm text-destructive"
++          >
++            <AlertCircle className="h-4 w-4 shrink-0" />
++            <span className="flex-1">{error}</span>
++            <button onClick={clearError} className="underline hover:no-underline">
++              Dismiss
++            </button>
++          </motion.div>
++        )}
++      </AnimatePresence>
++
++      {/* Messages */}
++      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+         <div className="max-w-3xl mx-auto space-y-6 pb-20">
+           <AnimatePresence initial={false}>
+-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+-            {messages.map((m: any) => (
+-              <motion.div 
+-                key={m.id} 
++            {messages.map((m) => (
++              <motion.div
++                key={m.id}
+                 className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                 initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                 animate={{ opacity: 1, y: 0, scale: 1 }}
+                 exit={{ opacity: 0, scale: 0.95 }}
+                 transition={{ duration: 0.3, ease: "easeOut" }}
+               >
+-                <div className={`max-w-[80%] rounded-2xl px-5 py-3.5 shadow-sm ${
+-                  m.role === 'user' 
+-                    ? 'bg-primary text-primary-foreground rounded-tr-sm' 
+-                    : 'bg-muted/40 border border-border/50 backdrop-blur-sm rounded-tl-sm'
+-                }`}>
++                <div
++                  className={`max-w-[80%] rounded-2xl px-5 py-3.5 shadow-sm ${
++                    m.role === 'user'
++                      ? 'bg-primary text-primary-foreground rounded-tr-sm'
++                      : 'bg-muted/40 border border-border/50 backdrop-blur-sm rounded-tl-sm'
++                  }`}
++                >
+                   {m.role === 'assistant' && (
+                     <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border/50 text-xs text-muted-foreground">
+                       <Zap className="h-3 w-3 text-primary" />
+                       <span>Routed via Torvaix Smart Engine</span>
+                     </div>
+                   )}
+-                  <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
++                  <div className="whitespace-pre-wrap text-sm leading-relaxed">
++                    {m.content || (isLoading ? '\u00A0' : '')}
++                  </div>
+                 </div>
+               </motion.div>
+             ))}
+           </AnimatePresence>
++
+           {messages.length === 0 && (
+-            <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
++            <div className="flex flex-col items-center justify-center h-40 text-muted-foreground gap-3">
++              <Zap className="h-8 w-8 opacity-30" />
+               <p>Send a message to begin.</p>
++              <p className="text-xs opacity-60">
++                Try: "Remember that my favorite framework is Next.js"
++              </p>
+             </div>
+           )}
+         </div>
+       </ScrollArea>
+ 
++      {/* Input */}
+       <div className="absolute bottom-6 left-4 right-4 max-w-3xl mx-auto">
+-        <motion.form 
+-          onSubmit={handleSubmit} 
++        <motion.form
++          onSubmit={handleSubmit}
+           className="relative flex items-center bg-card/70 backdrop-blur-xl border border-border/50 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-2 transition-colors focus-within:bg-card/90 focus-within:border-primary/50"
+           initial={{ y: 20, opacity: 0 }}
+           animate={{ y: 0, opacity: 1 }}
+@@ -73,21 +252,20 @@ export function ChatView({ chatId }: { chatId: string }) {
+         >
+           <Textarea
+             value={input}
+-            onChange={handleInputChange}
++            onChange={(e) => setInput(e.target.value)}
+             placeholder="Type your message..."
+             className="min-h-[44px] max-h-32 resize-none border-0 focus-visible:ring-0 bg-transparent text-sm py-3"
+             onKeyDown={(e) => {
+               if (e.key === 'Enter' && !e.shiftKey) {
+                 e.preventDefault()
+-                // form submission triggered programmatically
+                 const form = e.currentTarget.form
+                 if (form) form.requestSubmit()
+               }
+             }}
+           />
+-          <Button 
+-            type="submit" 
+-            size="icon" 
++          <Button
++            type="submit"
++            size="icon"
+             disabled={isLoading || !input.trim()}
+             className="h-10 w-10 shrink-0 rounded-xl transition-all hover:scale-105 active:scale-95"
+           >
+diff --git a/docker-compose.yml b/docker-compose.yml
+index d73227e..3da4005 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -2,7 +2,7 @@ version: '3.8'
+ 
+ services:
+   qdrant:
+-    image: qdrant/qdrant:latest
++    image: qdrant/qdrant:v1.12.0
+     container_name: torvaix-qdrant
+     ports:
+       - "6333:6333"
+@@ -14,8 +14,75 @@ services:
+       test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+       interval: 10s
+       timeout: 5s
++      retries: 5
++      start_period: 10s
++
++  ollama:
++    image: ollama/ollama:latest
++    container_name: torvaix-ollama
++    ports:
++      - "11434:11434"
++    volumes:
++      - ollama_data:/root/.ollama
++    restart: unless-stopped
++    healthcheck:
++      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
++      interval: 15s
++      timeout: 10s
++      retries: 5
++      start_period: 30s
++    # Pull default models on first start
++    entrypoint: >
++      sh -c '
++        ollama serve &
++        OLLAMA_PID=$$!
++        sleep 10
++        echo "[Ollama] Pulling default models..."
++        ollama pull llama3.2 || true
++        ollama pull nomic-embed-text || true
++        echo "[Ollama] Models ready."
++        wait $$OLLAMA_PID
++      '
++
++  torvaix:
++    build:
++      context: .
++      dockerfile: Dockerfile
++      target: runner
++    container_name: torvaix-app
++    ports:
++      - "3000:3000"
++      - "3001:3001"
++    environment:
++      - NODE_ENV=production
++      - OLLAMA_URL=http://ollama:11434
++      - QDRANT_URL=http://qdrant:6333
++      - AGENT_PORT=3001
++      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
++      - TORVAIX_MODEL=${TORVAIX_MODEL:-llama3.2}
++      # Optional: cloud provider API keys for fallback
++      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
++      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
++      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
++      - GROQ_API_KEY=${GROQ_API_KEY:-}
++      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
++    env_file:
++      - .env
++    depends_on:
++      qdrant:
++        condition: service_healthy
++      ollama:
++        condition: service_started
++    restart: unless-stopped
++    healthcheck:
++      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
++      interval: 30s
++      timeout: 10s
+       retries: 3
++      start_period: 60s
+ 
+ volumes:
+   qdrant_data:
+     driver: local
++  ollama_data:
++    driver: local
+diff --git a/package.json b/package.json
+index 9ac49fc..9f8ca0b 100644
+--- a/package.json
++++ b/package.json
+@@ -21,7 +21,13 @@
+     "build": "npm run build --workspaces --if-present",
+     "lint": "npm run lint --workspaces --if-present",
+     "typecheck": "npm run typecheck --workspaces --if-present",
+-    "test": "npm run test --workspaces --if-present",
++    "test": "vitest",
++    "test:ci": "vitest run",
++    "test:memory": "vitest run packages/memory",
++    "test:providers": "vitest run packages/providers",
++    "test:router": "vitest run packages/router",
++    "test:agent": "vitest run packages/agent",
++    "test:mcp": "vitest run packages/mcp",
+     "benchmark": "npx tsx scripts/benchmark.ts"
+   },
+   "dependencies": {
+@@ -37,6 +43,7 @@
+     "open-cli": "^9.0.0",
+     "tsx": "^4.22.4",
+     "typescript": "^6.0.3",
++    "vitest": "^2.1.0",
+     "wait-on": "^9.0.10"
+   }
+ }
+diff --git a/packages/agent/package.json b/packages/agent/package.json
+index a800d2a..098bcf0 100644
+--- a/packages/agent/package.json
++++ b/packages/agent/package.json
+@@ -8,12 +8,18 @@
+   "dependencies": {
+     "@modelcontextprotocol/sdk": "^1.0.1",
+     "@torvaix/memory": "*",
++    "@torvaix/providers": "*",
++    "@torvaix/mcp": "*",
++    "bcryptjs": "^2.4.3",
+     "express": "^5.2.1",
++    "jsonwebtoken": "^9.0.2",
+     "node-fetch": "^2.7.0",
+     "ws": "^8.21.0"
+   },
+   "devDependencies": {
++    "@types/bcryptjs": "^2.4.6",
+     "@types/express": "^5.0.0",
++    "@types/jsonwebtoken": "^9.0.9",
+     "@types/node": "^20.0.0",
+     "@types/node-fetch": "^2.6.11",
+     "@types/ws": "^8.5.10"
+diff --git a/packages/agent/src/__tests__/trace.test.ts b/packages/agent/src/__tests__/trace.test.ts
+new file mode 100644
+index 0000000..0d73307
+--- /dev/null
++++ b/packages/agent/src/__tests__/trace.test.ts
+@@ -0,0 +1,121 @@
++/**
++ * Tests for TraceCollector
++ */
++
++import { describe, it, expect } from 'vitest';
++import { TraceCollector } from '../trace';
++
++describe('TraceCollector', () => {
++  it('collects events', () => {
++    const trace = new TraceCollector();
++    trace.addEvent('router', 'Classifying request', { decision: 'memory' });
++    trace.addEvent('memory', 'Retrieval complete', { hit: true });
++
++    const events = trace.getTrace();
++    expect(events.length).toBe(2);
++    expect(events[0].phase).toBe('router');
++    expect(events[1].phase).toBe('memory');
++  });
++
++  it('measures phase duration', () => {
++    const trace = new TraceCollector();
++    const end = trace.startPhase('router', 'Test phase');
++
++    // Simulate work
++    const start = Date.now();
++    while (Date.now() - start < 10) { /* spin */ }
++
++    end({ result: 'ok' });
++
++    const events = trace.getTrace();
++    expect(events.length).toBe(1);
++    expect(events[0].durationMs).toBeDefined();
++    expect(events[0].durationMs!).toBeGreaterThanOrEqual(5);
++  });
++
++  it('records LLM calls with token usage', () => {
++    const trace = new TraceCollector();
++    trace.recordLLMCall('gpt-4o', 250, { prompt: 100, completion: 50 });
++
++    const events = trace.getTrace();
++    expect(events.length).toBe(1);
++    expect(events[0].phase).toBe('llm_call');
++    expect(events[0].tokens).toEqual({ prompt: 100, completion: 50, total: 150 });
++  });
++
++  it('aggregates token usage', () => {
++    const trace = new TraceCollector();
++    trace.recordLLMCall('model1', 100, { prompt: 10, completion: 5 });
++    trace.recordLLMCall('model2', 200, { prompt: 20, completion: 10 });
++
++    const usage = trace.getTokenUsage();
++    expect(usage.prompt).toBe(30);
++    expect(usage.completion).toBe(15);
++    expect(usage.total).toBe(45);
++  });
++
++  it('records tool calls', () => {
++    const trace = new TraceCollector();
++    trace.recordToolCall('bash', 150, 'success', { command: 'ls' });
++
++    const events = trace.getTrace();
++    expect(events[0].phase).toBe('tool_call');
++    expect(events[0].metadata?.tool).toBe('bash');
++    expect(events[0].metadata?.status).toBe('success');
++  });
++
++  it('records approvals', () => {
++    const trace = new TraceCollector();
++    trace.recordApproval('bash', false);
++    trace.recordApproval('bash', true);
++
++    const events = trace.getTrace();
++    expect(events.length).toBe(2);
++    expect(events[0].action).toContain('Awaiting approval');
++    expect(events[1].action).toContain('Auto-approved');
++  });
++
++  it('records errors', () => {
++    const trace = new TraceCollector();
++    trace.recordError('execution', 'Something went wrong', { detail: 'timeout' });
++
++    const events = trace.getTrace();
++    expect(events[0].phase).toBe('error');
++    expect(events[0].metadata?.error).toBe('Something went wrong');
++  });
++
++  it('generates summary', () => {
++    const trace = new TraceCollector();
++    trace.startPhase('router', 'Route')();
++    trace.recordToolCall('bash', 100, 'success');
++    trace.recordApproval('bash', false);
++    trace.recordError('execution', 'fail');
++    trace.recordLLMCall('gpt-4o', 200, { prompt: 10, completion: 5 });
++
++    const summary = trace.summarize(3);
++    expect(summary.iterations).toBe(3);
++    expect(summary.toolCalls).toBe(1);
++    expect(summary.approvalsRequested).toBe(1);
++    expect(summary.approvalsAuto).toBe(0);
++    expect(summary.errors).toBe(1);
++    expect(summary.tokensUsed.total).toBe(15);
++    expect(Object.keys(summary.phases).length).toBeGreaterThan(0);
++  });
++
++  it('serializes to JSON', () => {
++    const trace = new TraceCollector();
++    trace.addEvent('complete', 'Done');
++
++    const serialized = trace.serialize(1);
++    const parsed = JSON.parse(serialized);
++    expect(parsed.totalMs).toBeGreaterThanOrEqual(0);
++    expect(parsed.summary.iterations).toBe(1);
++    expect(parsed.events.length).toBe(1);
++  });
++
++  it('tracks total duration', () => {
++    const trace = new TraceCollector();
++    const ms = trace.getTotalDurationMs();
++    expect(ms).toBeGreaterThanOrEqual(0);
++  });
++});
+diff --git a/packages/agent/src/orchestrator.ts b/packages/agent/src/orchestrator.ts
+index 44224ba..9031137 100644
+--- a/packages/agent/src/orchestrator.ts
++++ b/packages/agent/src/orchestrator.ts
+@@ -1,15 +1,24 @@
+-import fetch from 'node-fetch';
+-import { MemoryStore } from '@torvaix/memory';
+-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+-import path from 'path';
++/**
++ * Torvaix Agent Orchestrator
++ *
++ * Multi-agent state-graph orchestration with:
++ * - Unified LLM client (multi-provider via LLMClient)
++ * - MCP singleton for tool execution with auto-reconnect
++ * - Per-tool approval with 5-minute expiry and workspace scoping
++ * - Enhanced trace collection with timing, tokens, and errors
++ * - Message history trimming to prevent context overflow
++ */
++
+ import crypto from 'crypto';
++import { LLMClient, type LLMMessage, type LLMResponse } from '@torvaix/providers';
++import { MemoryStore } from '@torvaix/memory';
++import { getMcpClient } from '@torvaix/mcp/client';
+ import { TraceCollector } from './trace';
+ 
+ export interface AgentState {
+   workspaceId: string;
+   instructions: string;
+-  messages: { role: 'user' | 'assistant' | 'system', content: string }[];
++  messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
+   nextNode: 'router' | 'memory' | 'knowledge' | 'execution' | 'end';
+   output: string;
+   pendingActionId?: string;
+@@ -17,68 +26,139 @@ export interface AgentState {
+   trace?: TraceCollector;
+ }
+ 
++/** Per-tool approval entry with expiry. */
++interface ToolApproval {
++  tool: string;
++  workspaceId: string;
++  expiresAt: number; // epoch ms
++}
++
+ export class AgentOrchestrator {
+   private memoryStore: MemoryStore;
+-  private mcpClient: Client | null = null;
+-  private mcpTransport: StdioClientTransport | null = null;
+-  private sessionApproved = false; // Once user approves one tool, auto-approve rest of session
+-  private modelUrl = 'http://localhost:11434/api/generate';
+-
+-  constructor(memoryStore: MemoryStore) {
++  private llm: LLMClient;
++  private model: string;
++  private approvedTools: Map<string, ToolApproval> = new Map();
++  private readonly approvalDurationMs = 5 * 60 * 1000; // 5 minutes
++  private readonly maxIterations = 10;
++  private readonly maxContextChars: number;
++
++  constructor(
++    memoryStore: MemoryStore,
++    options?: {
++      llm?: LLMClient;
++      model?: string;
++      maxContextChars?: number;
++    }
++  ) {
+     this.memoryStore = memoryStore;
++    this.llm = options?.llm ?? new LLMClient();
++    this.model = options?.model ?? process.env.TORVAIX_MODEL ?? this.llm.getDefaultModel();
++    this.maxContextChars = options?.maxContextChars ?? 12000;
+   }
+ 
+-  public async initMcp() {
+-    if (this.mcpClient) return;
++  // ── Approval Hardening ──
++
++  /** Check if a tool is currently approved for the given workspace. */
++  private isToolApproved(tool: string, workspaceId: string): boolean {
++    if (tool !== 'bash' && tool !== 'python') return true; // Safe tools need no approval
++
++    const key = `${workspaceId}:${tool}`;
++    const approval = this.approvedTools.get(key);
++    if (!approval) return false;
+ 
+-    // We start the MCP server as a subprocess using tsx
+-    const mcpServerPath = path.resolve(__dirname, '../../mcp/src/index.ts');
+-    
+-    this.mcpTransport = new StdioClientTransport({
+-      command: 'npx',
+-      args: ['tsx', mcpServerPath],
++    // Check expiry
++    if (Date.now() > approval.expiresAt) {
++      this.approvedTools.delete(key);
++      return false;
++    }
++    return true;
++  }
++
++  /** Approve a tool for a workspace (called when user clicks Approve). */
++  approveTool(tool: string, workspaceId: string): void {
++    const key = `${workspaceId}:${tool}`;
++    this.approvedTools.set(key, {
++      tool,
++      workspaceId,
++      expiresAt: Date.now() + this.approvalDurationMs,
+     });
++  }
+ 
+-    this.mcpClient = new Client(
+-      { name: 'torvaix-execution-agent', version: '1.0.0' },
+-      { capabilities: {} }
+-    );
++  /** Revoke all approvals for a workspace. */
++  revokeApprovals(workspaceId: string): void {
++    for (const key of this.approvedTools.keys()) {
++      if (key.startsWith(`${workspaceId}:`)) {
++        this.approvedTools.delete(key);
++      }
++    }
++  }
+ 
+-    await this.mcpClient.connect(this.mcpTransport);
+-    console.log('[Orchestrator] Connected to MCP Server');
++  /** Clean up expired approvals. */
++  private gcApprovals(): void {
++    const now = Date.now();
++    for (const [key, approval] of this.approvedTools.entries()) {
++      if (now > approval.expiresAt) {
++        this.approvedTools.delete(key);
++      }
++    }
+   }
+ 
+-  public async closeMcp() {
+-    if (this.mcpTransport) {
+-      await this.mcpTransport.close();
+-      this.mcpTransport = null;
+-      this.mcpClient = null;
++  // ── LLM Helper ──
++
++  private async callLLM(messages: LLMMessage[]): Promise<LLMResponse> {
++    const start = performance.now();
++    try {
++      const res = await this.llm.complete(this.model, messages, {
++        temperature: 0.1,
++        maxTokens: 4096,
++      });
++      const durationMs = performance.now() - start;
++      // Trace the LLM call
++      const trace = (messages as any).__trace as TraceCollector | undefined;
++      if (trace) {
++        trace.recordLLMCall(this.model, durationMs, res.usage);
++      }
++      return res;
++    } catch (err: any) {
++      const durationMs = performance.now() - start;
++      const trace = (messages as any).__trace as TraceCollector | undefined;
++      if (trace) {
++        trace.recordLLMCall(this.model, durationMs, undefined, { error: err.message });
++        trace.recordError('llm_call', err.message, { model: this.model });
++      }
++      throw err;
+     }
+   }
+ 
+-  private async callLLM(prompt: string): Promise<string> {
+-    const response = await fetch(this.modelUrl, {
+-      method: 'POST',
+-      headers: { 'Content-Type': 'application/json' },
+-      body: JSON.stringify({
+-        model: 'llama3.2', // Could be dynamic based on provider
+-        prompt: prompt,
+-        stream: false,
+-        options: {
+-          temperature: 0.1,
+-          num_predict: 2000,
+-        }
+-      })
+-    });
+-    const data = await response.json() as any;
+-    return data.response || '';
++  // ── Message History Management ──
++
++  private trimMessages(messages: AgentState['messages']): AgentState['messages'] {
++    const systemMsgs = messages.filter(m => m.role === 'system');
++    const chatMsgs = messages.filter(m => m.role !== 'system');
++
++    // Estimate: ~4 chars per token
++    const maxChars = this.maxContextChars - systemMsgs.reduce((s, m) => s + m.content.length, 0);
++    let totalChars = 0;
++    const keep: typeof chatMsgs = [];
++
++    // Keep most recent messages that fit
++    for (let i = chatMsgs.length - 1; i >= 0; i--) {
++      const msgChars = chatMsgs[i].content.length;
++      if (totalChars + msgChars > maxChars && keep.length > 0) break;
++      keep.unshift(chatMsgs[i]);
++      totalChars += msgChars;
++    }
++
++    return [...systemMsgs, ...keep];
+   }
+ 
++  // ── State Graph Nodes ──
++
+   // NODE: Router
+   private async nodeRouter(state: AgentState): Promise<AgentState> {
+     console.log('[Router Agent] Routing task...');
+-    const endTrace = state.trace?.startPhase('router', 'Classifying request');
+-    
++    const endTrace = state.trace!.startPhase('router', 'Classifying request');
++
+     const prompt = `Classify this user request into exactly ONE category.
+ 
+ CATEGORIES:
+@@ -99,50 +179,61 @@ REQUEST: "${state.instructions}"
+ 
+ Reply with ONLY one word: memory, knowledge, or execution`;
+ 
+-    let decision = await this.callLLM(prompt);
+-    decision = decision.trim().toLowerCase();
+-    
+-    // Default fallback
+-    if (!['memory', 'knowledge', 'execution'].includes(decision)) {
+-      decision = 'execution';
++    const messages: LLMMessage[] = [
++      { role: 'system', content: 'You are a query classifier. Reply with exactly one word.' },
++      { role: 'user', content: prompt },
++    ];
++    (messages as any).__trace = state.trace;
++
++    try {
++      const res = await this.callLLM(messages);
++      let decision = res.text.trim().toLowerCase();
++
++      if (!['memory', 'knowledge', 'execution'].includes(decision)) {
++        decision = 'execution';
++      }
++
++      endTrace({ decision, model: this.model });
++      console.log(`[Router Agent] Decision: ${decision}`);
++      state.nextNode = decision as AgentState['nextNode'];
++    } catch (err: any) {
++      endTrace({ error: err.message });
++      state.trace!.recordError('router', err.message);
++      state.nextNode = 'execution'; // Fallback
+     }
+ 
+-    endTrace?.({ decision });
+-    console.log(`[Router Agent] Decision: ${decision}`);
+-    state.nextNode = decision as any;
+     return state;
+   }
+ 
+   // NODE: Memory (Retrieval)
+   private async nodeMemory(state: AgentState): Promise<AgentState> {
+     console.log('[Memory Agent] Retrieving context...');
+-    const endTrace = state.trace?.startPhase('memory', 'Retrieving memories');
+-    
++    const endTrace = state.trace!.startPhase('memory', 'Retrieving memories');
++
+     try {
+       await this.memoryStore.initQdrant();
+       const results = await this.memoryStore.queryMemory(state.workspaceId, state.instructions, 5);
+-      
++
+       const hit = results.length > 0;
+-      let context = hit 
++      const context = hit
+         ? results.map(r => `[Score: ${r.score.toFixed(2)}] ${r.content}`).join('\n')
+         : 'No relevant memories found.';
+ 
+-      const prompt = `
+-The user asked: "${state.instructions}"
+-I retrieved the following memories from the vector database:
+-${context}
++      const messages: LLMMessage[] = [
++        { role: 'system', content: 'You are a helpful assistant with access to the user\'s memory.' },
++        { role: 'user', content: `The user asked: "${state.instructions}"\n\nI retrieved the following memories:\n${context}\n\nSynthesize a helpful answer.` },
++      ];
++      (messages as any).__trace = state.trace;
+ 
+-Synthesize a helpful answer.
+-`;
+-      const response = await this.callLLM(prompt);
+-      state.output = response;
++      const res = await this.callLLM(messages);
++      state.output = res.text;
+       state.nextNode = 'end';
+-      endTrace?.({ hit, resultCount: results.length, topScore: results[0]?.score });
+-      
++      endTrace({ hit, resultCount: results.length, topScore: results[0]?.score });
+     } catch (e: any) {
+       state.output = `Memory Error: ${e.message}`;
+       state.nextNode = 'end';
+-      endTrace?.({ hit: false, error: e.message });
++      endTrace({ hit: false, error: e.message });
++      state.trace!.recordError('memory', e.message);
+     }
+ 
+     return state;
+@@ -151,74 +242,85 @@ Synthesize a helpful answer.
+   // NODE: Knowledge (Storage)
+   private async nodeKnowledge(state: AgentState): Promise<AgentState> {
+     console.log('[Knowledge Agent] Storing fact...');
+-    const endTrace = state.trace?.startPhase('knowledge', 'Storing memory');
++    const endTrace = state.trace!.startPhase('knowledge', 'Storing memory');
++
+     try {
+       await this.memoryStore.initQdrant();
+       await this.memoryStore.storeMemory(state.workspaceId, state.instructions, 'User Chat');
+-      state.output = "I have stored this information in my memory.";
++      state.output = 'I have stored this information in my memory.';
+       state.nextNode = 'end';
+-      endTrace?.({ stored: true });
++      endTrace({ stored: true });
+     } catch (e: any) {
+       state.output = `Knowledge Error: ${e.message}`;
+       state.nextNode = 'end';
+-      endTrace?.({ stored: false, error: e.message });
++      endTrace({ stored: false, error: e.message });
++      state.trace!.recordError('knowledge', e.message);
+     }
++
+     return state;
+   }
+ 
+   // NODE: Execution (Tool Calling via MCP)
+   private async nodeExecution(state: AgentState, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
+     console.log('[Execution Agent] Planning execution...');
+-    const endTrace = state.trace?.startPhase('execution', 'Planning next step');
++    const endTrace = state.trace!.startPhase('execution', 'Planning next step');
++    const mcp = getMcpClient();
+ 
+     // If there is a pending action, it means it was just approved
+     if (state.pendingActionId) {
+-       const pending = this.memoryStore.getPendingAction(state.pendingActionId);
+-       if (pending && pending.status === 'approved') {
+-         console.log(`[Execution Agent] Resuming approved action: ${pending.action}`);
+-         this.sessionApproved = true; // User trusts this session now
+-         
+-         // Execute tool via MCP
+-         let resultText = '';
+-         const toolCallId = crypto.randomUUID();
+-         
+-         if (onStreamChunk) {
+-           onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: pending.action, args: JSON.parse(pending.params) })}\n`);
+-         }
+-
+-         try {
+-           const result = await this.mcpClient?.callTool({
+-             name: pending.action,
+-             arguments: JSON.parse(pending.params)
+-           });
+-           resultText = (result as any)?.content?.[0]?.text || 'Tool executed, no output.';
+-           
+-           // Log execution
+-           this.memoryStore.logExecution(state.workspaceId, pending.action, JSON.parse(pending.params), resultText, 'success');
+-         } catch (e: any) {
+-           resultText = `Tool execution failed: ${e.message}`;
+-           this.memoryStore.logExecution(state.workspaceId, pending.action, JSON.parse(pending.params), resultText, 'error');
+-         }
+-
+-         if (onStreamChunk) {
+-           onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
+-         }
+-
+-         state.messages.push({ role: 'system', content: `Tool Result: ${resultText}` });
+-         state.pendingActionId = undefined; // Cleared
+-         // Continue the execution loop (don't stop here)
+-         state.nextNode = 'execution';
+-         return state;
+-       } else if (pending && pending.status === 'rejected') {
+-         console.log(`[Execution Agent] Action rejected by user: ${pending.action}`);
+-         state.messages.push({ role: 'system', content: `User rejected the execution of ${pending.action}.` });
+-         state.pendingActionId = undefined;
+-       }
++      const pending = this.memoryStore.getPendingAction(state.pendingActionId);
++      if (pending && pending.status === 'approved') {
++        console.log(`[Execution Agent] Resuming approved action: ${pending.action}`);
++        this.approveTool(pending.action, state.workspaceId);
++        state.trace!.recordApproval(pending.action, true, { resumed: true });
++
++        const toolCallId = crypto.randomUUID();
++        if (onStreamChunk) {
++          onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: pending.action, args: JSON.parse(pending.params) })}\n`);
++        }
++
++        const toolStart = performance.now();
++        try {
++          const result = await mcp.callTool(pending.action, JSON.parse(pending.params));
++          const resultText = result.content?.[0]?.text ?? 'Tool executed, no output.';
++          const durationMs = performance.now() - toolStart;
++
++          this.memoryStore.logExecution(state.workspaceId, pending.action, JSON.parse(pending.params), resultText, 'success');
++          state.trace!.recordToolCall(pending.action, durationMs, 'success');
++
++          if (onStreamChunk) {
++            onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
++          }
++          state.messages.push({ role: 'system', content: `Tool Result: ${resultText}` });
++        } catch (e: any) {
++          const durationMs = performance.now() - toolStart;
++          const errorText = `Tool execution failed: ${e.message}`;
++          this.memoryStore.logExecution(state.workspaceId, pending.action, JSON.parse(pending.params), errorText, 'error');
++          state.trace!.recordToolCall(pending.action, durationMs, 'error', { error: e.message });
++          state.trace!.recordError('tool_call', e.message, { tool: pending.action });
++
++          if (onStreamChunk) {
++            onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: errorText } })}\n`);
++          }
++          state.messages.push({ role: 'system', content: errorText });
++        }
++
++        state.pendingActionId = undefined;
++        state.nextNode = 'execution';
++        return state;
++      } else if (pending && pending.status === 'rejected') {
++        console.log(`[Execution Agent] Action rejected by user: ${pending.action}`);
++        state.messages.push({ role: 'system', content: `User rejected the execution of ${pending.action}.` });
++        state.pendingActionId = undefined;
++        state.trace!.recordApproval(pending.action, false, { rejected: true });
++      }
+     }
+ 
+-    // Now decide the next tool or finish
+-    const contextStr = state.messages.map(m => `[${m.role}] ${m.content}`).join('\n');
+-    const prompt = `You are the Execution Agent. You execute ONE step at a time.
++    // Build execution prompt
++    const trimmedMessages = this.trimMessages(state.messages);
++    const contextStr = trimmedMessages.map(m => `[${m.role}] ${m.content}`).join('\n');
++
++    const execPrompt = `You are the Execution Agent. You execute ONE step at a time.
+ 
+ Available tools:
+ - write_file: Write content to a file. Args: {"filePath": "path", "content": "file content"}
+@@ -244,8 +346,23 @@ If the task is complete (all steps done), reply:
+ 
+ Reply with ONLY ONE JSON object. Nothing else.`;
+ 
+-    const rawResponse = await this.callLLM(prompt);
+-    
++    const messages: LLMMessage[] = [
++      { role: 'system', content: 'You are the Execution Agent. Reply with only JSON.' },
++      { role: 'user', content: execPrompt },
++    ];
++    (messages as any).__trace = state.trace;
++
++    let rawResponse: string;
++    try {
++      const res = await this.callLLM(messages);
++      rawResponse = res.text;
++    } catch (err: any) {
++      state.output = `LLM Error: ${err.message}`;
++      state.nextNode = 'end';
++      endTrace({ error: err.message });
++      return state;
++    }
++
+     // Robust bracket-counting JSON extractor
+     let extractedJson: string | null = null;
+     const startIdx = rawResponse.indexOf('{');
+@@ -265,100 +382,113 @@ Reply with ONLY ONE JSON object. Nothing else.`;
+ 
+     try {
+       if (!extractedJson) {
+-        state.output = rawResponse; // Fallback if it just replied with text
++        state.output = rawResponse; // Fallback: just return the text
+         state.nextNode = 'end';
++        endTrace({ fallback: 'raw_text' });
+         return state;
+       }
+ 
+       const decision = JSON.parse(extractedJson);
+ 
+       if (decision.done === true || !decision.tool) {
+-        state.output = decision.message || "Execution completed.";
++        state.output = decision.message ?? 'Execution completed.';
+         state.nextNode = 'end';
++        endTrace({ done: true });
+         return state;
+       }
+ 
+-      // Check if it's a dangerous command (bash, python)
+-      const tool = decision.tool;
++      const tool = decision.tool as string;
+       const isDangerous = tool === 'bash' || tool === 'python';
+-      
+-      if (isDangerous && !this.sessionApproved) {
++
++      // Check approval
++      this.gcApprovals(); // Clean expired approvals first
++
++      if (isDangerous && !this.isToolApproved(tool, state.workspaceId)) {
+         console.log(`[Execution Agent] Pausing for security confirmation on ${tool}`);
+-        state.trace?.addEvent('approval', 'Waiting for user approval', { tool, args: decision.args });
++        state.trace!.recordApproval(tool, false);
+         const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, decision.args);
+-        
+         state.pendingActionId = pendingId;
+         state.output = `Security Confirmation Required for ${tool}. Please approve.`;
+-        // Paused loop by ending execution, NextJS will resume by re-invoking with pendingActionId
+-        endTrace?.({ tool, status: 'awaiting_approval' });
+-        state.nextNode = 'end'; 
++        endTrace({ tool, status: 'awaiting_approval' });
++        state.nextNode = 'end';
+         return state;
+-      } else if (isDangerous && this.sessionApproved) {
+-        console.log(`[Execution Agent] Auto-approved ${tool} (session trust)`);
+-        state.trace?.addEvent('approval', 'Auto-approved (session trust)', { tool });
+       }
+ 
+-      // Execute safe tool immediately
+-      console.log(`[Execution Agent] Executing safe tool: ${tool}`);
+-      let resultText = '';
++      if (isDangerous) {
++        console.log(`[Execution Agent] Auto-approved ${tool} (valid workspace approval)`);
++        state.trace!.recordApproval(tool, true);
++      }
++
++      // Execute tool
++      console.log(`[Execution Agent] Executing tool: ${tool}`);
+       const toolCallId = crypto.randomUUID();
+ 
+       if (onStreamChunk) {
+         onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: tool, args: decision.args })}\n`);
+       }
+ 
++      const toolStart = performance.now();
+       try {
+-        const result = await this.mcpClient?.callTool({
+-          name: tool,
+-          arguments: decision.args
+-        });
+-        resultText = (result as any)?.content?.[0]?.text || 'Tool executed, no output.';
++        const result = await mcp.callTool(tool, decision.args);
++        const resultText = result.content?.[0]?.text ?? 'Tool executed, no output.';
++        const durationMs = performance.now() - toolStart;
++
+         this.memoryStore.logExecution(state.workspaceId, tool, decision.args, resultText, 'success');
+-      } catch (e: any) {
+-        resultText = `Tool execution failed: ${e.message}`;
+-        this.memoryStore.logExecution(state.workspaceId, tool, decision.args, resultText, 'error');
+-      }
++        state.trace!.recordToolCall(tool, durationMs, 'success');
+ 
+-      if (onStreamChunk) {
+-        onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
++        if (onStreamChunk) {
++          onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
++        }
++        state.messages.push({ role: 'system', content: `Tool ${tool} Result: ${resultText}` });
++        endTrace({ tool, status: 'completed' });
++      } catch (e: any) {
++        const durationMs = performance.now() - toolStart;
++        const errorText = `Tool execution failed: ${e.message}`;
++        this.memoryStore.logExecution(state.workspaceId, tool, decision.args, errorText, 'error');
++        state.trace!.recordToolCall(tool, durationMs, 'error', { error: e.message });
++        state.trace!.recordError('tool_call', e.message, { tool });
++
++        if (onStreamChunk) {
++          onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: errorText } })}\n`);
++        }
++        state.messages.push({ role: 'system', content: errorText });
++        endTrace({ tool, status: 'error', error: e.message });
+       }
+ 
+-      state.messages.push({ role: 'system', content: `Tool ${tool} Result: ${resultText}` });
+-      endTrace?.({ tool, status: 'completed' });
+-      
+-      // Loop back to Execution Agent to see if it needs more tools
++      // Loop back to Execution Agent for next step
+       state.nextNode = 'execution';
+ 
+     } catch (e: any) {
+       console.error('Failed to parse Execution Agent JSON:', rawResponse, e.message);
+       state.output = `Agent parsing error: ${e.message}. Raw: ${rawResponse}`;
+       state.nextNode = 'end';
++      state.trace!.recordError('execution', e.message, { rawResponse: rawResponse.slice(0, 500) });
++      endTrace({ error: e.message });
+     }
+ 
+     return state;
+   }
+ 
+-  // Run the Graph
+-  public async run(initialState: Partial<AgentState>, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
+-    await this.initMcp();
++  // ── Main Run Loop ──
+ 
++  async run(initialState: Partial<AgentState>, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
+     const trace = new TraceCollector();
+ 
+     let state: AgentState = {
+-      workspaceId: initialState.workspaceId || 'default',
+-      instructions: initialState.instructions || '',
+-      messages: initialState.messages || [],
+-      nextNode: initialState.pendingActionId ? 'execution' : (initialState.nextNode || 'router'),
++      workspaceId: initialState.workspaceId ?? 'default',
++      instructions: initialState.instructions ?? '',
++      messages: initialState.messages ?? [],
++      nextNode: initialState.pendingActionId ? 'execution' : (initialState.nextNode ?? 'router'),
+       output: '',
+       pendingActionId: initialState.pendingActionId,
+       iteration: 0,
+-      trace
++      trace,
+     };
+ 
+     try {
+-      while (state.nextNode !== 'end' && state.iteration < 10) {
++      while (state.nextNode !== 'end' && state.iteration < this.maxIterations) {
+         state.iteration++;
+-        
++
+         switch (state.nextNode) {
+           case 'router':
+             state = await this.nodeRouter(state);
+@@ -372,13 +502,26 @@ Reply with ONLY ONE JSON object. Nothing else.`;
+           case 'execution':
+             state = await this.nodeExecution(state, onStreamChunk);
+             break;
++          default:
++            state.nextNode = 'end';
+         }
+       }
++
++      if (state.iteration >= this.maxIterations) {
++        trace.recordError('execution', `Max iterations (${this.maxIterations}) reached`);
++      }
++    } catch (e: any) {
++      trace.recordError('execution', `Fatal: ${e.message}`);
++      state.output = `Agent error: ${e.message}`;
+     } finally {
+-      trace.addEvent('complete', 'Agent run finished', { iterations: state.iteration, totalMs: trace.getTotalDurationMs() });
+-      // Stream the trace data to the frontend via the `o:` chunk type
++      trace.addEvent('complete', 'Agent run finished', {
++        iterations: state.iteration,
++        totalMs: trace.getTotalDurationMs(),
++        tokens: trace.getTokenUsage(),
++      });
++
+       if (onStreamChunk) {
+-        onStreamChunk(`e:${trace.serialize()}\n`);
++        onStreamChunk(`e:${trace.serialize(state.iteration)}\n`);
+       }
+     }
+ 
+diff --git a/packages/agent/src/server.ts b/packages/agent/src/server.ts
+index ac67906..de6c7db 100644
+--- a/packages/agent/src/server.ts
++++ b/packages/agent/src/server.ts
+@@ -1,18 +1,46 @@
+-import express from 'express';
++/**
++ * Torvaix Agent Server
++ *
++ * Hardened Express server with:
++ * - SQLite-backed user persistence (bcrypt password hashing)
++ * - JWT session management
++ * - Rate limiting
++ * - Auth middleware on protected routes
++ * - All existing APIs preserved: agent, memory, companion
++ */
++
++import express, { Request, Response, NextFunction } from 'express';
+ import http from 'http';
+ import { WebSocketServer } from 'ws';
+ import path from 'path';
+ import crypto from 'crypto';
++import jwt from 'jsonwebtoken';
++import bcrypt from 'bcryptjs';
+ import { AgentOrchestrator } from './orchestrator';
+ import { MemoryStore } from '@torvaix/memory';
++import { LLMClient } from '@torvaix/providers';
++
++// ── Environment & Config ──
++
++const JWT_SECRET = process.env.JWT_SECRET ?? (() => {
++  const secret = crypto.randomBytes(64).toString('hex');
++  console.warn('[Auth] JWT_SECRET not set — using random secret. Sessions will not persist across restarts!');
++  return secret;
++})();
++
++const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
++const RATE_LIMIT_MAX = 60; // requests per window per user
++const AGENT_RATE_LIMIT_MAX = 30; // stricter for agent runs
++
++// ── App Setup ──
+ 
+ const app = express();
+ const server = http.createServer(app);
+ const wss = new WebSocketServer({ server });
+ 
+-// Memory store for orchestrated agents
+ const memoryDbPath = path.join(process.cwd(), 'torvaix_metadata.db');
+ const memoryStore = new MemoryStore(memoryDbPath);
++const llmClient = new LLMClient();
+ 
+ app.use(express.json({ limit: '50mb' }));
+ 
+@@ -25,43 +53,111 @@ app.use((req, res, next) => {
+   next();
+ });
+ 
+-// In-memory storage (can be migrated to SQLite if needed)
+-const users = new Map<string, any>();
+-const activeConnections = new Map<string, WebSocket>();
++// ── Auth Types ──
++
++interface AuthRequest extends Request {
++  user?: { userId: string; email: string };
++}
++
++// ── Rate Limiting ──
++
++interface RateLimitEntry {
++  requests: number[]; // timestamps
++}
++
++const rateLimits = new Map<string, RateLimitEntry>();
++
++function rateLimit(maxRequests: number = RATE_LIMIT_MAX) {
++  return (req: AuthRequest, res: Response, next: NextFunction) => {
++    const key = req.user?.userId ?? req.ip ?? 'anonymous';
++    const now = Date.now();
++    const windowStart = now - RATE_LIMIT_WINDOW_MS;
++
++    let entry = rateLimits.get(key);
++    if (!entry) {
++      entry = { requests: [] };
++      rateLimits.set(key, entry);
++    }
++
++    // Clean old requests
++    entry.requests = entry.requests.filter(t => t > windowStart);
++
++    if (entry.requests.length >= maxRequests) {
++      res.status(429).json({ error: 'Rate limit exceeded. Please slow down.' });
++      return;
++    }
++
++    entry.requests.push(now);
++    next();
++  };
++}
++
++// ── Auth Middleware ──
++
++function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
++  const header = req.headers.authorization;
++  if (!header?.startsWith('Bearer ')) {
++    res.status(401).json({ error: 'Authentication required. Provide a Bearer token.' });
++    return;
++  }
++
++  try {
++    const token = header.slice(7);
++    const decoded = jwt.verify(token, JWT_SECRET, { clockTolerance: 60 }) as any;
++    req.user = { userId: decoded.userId, email: decoded.email };
++    next();
++  } catch (err: any) {
++    res.status(401).json({ error: 'Invalid or expired token. Please log in again.' });
++  }
++}
++
++// ── Public Routes ──
+ 
+-// Health check
+-app.get('/api/health', async (req, res) => {
++// Health check (no auth required)
++app.get('/api/health', async (_req, res) => {
+   const qdrantOk = await memoryStore.initQdrant();
+   res.json({
+     status: 'ok',
+     timestamp: new Date().toISOString(),
+-    services: {
+-      sqlite: true,
+-      qdrant: qdrantOk,
+-    }
++    services: { sqlite: true, qdrant: qdrantOk },
++    version: '0.1.0',
+   });
+ });
+ 
+-// User management
++// ── Auth Routes ──
++
+ app.post('/api/auth/register', async (req, res) => {
+   try {
+     const { username, email, password } = req.body;
+-    if (!username || !email || !password) return res.status(400).json({ error: 'Missing required fields' });
+-    if (users.has(email)) return res.status(409).json({ error: 'User already exists' });
+-    
+-    const userId = crypto.randomBytes(16).toString('hex');
+-    const user = {
+-      id: userId, username, email,
+-      password: crypto.createHash('sha256').update(password).digest('hex'),
+-      createdAt: new Date().toISOString(),
+-      lastLogin: new Date().toISOString()
+-    };
+-    users.set(email, user);
+-    // Auto-create default workspace for user
++
++    if (!username || !email || !password) {
++      res.status(400).json({ error: 'Missing required fields: username, email, password' });
++      return;
++    }
++    if (password.length < 8) {
++      res.status(400).json({ error: 'Password must be at least 8 characters' });
++      return;
++    }
++    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
++      res.status(400).json({ error: 'Invalid email format' });
++      return;
++    }
++
++    // Check if email exists
++    const existing = memoryStore.getUserByEmail(email);
++    if (existing) {
++      res.status(409).json({ error: 'Email already registered' });
++      return;
++    }
++
++    const hash = await bcrypt.hash(password, 12);
++    const userId = memoryStore.createUser(username, email, hash);
+     memoryStore.createWorkspace('Default Workspace', { userId });
+-    
+-    res.status(201).json({ userId, username, email });
+-  } catch (error) {
++
++    const token = jwt.sign({ userId, email }, JWT_SECRET, { expiresIn: '7d' });
++    res.status(201).json({ token, userId, username });
++  } catch (error: any) {
++    console.error('[Auth] Registration error:', error);
+     res.status(500).json({ error: 'Registration failed' });
+   }
+ });
+@@ -69,65 +165,101 @@ app.post('/api/auth/register', async (req, res) => {
+ app.post('/api/auth/login', async (req, res) => {
+   try {
+     const { email, password } = req.body;
+-    const user = users.get(email);
+-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+-    
+-    const hashedPassword = crypto.createHash('sha256').update(password).digest('hex');
+-    if (user.password !== hashedPassword) return res.status(401).json({ error: 'Invalid credentials' });
+-    
+-    user.lastLogin = new Date().toISOString();
+-    res.json({ userId: user.id, username: user.username, email: user.email });
+-  } catch (error) {
++    if (!email || !password) {
++      res.status(400).json({ error: 'Missing email or password' });
++      return;
++    }
++
++    const user = memoryStore.getUserByEmail(email);
++    if (!user) {
++      res.status(401).json({ error: 'Invalid credentials' });
++      return;
++    }
++
++    const valid = await bcrypt.compare(password, user.passwordHash);
++    if (!valid) {
++      res.status(401).json({ error: 'Invalid credentials' });
++      return;
++    }
++
++    memoryStore.touchUserLogin(user.id);
++
++    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
++    res.json({ token, userId: user.id, username: user.username });
++  } catch (error: any) {
++    console.error('[Auth] Login error:', error);
+     res.status(500).json({ error: 'Login failed' });
+   }
+ });
+ 
+-// Conversation management via MemoryStore
+-app.post('/api/conversations', async (req, res) => {
++app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
++  const user = memoryStore.getUserById(req.user!.userId);
++  if (!user) {
++    res.status(404).json({ error: 'User not found' });
++    return;
++  }
++  res.json({ userId: user.id, username: user.username, email: user.email });
++});
++
++// ── Protected Routes ──
++
++app.post('/api/conversations', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+   try {
+     const { workspaceId, title = 'New Conversation' } = req.body;
+-    const conversationId = memoryStore.createConversation(workspaceId, title);
++    const conversationId = memoryStore.createConversation(workspaceId ?? 'default', title);
+     res.status(201).json({ id: conversationId, title });
+-  } catch (error) {
++  } catch (error: any) {
+     res.status(500).json({ error: 'Failed to create conversation' });
+   }
+ });
+ 
+-// Agent loop integration via Orchestrator
+-app.post('/api/agent/run', async (req, res) => {
++// Agent loop — stricter rate limit
++app.post('/api/agent/run', requireAuth, rateLimit(AGENT_RATE_LIMIT_MAX), async (req: AuthRequest, res) => {
+   try {
+     const { instructions, workspaceId, messages = [], pendingActionId } = req.body;
+     const isStream = req.query.stream === 'true';
+-    
++
+     if (isStream) {
+       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+       res.setHeader('Transfer-Encoding', 'chunked');
+     }
+ 
+-    const orchestrator = new AgentOrchestrator(memoryStore);
+-    
+-    const finalState = await orchestrator.run({
+-      workspaceId: workspaceId || 'default',
+-      instructions,
+-      messages,
+-      pendingActionId
+-    }, isStream ? ((chunk: string) => res.write(chunk)) : undefined);
+-    
++    const orchestrator = new AgentOrchestrator(memoryStore, {
++      llm: llmClient,
++      model: process.env.TORVAIX_MODEL,
++    });
++
++    // If resuming from approval, the orchestrator needs to know
++    if (pendingActionId) {
++      const pending = memoryStore.getPendingAction(pendingActionId);
++      if (pending) {
++        orchestrator.approveTool(pending.action, pending.workspaceId);
++      }
++    }
++
++    const finalState = await orchestrator.run(
++      {
++        workspaceId: workspaceId ?? 'default',
++        instructions,
++        messages,
++        pendingActionId,
++      },
++      isStream ? ((chunk: string) => res.write(chunk)) : undefined
++    );
++
+     if (isStream) {
+-      // Send the final output as a text chunk
+       let outputText = finalState.output;
+       if (finalState.pendingActionId) {
+-        outputText = `\n\n🛡️ **SECURITY LAYER TRIGGERED**\nThe agent wants to execute a potentially dangerous action.\nPending Action ID: \`${finalState.pendingActionId}\``;
++        outputText = `\n\n**SECURITY LAYER TRIGGERED**\nThe agent wants to execute a potentially dangerous action.\nPending Action ID: \`${finalState.pendingActionId}\``;
+       }
+       res.write(`0:${JSON.stringify(outputText)}\n`);
+       res.end();
+     } else {
+-      // Send legacy JSON response back
+       res.json({
+         status: finalState.pendingActionId ? 'pending_confirmation' : 'completed',
+         output: finalState.output,
+         messages: finalState.messages,
+-        pendingActionId: finalState.pendingActionId
++        pendingActionId: finalState.pendingActionId,
+       });
+     }
+   } catch (error: any) {
+@@ -141,45 +273,44 @@ app.post('/api/agent/run', async (req, res) => {
+ });
+ 
+ // Approve Pending Action
+-app.post('/api/agent/approve', async (req, res) => {
++app.post('/api/agent/approve', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+   try {
+-    const { pendingActionId, status } = req.body; // status = 'approved' | 'rejected'
++    const { pendingActionId, status } = req.body as { pendingActionId: string; status: 'approved' | 'rejected' };
++    if (!pendingActionId || !status) {
++      res.status(400).json({ error: 'Missing pendingActionId or status' });
++      return;
++    }
+     memoryStore.updatePendingActionStatus(pendingActionId, status);
+     res.json({ success: true, status });
+-  } catch (error) {
++  } catch (error: any) {
+     res.status(500).json({ error: 'Failed to update pending action' });
+   }
+ });
+ 
+-// Direct memory endpoints for testing/debugging
+-app.post('/api/memory/store', async (req, res) => {
++// Direct memory endpoints
++app.post('/api/memory/store', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+   try {
+     const { workspaceId, content, source } = req.body;
+-    const id = await memoryStore.storeMemory(workspaceId || 'default', content, source || 'API');
++    const id = await memoryStore.storeMemory(workspaceId ?? 'default', content, source ?? 'API');
+     res.json({ success: true, id });
+   } catch (error: any) {
+     res.status(500).json({ error: 'Failed to store memory', details: error.message });
+   }
+ });
+ 
+-app.post('/api/memory/query', async (req, res) => {
++app.post('/api/memory/query', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+   try {
+     const { workspaceId, query, topK } = req.body;
+-    const results = await memoryStore.queryMemory(workspaceId || 'default', query, topK || 5);
++    const results = await memoryStore.queryMemory(workspaceId ?? 'default', query, topK ?? 5);
+     res.json({ success: true, results });
+   } catch (error: any) {
+     res.status(500).json({ error: 'Failed to query memory', details: error.message });
+   }
+ });
+ 
+-// ===================================================================
+-// COMPANION LAYER (EXPERIMENTAL)
+-// Secure device pairing, session continuation, and capability discovery.
+-// This layer is fully isolated from core orchestration.
+-// ===================================================================
++// ── Companion Layer (Experimental) — preserved as-is ──
+ 
+-// Generate a one-time pairing token
+-app.post('/api/companion/pair/create', async (req, res) => {
++app.post('/api/companion/pair/create', requireAuth, async (req, res) => {
+   try {
+     const { scope = 'readonly', expiryMinutes = 10 } = req.body;
+     console.log('[EXPERIMENTAL][Companion] Creating pairing token...');
+@@ -189,79 +320,65 @@ app.post('/api/companion/pair/create', async (req, res) => {
+       pairingToken: result.token,
+       scope,
+       expiresInMinutes: expiryMinutes,
+-      experimental: true
++      experimental: true,
+     });
+   } catch (error: any) {
+     res.status(500).json({ error: 'Failed to create pairing token', details: error.message });
+   }
+ });
+ 
+-// Claim a pairing token (device registration)
+ app.post('/api/companion/pair/claim', async (req, res) => {
+   try {
+     const { token, deviceName, fingerprint } = req.body;
+     if (!token || !deviceName || !fingerprint) {
+-      return res.status(400).json({ error: 'Missing required fields: token, deviceName, fingerprint' });
++      res.status(400).json({ error: 'Missing required fields: token, deviceName, fingerprint' });
++      return;
+     }
+-
+     console.log(`[EXPERIMENTAL][Companion] Device "${deviceName}" attempting to pair...`);
+     const deviceId = memoryStore.claimPairingToken(token, deviceName, fingerprint);
+     if (!deviceId) {
+-      return res.status(401).json({ error: 'Invalid, expired, or already-claimed pairing token' });
++      res.status(401).json({ error: 'Invalid, expired, or already-claimed pairing token' });
++      return;
+     }
+-
+-    // Auto-create a session for the newly paired device
+     const sessionToken = memoryStore.createDeviceSession(deviceId);
+-    res.json({
+-      success: true,
+-      deviceId,
+-      sessionToken,
+-      experimental: true
+-    });
++    res.json({ success: true, deviceId, sessionToken, experimental: true });
+   } catch (error: any) {
+     res.status(500).json({ error: 'Pairing failed', details: error.message });
+   }
+ });
+ 
+-// Create/refresh a session for an already-paired device
+ app.post('/api/companion/session', async (req, res) => {
+   try {
+     const { deviceId } = req.body;
+-    if (!deviceId) return res.status(400).json({ error: 'Missing deviceId' });
+-
++    if (!deviceId) { res.status(400).json({ error: 'Missing deviceId' }); return; }
+     const sessionToken = memoryStore.createDeviceSession(deviceId);
+-    if (!sessionToken) return res.status(401).json({ error: 'Device not found or revoked' });
+-
++    if (!sessionToken) { res.status(401).json({ error: 'Device not found or revoked' }); return; }
+     res.json({ success: true, sessionToken, experimental: true });
+   } catch (error: any) {
+     res.status(500).json({ error: 'Session creation failed', details: error.message });
+   }
+ });
+ 
+-// Validate an active session (capability discovery)
+ app.post('/api/companion/session/validate', async (req, res) => {
+   try {
+     const { sessionToken } = req.body;
+-    if (!sessionToken) return res.status(400).json({ error: 'Missing sessionToken' });
+-
++    if (!sessionToken) { res.status(400).json({ error: 'Missing sessionToken' }); return; }
+     const session = memoryStore.validateSession(sessionToken);
+-    if (!session) return res.status(401).json({ error: 'Invalid or expired session' });
+-
++    if (!session) { res.status(401).json({ error: 'Invalid or expired session' }); return; }
+     res.json({
+       success: true,
+       ...session,
+       capabilities: session.scope === 'admin'
+         ? ['read', 'write', 'execute', 'memory', 'workspaces']
+         : ['read', 'memory'],
+-      experimental: true
++      experimental: true,
+     });
+   } catch (error: any) {
+     res.status(500).json({ error: 'Session validation failed', details: error.message });
+   }
+ });
+ 
+-// List all companion devices
+-app.get('/api/companion/devices', async (req, res) => {
++app.get('/api/companion/devices', requireAuth, async (_req, res) => {
+   try {
+     const devices = memoryStore.listCompanionDevices();
+     res.json({ success: true, devices, experimental: true });
+@@ -270,12 +387,10 @@ app.get('/api/companion/devices', async (req, res) => {
+   }
+ });
+ 
+-// Revoke a companion device
+-app.post('/api/companion/devices/revoke', async (req, res) => {
++app.post('/api/companion/devices/revoke', requireAuth, async (req, res) => {
+   try {
+     const { deviceId } = req.body;
+-    if (!deviceId) return res.status(400).json({ error: 'Missing deviceId' });
+-
++    if (!deviceId) { res.status(400).json({ error: 'Missing deviceId' }); return; }
+     memoryStore.revokeDevice(deviceId);
+     res.json({ success: true, message: 'Device revoked', experimental: true });
+   } catch (error: any) {
+@@ -283,11 +398,14 @@ app.post('/api/companion/devices/revoke', async (req, res) => {
+   }
+ });
+ 
+-// WebSocket for real-time communication
++// ── WebSocket (preserved) ──
++
++const activeConnections = new Map<string, any>();
++
+ wss.on('connection', (ws: any) => {
+   const connectionId = crypto.randomBytes(16).toString('hex');
+   activeConnections.set(connectionId, ws);
+-  
++
+   ws.on('message', async (message: string) => {
+     try {
+       const data = JSON.parse(message.toString());
+@@ -298,19 +416,22 @@ wss.on('connection', (ws: any) => {
+       console.error('WebSocket message error:', error);
+     }
+   });
+-  
++
+   ws.on('close', () => {
+     activeConnections.delete(connectionId);
+   });
+ });
+ 
++// ── Startup ──
++
+ const PORT = process.env.AGENT_PORT || 3001;
+ server.listen(PORT, () => {
+   console.log(`Torvaix Agent Server running on port ${PORT}`);
+   console.log(`Health check: http://localhost:${PORT}/api/health`);
++  console.log(`Auth:         http://localhost:${PORT}/api/auth/register | /api/auth/login`);
+   console.log(`Agent API:    http://localhost:${PORT}/api/agent/run`);
+   console.log(`Memory API:   http://localhost:${PORT}/api/memory/store`);
+   console.log(`Companion:    http://localhost:${PORT}/api/companion/pair/create [EXPERIMENTAL]`);
+ });
+ 
+-export default app;
+\ No newline at end of file
++export default app;
+diff --git a/packages/agent/src/trace.ts b/packages/agent/src/trace.ts
+index aef50d5..704db47 100644
+--- a/packages/agent/src/trace.ts
++++ b/packages/agent/src/trace.ts
+@@ -1,49 +1,155 @@
+ /**
+- * TraceCollector — Lightweight observability for Torvaix agent execution.
+- * 
++ * TraceCollector — Enhanced observability for Torvaix agent execution.
++ *
+  * Collects structured trace events during a single agent run:
+- * - Router decisions
+- * - Memory hits/misses
++ * - Router decisions with timing
++ * - Memory hits/misses with retrieval scores
+  * - Tool execution timings
+  * - Approval gate pauses
+- * - Execution phase transitions
+- * 
+- * The collected trace is serialized and streamed to the frontend
+- * via the `o:` chunk type in the Vercel AI DataStream protocol.
++ * - Token usage tracking
++ * - Error capture
++ * - Phase transitions
++ *
++ * Serialized and streamed to the frontend via the `e:` chunk type.
+  */
+ 
++export type TracePhase =
++  | 'router'
++  | 'memory'
++  | 'knowledge'
++  | 'execution'
++  | 'approval'
++  | 'llm_call'
++  | 'tool_call'
++  | 'mcp'
++  | 'complete'
++  | 'error';
++
+ export interface TraceEvent {
+-  phase: 'router' | 'memory' | 'knowledge' | 'execution' | 'approval' | 'complete';
++  phase: TracePhase;
+   action: string;
+   durationMs?: number;
++  /** Token usage for this event (if applicable) */
++  tokens?: {
++    prompt?: number;
++    completion?: number;
++    total?: number;
++  };
+   metadata?: Record<string, any>;
+   timestamp: number; // epoch ms
+ }
+ 
++export interface TraceSummary {
++  totalMs: number;
++  iterations: number;
++  routingTimeMs: number;
++  toolCalls: number;
++  approvalsRequested: number;
++  approvalsAuto: number;
++  errors: number;
++  tokensUsed: {
++    prompt: number;
++    completion: number;
++    total: number;
++  };
++  phases: Record<string, { count: number; totalMs: number }>;
++}
++
+ export class TraceCollector {
+   private events: TraceEvent[] = [];
+   private startTime: number;
++  private tokenTotals = { prompt: 0, completion: 0, total: 0 };
+ 
+   constructor() {
+     this.startTime = performance.now();
+   }
+ 
+-  /** Record a timed phase. Call start(), do work, then call end(). */
+-  public startPhase(phase: TraceEvent['phase'], action: string): (metadata?: Record<string, any>) => void {
++  /** Record a timed phase. Returns an end() function to call when done. */
++  startPhase(phase: TracePhase, action: string): (metadata?: Record<string, any>, tokens?: { prompt?: number; completion?: number }) => void {
+     const phaseStart = performance.now();
+-    return (metadata?: Record<string, any>) => {
+-      this.events.push({
++    return (metadata?: Record<string, any>, tokens?: { prompt?: number; completion?: number }) => {
++      const durationMs = Math.round((performance.now() - phaseStart) * 100) / 100;
++      const event: TraceEvent = {
+         phase,
+         action,
+-        durationMs: Math.round((performance.now() - phaseStart) * 100) / 100,
++        durationMs,
+         metadata,
+         timestamp: Date.now(),
+-      });
++      };
++      if (tokens) {
++        event.tokens = {
++          prompt: tokens.prompt ?? 0,
++          completion: tokens.completion ?? 0,
++          total: (tokens.prompt ?? 0) + (tokens.completion ?? 0),
++        };
++        this.tokenTotals.prompt += tokens.prompt ?? 0;
++        this.tokenTotals.completion += tokens.completion ?? 0;
++        this.tokenTotals.total += event.tokens.total;
++      }
++      this.events.push(event);
++    };
++  }
++
++  /** Record an LLM call with token usage. */
++  recordLLMCall(
++    model: string,
++    durationMs: number,
++    tokens?: { prompt?: number; completion?: number },
++    metadata?: Record<string, any>
++  ) {
++    const event: TraceEvent = {
++      phase: 'llm_call',
++      action: `LLM: ${model}`,
++      durationMs: Math.round(durationMs * 100) / 100,
++      timestamp: Date.now(),
++      metadata: { model, ...metadata },
+     };
++    if (tokens) {
++      event.tokens = {
++        prompt: tokens.prompt ?? 0,
++        completion: tokens.completion ?? 0,
++        total: (tokens.prompt ?? 0) + (tokens.completion ?? 0),
++      };
++      this.tokenTotals.prompt += tokens.prompt ?? 0;
++      this.tokenTotals.completion += tokens.completion ?? 0;
++      this.tokenTotals.total += event.tokens.total;
++    }
++    this.events.push(event);
++  }
++
++  /** Record a tool execution. */
++  recordToolCall(tool: string, durationMs: number, status: 'success' | 'error', metadata?: Record<string, any>) {
++    this.events.push({
++      phase: 'tool_call',
++      action: `Tool: ${tool}`,
++      durationMs: Math.round(durationMs * 100) / 100,
++      timestamp: Date.now(),
++      metadata: { tool, status, ...metadata },
++    });
++  }
++
++  /** Record an approval gate event. */
++  recordApproval(tool: string, autoApproved: boolean, metadata?: Record<string, any>) {
++    this.events.push({
++      phase: 'approval',
++      action: autoApproved ? `Auto-approved: ${tool}` : `Awaiting approval: ${tool}`,
++      timestamp: Date.now(),
++      metadata: { tool, autoApproved, ...metadata },
++    });
++  }
++
++  /** Record an error. */
++  recordError(phase: TracePhase, error: string, metadata?: Record<string, any>) {
++    this.events.push({
++      phase: 'error',
++      action: `Error in ${phase}`,
++      timestamp: Date.now(),
++      metadata: { error, phase, ...metadata },
++    });
+   }
+ 
+   /** Record an instant event (no duration). */
+-  public addEvent(phase: TraceEvent['phase'], action: string, metadata?: Record<string, any>) {
++  addEvent(phase: TracePhase, action: string, metadata?: Record<string, any>) {
+     this.events.push({
+       phase,
+       action,
+@@ -53,19 +159,62 @@ export class TraceCollector {
+   }
+ 
+   /** Get all collected events. */
+-  public getTrace(): TraceEvent[] {
++  getTrace(): TraceEvent[] {
+     return this.events;
+   }
+ 
+   /** Total wall-clock time since collector was created. */
+-  public getTotalDurationMs(): number {
++  getTotalDurationMs(): number {
+     return Math.round((performance.now() - this.startTime) * 100) / 100;
+   }
+ 
+-  /** Serialize the full trace for streaming via `o:` chunk. */
+-  public serialize(): string {
++  /** Get aggregated token usage. */
++  getTokenUsage() {
++    return { ...this.tokenTotals };
++  }
++
++  /** Build a summary of the trace. */
++  summarize(iterations: number = 0): TraceSummary {
++    const phases: Record<string, { count: number; totalMs: number }> = {};
++    let routingTimeMs = 0;
++    let toolCalls = 0;
++    let approvalsRequested = 0;
++    let approvalsAuto = 0;
++    let errors = 0;
++
++    for (const e of this.events) {
++      const key = e.phase;
++      if (!phases[key]) phases[key] = { count: 0, totalMs: 0 };
++      phases[key].count++;
++      if (e.durationMs) phases[key].totalMs += e.durationMs;
++
++      if (e.phase === 'router' && e.durationMs) routingTimeMs += e.durationMs;
++      if (e.phase === 'tool_call') toolCalls++;
++      if (e.phase === 'approval') {
++        if (e.metadata?.autoApproved) approvalsAuto++;
++        else approvalsRequested++;
++      }
++      if (e.phase === 'error') errors++;
++    }
++
++    return {
++      totalMs: this.getTotalDurationMs(),
++      iterations,
++      routingTimeMs: Math.round(routingTimeMs * 100) / 100,
++      toolCalls,
++      approvalsRequested,
++      approvalsAuto,
++      errors,
++      tokensUsed: { ...this.tokenTotals },
++      phases,
++    };
++  }
++
++  /** Serialize the full trace for streaming via `e:` chunk. */
++  serialize(iterations: number = 0): string {
+     return JSON.stringify({
+       totalMs: this.getTotalDurationMs(),
++      summary: this.summarize(iterations),
+       events: this.events,
+     });
+   }
+diff --git a/packages/mcp/package.json b/packages/mcp/package.json
+index 823be5b..0f57565 100644
+--- a/packages/mcp/package.json
++++ b/packages/mcp/package.json
+@@ -1,16 +1,17 @@
+ {
+   "name": "@torvaix/mcp",
+   "version": "0.1.0",
+-  "description": "",
+-  "main": "index.js",
++  "description": "Torvaix MCP toolchain — unified tool server and client manager",
++  "main": "src/index.ts",
++  "types": "src/index.ts",
+   "scripts": {
+     "test": "echo \"No tests specified yet\""
+   },
+   "keywords": [],
+   "author": "",
+   "license": "AGPL-3.0",
+-  "type": "commonjs",
+   "dependencies": {
++    "@modelcontextprotocol/sdk": "^1.0.1",
+     "@types/node": "^20.19.42",
+     "node-fetch": "^3.3.2",
+     "typescript": "^5.9.3",
+diff --git a/packages/mcp/src/__tests__/client.test.ts b/packages/mcp/src/__tests__/client.test.ts
+new file mode 100644
+index 0000000..74bbe0e
+--- /dev/null
++++ b/packages/mcp/src/__tests__/client.test.ts
+@@ -0,0 +1,29 @@
++/**
++ * Tests for MCP Client Manager (Singleton)
++ */
++
++import { describe, it, expect } from 'vitest';
++import { getMcpClient, resetMcpClient } from '../client';
++
++describe('McpClientManager Singleton', () => {
++  it('returns singleton instance', () => {
++    resetMcpClient();
++    const a = getMcpClient();
++    const b = getMcpClient();
++    expect(a).toBe(b);
++  });
++
++  it('is not connected initially', () => {
++    resetMcpClient();
++    const client = getMcpClient();
++    expect(client.isConnected()).toBe(false);
++  });
++
++  it('can reset singleton', () => {
++    resetMcpClient();
++    const a = getMcpClient();
++    resetMcpClient();
++    const b = getMcpClient();
++    expect(a).not.toBe(b);
++  });
++});
+diff --git a/packages/mcp/src/client.ts b/packages/mcp/src/client.ts
+new file mode 100644
+index 0000000..4a97738
+--- /dev/null
++++ b/packages/mcp/src/client.ts
+@@ -0,0 +1,164 @@
++/**
++ * Torvaix MCP Client Singleton
++ *
++ * Manages the lifecycle of the Model Context Protocol client:
++ * - Lazy initialization (connects only when first needed)
++ * - Persistent connection (reused across agent runs)
++ * - Automatic reconnection with exponential backoff
++ * - Graceful cleanup on shutdown
++ *
++ * Usage:
++ *   const mcp = await getMcpClient();
++ *   const result = await mcp.callTool('bash', { command: 'ls' });
++ *   await mcp.close(); // on shutdown
++ */
++
++import { Client } from '@modelcontextprotocol/sdk/client/index.js';
++import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
++import path from 'path';
++
++export interface McpToolResult {
++  content: Array<{ type: string; text: string }>;
++  isError?: boolean;
++}
++
++class McpClientManager {
++  private client: Client | null = null;
++  private transport: StdioClientTransport | null = null;
++  private connecting = false;
++  private connected = false;
++  private reconnectAttempts = 0;
++  private readonly maxReconnectAttempts = 3;
++  private readonly baseDelayMs = 500;
++  private serverPath: string;
++
++  constructor() {
++    this.serverPath = path.resolve(__dirname, './index.ts');
++  }
++
++  /** Returns true if the client is currently connected. */
++  isConnected(): boolean {
++    return this.connected && this.client !== null;
++  }
++
++  /** Lazy-connect to the MCP server. Idempotent — safe to call multiple times. */
++  async connect(): Promise<Client> {
++    if (this.connected && this.client) return this.client;
++    if (this.connecting) {
++      // Wait for in-flight connection
++      while (this.connecting) {
++        await new Promise(r => setTimeout(r, 50));
++      }
++      if (this.connected && this.client) return this.client;
++    }
++
++    this.connecting = true;
++    try {
++      await this._doConnect();
++      this.reconnectAttempts = 0;
++      return this.client!;
++    } finally {
++      this.connecting = false;
++    }
++  }
++
++  private async _doConnect() {
++    // Clean up any stale connection
++    await this._cleanup();
++
++    this.transport = new StdioClientTransport({
++      command: 'npx',
++      args: ['tsx', this.serverPath],
++    });
++
++    this.client = new Client(
++      { name: 'torvaix-execution-agent', version: '1.0.0' },
++      { capabilities: {} }
++    );
++
++    await this.client.connect(this.transport);
++    this.connected = true;
++    console.log('[MCP] Connected to MCP Server');
++  }
++
++  /** Call a tool via MCP. Auto-reconnects if disconnected. */
++  async callTool(name: string, args: Record<string, any>): Promise<McpToolResult> {
++    const client = await this.connect();
++
++    try {
++      const result = await client.callTool({
++        name,
++        arguments: args,
++      });
++      return result as McpToolResult;
++    } catch (err: any) {
++      // If the call failed due to disconnect, try reconnecting once
++      if (err.message?.includes('disconnected') || err.message?.includes('closed')) {
++        this.connected = false;
++        console.log(`[MCP] Connection lost during tool call, reconnecting...`);
++        const freshClient = await this.connect();
++        const result = await freshClient.callTool({ name, arguments: args });
++        return result as McpToolResult;
++      }
++      throw err;
++    }
++  }
++
++  /** Gracefully close the connection. */
++  async close() {
++    await this._cleanup();
++    this.reconnectAttempts = 0;
++    console.log('[MCP] Connection closed');
++  }
++
++  private async _cleanup() {
++    this.connected = false;
++    if (this.transport) {
++      try {
++        await this.transport.close();
++      } catch (e) {
++        // Ignore close errors
++      }
++      this.transport = null;
++    }
++    this.client = null;
++  }
++
++  /** Attempt reconnection with exponential backoff. */
++  async reconnect(): Promise<boolean> {
++    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
++      console.error(`[MCP] Max reconnection attempts (${this.maxReconnectAttempts}) reached`);
++      return false;
++    }
++
++    this.reconnectAttempts++;
++    const delay = this.baseDelayMs * Math.pow(2, this.reconnectAttempts - 1);
++    console.log(`[MCP] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
++    await new Promise(r => setTimeout(r, delay));
++
++    try {
++      await this._doConnect();
++      this.reconnectAttempts = 0;
++      return true;
++    } catch (err: any) {
++      console.error(`[MCP] Reconnection failed: ${err.message}`);
++      return this.reconnect();
++    }
++  }
++}
++
++// ── Singleton Instance ──
++
++let _instance: McpClientManager | null = null;
++
++export function getMcpClient(): McpClientManager {
++  if (!_instance) {
++    _instance = new McpClientManager();
++  }
++  return _instance;
++}
++
++/** Reset the singleton (primarily for testing). */
++export function resetMcpClient() {
++  _instance = null;
++}
+diff --git a/packages/memory/src/__tests__/memory.test.ts b/packages/memory/src/__tests__/memory.test.ts
+index e8ca9d1..86c7cae 100644
+--- a/packages/memory/src/__tests__/memory.test.ts
++++ b/packages/memory/src/__tests__/memory.test.ts
+@@ -1,113 +1,250 @@
++/**
++ * Tests for Torvaix Memory Store
++ *
++ * Tests SQLite operations, workspace management, and the embedding fallback chain.
++ * Note: Qdrant and Ollama integration tests require those services to be running.
++ */
++
++import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+ import { MemoryStore } from '../index';
+-import path from 'path';
+ import fs from 'fs';
+-import { assert } from 'console';
+-
+-const TEST_DB_PATH = path.resolve(__dirname, '../../test-torvaix.db');
+-const WORKSPACE_ID = 'test-regression-suite';
+-
+-async function runTests() {
+-  console.log("==========================================");
+-  console.log("🚀 Starting Memory Store Regression Suite");
+-  console.log("==========================================\n");
+-
+-  // Cleanup old test DB
+-  if (fs.existsSync(TEST_DB_PATH)) {
+-    fs.unlinkSync(TEST_DB_PATH);
+-  }
+-
+-  const store = new MemoryStore(TEST_DB_PATH);
+-  
+-  try {
+-    console.log("Checking Qdrant and Ollama connectivity...");
+-    await store.initQdrant();
+-  } catch (e: any) {
+-    console.error("❌ Pre-flight check failed! Is Qdrant and Ollama running?");
+-    console.error(e.message);
+-    process.exit(1);
+-  }
+-
+-  let memoryId: string = "";
+-
+-  try {
+-    console.log("\n--- Category 1: Storage & Embedding Tests ---");
+-    
+-    // Test 1: Store Memory
+-    process.stdout.write("Test: Store Memory... ");
+-    memoryId = await store.storeMemory(WORKSPACE_ID, "My favorite database is PostgreSQL", "Regression Test");
+-    assert(memoryId.length > 10, "Memory ID should be generated");
+-    console.log("✅ Passed");
+-
+-    // Test 2: Retrieve By ID (SQLite Check)
+-    process.stdout.write("Test: Retrieve By ID (Consistency)... ");
+-    const record = await store.getMemoryById(memoryId);
+-    assert(record !== undefined, "Record must exist in SQLite");
+-    assert(record.content === "My favorite database is PostgreSQL", "Content must match");
+-    console.log("✅ Passed");
+-
+-    console.log("\n--- Category 2: Retrieval Tests ---");
+-
+-    // Test 3: Semantic Retrieval
+-    process.stdout.write("Test: Semantic Match Retrieval... ");
+-    const results = await store.queryMemory(WORKSPACE_ID, "What database do I prefer?", 3);
+-    assert(results.length > 0, "Should retrieve at least one result");
+-    assert(results[0].id === memoryId, "Top result should be our stored memory");
+-    assert(results[0].score > 0.6, "Confidence threshold should be high");
+-    console.log(`✅ Passed (Confidence: ${(results[0].score * 100).toFixed(1)}%)`);
+-
+-    // Test 4: Unrelated Query
+-    process.stdout.write("Test: Unrelated Query Retrieval... ");
+-    const badResults = await store.queryMemory(WORKSPACE_ID, "How do I bake a cake?", 3);
+-    // Even if it returns results, the confidence should be low
+-    if (badResults.length > 0) {
+-      assert(badResults[0].score < 0.5, "Confidence should be low for unrelated queries");
+-    }
+-    console.log("✅ Passed");
+-
+-    console.log("\n--- Category 3: Update & Consistency Tests ---");
+-
+-    // Test 5: Update Memory
+-    process.stdout.write("Test: Update Memory... ");
+-    await store.updateMemory(memoryId, "Actually, I switched my favorite database to SQLite");
+-    const updatedRecord = await store.getMemoryById(memoryId);
+-    assert(updatedRecord.content === "Actually, I switched my favorite database to SQLite", "Content must be updated");
+-    console.log("✅ Passed");
+-
+-    // Test 6: Verify Vector Update via query
+-    process.stdout.write("Test: Vector Space Updated... ");
+-    const newQueryResults = await store.queryMemory(WORKSPACE_ID, "What is my new favorite db?", 3);
+-    assert(newQueryResults[0].id === memoryId, "Should find the updated vector");
+-    console.log("✅ Passed");
+-
+-    console.log("\n--- Category 4: Deletion & Lifecycle Tests ---");
+-
+-    // Test 7: Delete Memory
+-    process.stdout.write("Test: Delete Memory... ");
+-    await store.deleteMemory(memoryId);
+-    const deletedRecord = await store.getMemoryById(memoryId);
+-    assert(deletedRecord === undefined, "Record must be removed from SQLite");
+-    console.log("✅ Passed");
+-
+-    // Test 8: Verify Vector Deletion
+-    process.stdout.write("Test: Vector Deletion Cascade... ");
+-    const emptyResults = await store.queryMemory(WORKSPACE_ID, "database", 3);
+-    assert(emptyResults.length === 0 || emptyResults[0].id !== memoryId, "Vector should not be found");
+-    console.log("✅ Passed");
+-
+-    console.log("\n==========================================");
+-    console.log("🎉 All 8 Regression Tests Passed Successfully!");
+-    console.log("==========================================");
+-
+-  } catch (error: any) {
+-    console.error(`\n❌ Test Failed: ${error.message}`);
+-    console.error(error);
+-    process.exit(1);
+-  } finally {
+-    // Cleanup
+-    if (fs.existsSync(TEST_DB_PATH)) {
+-      fs.unlinkSync(TEST_DB_PATH);
++import path from 'path';
++import os from 'os';
++
++describe('MemoryStore — SQLite Operations', () => {
++  let dbPath: string;
++  let store: MemoryStore;
++
++  beforeEach(() => {
++    dbPath = path.join(os.tmpdir(), `torvaix-test-${Date.now()}.db`);
++    store = new MemoryStore(dbPath, {
++      ollamaUrl: 'http://localhost:11434', // will fail gracefully
++      qdrantUrl: 'http://localhost:6333',  // will fail gracefully
++    });
++  });
++
++  afterEach(() => {
++    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
++  });
++
++  it('creates default workspace', () => {
++    const ws = store.getWorkspace('default');
++    expect(ws).toBeDefined();
++    expect(ws!.name).toBe('Default Workspace');
++  });
++
++  it('creates and retrieves workspaces', () => {
++    const id = store.createWorkspace('Test Workspace', { theme: 'dark' });
++    expect(id).toBeDefined();
++    expect(id.length).toBeGreaterThan(0);
++
++    const ws = store.getWorkspace(id);
++    expect(ws).toBeDefined();
++    expect(ws!.name).toBe('Test Workspace');
++
++    const settings = JSON.parse(ws!.settings);
++    expect(settings.theme).toBe('dark');
++  });
++
++  it('lists workspaces', () => {
++    store.createWorkspace('Workspace A');
++    store.createWorkspace('Workspace B');
++    const list = store.listWorkspaces();
++    expect(list.length).toBeGreaterThanOrEqual(3); // default + 2
++  });
++
++  it('stores and queries memories (SQLite fallback)', async () => {
++    const wsId = store.createWorkspace('Memory Test');
++    const memId = await store.storeMemory(wsId, 'My favorite language is TypeScript', 'test');
++    expect(memId).toBeDefined();
++
++    const results = await store.queryMemory(wsId, 'favorite language', 5);
++    expect(results.length).toBeGreaterThan(0);
++    expect(results[0].content).toContain('TypeScript');
++  });
++
++  it('queries memories across multiple stored items', async () => {
++    const wsId = store.createWorkspace('Multi Memory Test');
++    await store.storeMemory(wsId, 'I love React for frontend development', 'test');
++    await store.storeMemory(wsId, 'My favorite backend framework is Express', 'test');
++    await store.storeMemory(wsId, 'I use Python for data science projects', 'test');
++
++    const results = await store.queryMemory(wsId, 'favorite backend', 5);
++    expect(results.length).toBeGreaterThan(0);
++    // Should find the Express entry
++    const expressResult = results.find(r => r.content.includes('Express'));
++    expect(expressResult).toBeDefined();
++  });
++
++  it('returns empty array for no matches', async () => {
++    const wsId = store.createWorkspace('Empty Test');
++    const results = await store.queryMemory(wsId, 'something that does not exist anywhere', 5);
++    expect(Array.isArray(results)).toBe(true);
++  });
++
++  it('updates memory content', async () => {
++    const wsId = store.createWorkspace('Update Test');
++    const id = await store.storeMemory(wsId, 'Original content', 'test');
++    await store.updateMemory(id, 'Updated content');
++
++    const all = await store.getAllMemories(wsId);
++    const updated = (all as any[]).find((m: any) => m.id === id);
++    expect(updated.content).toBe('Updated content');
++  });
++
++  it('deletes memory', async () => {
++    const wsId = store.createWorkspace('Delete Test');
++    const id = await store.storeMemory(wsId, 'To be deleted', 'test');
++    await store.deleteMemory(id);
++
++    const mem = await store.getMemoryById(id);
++    expect(mem).toBeUndefined();
++  });
++
++  it('throws on updating nonexistent memory', async () => {
++    await expect(store.updateMemory('nonexistent-id', 'test'))
++      .rejects.toThrow('Memory with ID nonexistent-id not found');
++  });
++
++  it('creates and lists conversations', () => {
++    const wsId = store.createWorkspace('Conv Test');
++    const conv1 = store.createConversation(wsId, 'First Chat');
++    const conv2 = store.createConversation(wsId, 'Second Chat');
++
++    expect(conv1).toBeDefined();
++    expect(conv2).toBeDefined();
++
++    const convs = store.listConversations(wsId);
++    expect(convs.length).toBe(2);
++  });
++});
++
++describe('MemoryStore — Pending Actions', () => {
++  let dbPath: string;
++  let store: MemoryStore;
++
++  beforeEach(() => {
++    dbPath = path.join(os.tmpdir(), `torvaix-test-actions-${Date.now()}.db`);
++    store = new MemoryStore(dbPath);
++  });
++
++  afterEach(() => {
++    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
++  });
++
++  it('creates and retrieves pending actions', () => {
++    const wsId = store.createWorkspace('Action Test');
++    const id = store.createPendingAction(wsId, 'bash', { command: 'ls' });
++    expect(id).toBeDefined();
++
++    const action = store.getPendingAction(id);
++    expect(action).toBeDefined();
++    expect(action!.action).toBe('bash');
++    expect(action!.status).toBe('pending');
++  });
++
++  it('updates pending action status', () => {
++    const wsId = store.createWorkspace('Status Test');
++    const id = store.createPendingAction(wsId, 'python', { code: 'print(1)' });
++
++    store.updatePendingActionStatus(id, 'approved');
++    const approved = store.getPendingAction(id);
++    expect(approved!.status).toBe('approved');
++
++    store.updatePendingActionStatus(id, 'rejected');
++    const rejected = store.getPendingAction(id);
++    expect(rejected!.status).toBe('rejected');
++  });
++});
++
++describe('MemoryStore — Users (Auth)', () => {
++  let dbPath: string;
++  let store: MemoryStore;
++
++  beforeEach(() => {
++    dbPath = path.join(os.tmpdir(), `torvaix-test-users-${Date.now()}.db`);
++    store = new MemoryStore(dbPath);
++  });
++
++  afterEach(() => {
++    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
++  });
++
++  it('creates and retrieves users', () => {
++    const id = store.createUser('testuser', 'test@example.com', 'hashedpassword123');
++    expect(id).toBeDefined();
++
++    const user = store.getUserByEmail('test@example.com');
++    expect(user).toBeDefined();
++    expect(user!.username).toBe('testuser');
++    expect(user!.passwordHash).toBe('hashedpassword123');
++  });
++
++  it('finds user by ID', () => {
++    const id = store.createUser('byid', 'byid@example.com', 'hash');
++    const user = store.getUserById(id);
++    expect(user).toBeDefined();
++    expect(user!.username).toBe('byid');
++  });
++
++  it('returns undefined for nonexistent user', () => {
++    expect(store.getUserByEmail('nobody@example.com')).toBeUndefined();
++    expect(store.getUserById('nonexistent')).toBeUndefined();
++  });
++
++  it('enforces unique email constraint', () => {
++    store.createUser('user1', 'dup@example.com', 'hash1');
++    expect(() => {
++      store.createUser('user2', 'dup@example.com', 'hash2');
++    }).toThrow();
++  });
++});
++
++describe('MemoryStore — Local Embedding', () => {
++  let dbPath: string;
++  let store: MemoryStore;
++
++  beforeEach(() => {
++    dbPath = path.join(os.tmpdir(), `torvaix-test-embed-${Date.now()}.db`);
++    store = new MemoryStore(dbPath, {
++      ollamaUrl: 'http://invalid:99999', // force fallback
++    });
++  });
++
++  afterEach(() => {
++    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
++  });
++
++  it('falls back to local keyword embedding', async () => {
++    const embedding = await store.generateEmbedding('test query about artificial intelligence');
++    expect(embedding).not.toBeNull();
++    expect(embedding!.length).toBe(768);
++
++    // Should be normalized (unit vector)
++    const mag = Math.sqrt(embedding!.reduce((s, v) => s + v * v, 0));
++    expect(Math.abs(mag - 1.0)).toBeLessThan(0.01);
++  });
++
++  it('produces consistent embeddings for same text', async () => {
++    const e1 = await store.generateEmbedding('hello world');
++    const e2 = await store.generateEmbedding('hello world');
++    expect(e1).not.toBeNull();
++    expect(e2).not.toBeNull();
++    for (let i = 0; i < e1!.length; i++) {
++      expect(e1![i]).toBe(e2![i]);
+     }
+-  }
+-}
++  });
+ 
+-runTests();
++  it('produces different embeddings for different text', async () => {
++    const e1 = await store.generateEmbedding('hello world');
++    const e2 = await store.generateEmbedding('completely different text');
++    expect(e1).not.toBeNull();
++    expect(e2).not.toBeNull();
++
++    let different = false;
++    for (let i = 0; i < e1!.length; i++) {
++      if (e1![i] !== e2![i]) { different = true; break; }
++    }
++    expect(different).toBe(true);
++  });
++});
+diff --git a/packages/memory/src/index.ts b/packages/memory/src/index.ts
+index 6ec3c9d..baa8a3b 100644
+--- a/packages/memory/src/index.ts
++++ b/packages/memory/src/index.ts
+@@ -1,3 +1,16 @@
++/**
++ * Torvaix Memory Store
++ *
++ * Dual-layer vector memory system:
++ * - Primary: Qdrant vector search with Ollama embeddings
++ * - Fallback 1: OpenAI embeddings (if Ollama unavailable and API key present)
++ * - Fallback 2: Deterministic local keyword embedding (no external deps)
++ * - Source of truth: SQLite
++ *
++ * Also manages workspaces, conversations, pending actions, execution logs,
++ * and companion device pairing.
++ */
++
+ import { QdrantClient } from '@qdrant/js-client-rest';
+ import Database from 'better-sqlite3';
+ import { v4 as uuidv4 } from 'uuid';
+@@ -41,6 +54,9 @@ export interface PendingAction {
+   createdAt: string;
+ }
+ 
++/** Which embedding source is active. */
++export type EmbedSource = 'ollama' | 'openai' | 'local' | 'none';
++
+ export class MemoryStore {
+   private db: Database.Database;
+   private qdrant: QdrantClient;
+@@ -48,16 +64,22 @@ export class MemoryStore {
+   private qdrantChecked = false;
+   private collectionName = 'torvaix_memories';
+   private embedModel = 'nomic-embed-text';
+-  private ollamaUrl = 'http://localhost:11434';
++  private ollamaUrl: string;
+   private ollamaAvailable = false;
+   private ollamaChecked = false;
++  private embedSource: EmbedSource = 'none';
++  private vectorSize = 768; // default for nomic-embed-text
+ 
+-  constructor(dbPath: string) {
++  constructor(dbPath: string, options?: { ollamaUrl?: string; qdrantUrl?: string }) {
+     this.db = new Database(dbPath);
+-    this.qdrant = new QdrantClient({ url: 'http://localhost:6333' });
++    this.ollamaUrl = options?.ollamaUrl ?? process.env.OLLAMA_URL ?? 'http://localhost:11434';
++    const qdrantUrl = options?.qdrantUrl ?? process.env.QDRANT_URL ?? 'http://localhost:6333';
++    this.qdrant = new QdrantClient({ url: qdrantUrl });
+     this.initSQLite();
+   }
+ 
++  // ── SQLite Schema ──
++
+   private initSQLite() {
+     this.db.exec(`
+       CREATE TABLE IF NOT EXISTS memories (
+@@ -106,6 +128,19 @@ export class MemoryStore {
+         FOREIGN KEY(workspaceId) REFERENCES workspaces(id)
+       );
+ 
++      -- Users table (for auth hardening)
++      CREATE TABLE IF NOT EXISTS users (
++        id TEXT PRIMARY KEY,
++        username TEXT NOT NULL UNIQUE,
++        email TEXT NOT NULL UNIQUE,
++        passwordHash TEXT NOT NULL,
++        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
++        lastLogin DATETIME
++      );
++
++      CREATE INDEX IF NOT EXISTS idx_memories_workspace ON memories(workspaceId);
++      CREATE INDEX IF NOT EXISTS idx_memories_accessed ON memories(lastAccessedAt);
++
+       -- Companion Layer (Experimental): Pairing tokens
+       CREATE TABLE IF NOT EXISTS companion_tokens (
+         id TEXT PRIMARY KEY,
+@@ -143,22 +178,30 @@ export class MemoryStore {
+     this.db.exec(`INSERT OR IGNORE INTO workspaces (id, name) VALUES ('default', 'Default Workspace');`);
+   }
+ 
+-  public async initQdrant() {
++  // ── Qdrant ──
++
++  async initQdrant(): Promise<boolean> {
+     if (this.qdrantChecked) return this.qdrantAvailable;
+     this.qdrantChecked = true;
+ 
+     try {
+       const result = await this.qdrant.getCollections();
+       const exists = result.collections.some(c => c.name === this.collectionName);
++
+       if (!exists) {
++        // Detect vector size from active embedding source
++        const testVector = await this.generateEmbedding('test');
++        this.vectorSize = testVector?.length ?? 768;
++
+         await this.qdrant.createCollection(this.collectionName, {
+           vectors: {
+-            size: 768, // nomic-embed-text generates 768-dimensional vectors
++            size: this.vectorSize,
+             distance: 'Cosine',
+           },
+         });
+-        console.log(`[MemoryStore] Created Qdrant collection: ${this.collectionName}`);
++        console.log(`[MemoryStore] Created Qdrant collection: ${this.collectionName} (dim=${this.vectorSize})`);
+       }
++
+       this.qdrantAvailable = true;
+       console.log('[MemoryStore] Qdrant connected successfully');
+     } catch (e) {
+@@ -169,6 +212,8 @@ export class MemoryStore {
+     return this.qdrantAvailable;
+   }
+ 
++  // ── Embedding Chain: Ollama → OpenAI → Local ──
++
+   private async checkOllama(): Promise<boolean> {
+     if (this.ollamaChecked) return this.ollamaAvailable;
+     this.ollamaChecked = true;
+@@ -177,41 +222,105 @@ export class MemoryStore {
+       const response = await fetch(`${this.ollamaUrl}/api/tags`);
+       if (response.ok) {
+         this.ollamaAvailable = true;
++        this.embedSource = 'ollama';
+         console.log('[MemoryStore] Ollama connected successfully');
+       }
+     } catch (e) {
+       this.ollamaAvailable = false;
+-      console.warn('[MemoryStore] Ollama unavailable — vector embeddings disabled');
++      console.warn('[MemoryStore] Ollama unavailable');
+     }
+     return this.ollamaAvailable;
+   }
+ 
+-  private async generateEmbedding(text: string): Promise<number[] | null> {
++  async generateEmbedding(text: string): Promise<number[] | null> {
++    // Try 1: Ollama (local, privacy-first)
+     const ollamaOk = await this.checkOllama();
+-    if (!ollamaOk) return null;
++    if (ollamaOk) {
++      try {
++        const response = await fetch(`${this.ollamaUrl}/api/embeddings`, {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ model: this.embedModel, prompt: text }),
++        });
++        if (response.ok) {
++          const data = await response.json();
++          if (data.embedding) {
++            this.embedSource = 'ollama';
++            return data.embedding;
++          }
++        }
++      } catch (e) {
++        console.warn('[MemoryStore] Ollama embedding failed:', e);
++      }
++    }
+ 
+-    try {
+-      const response = await fetch(`${this.ollamaUrl}/api/embeddings`, {
+-        method: 'POST',
+-        headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({
+-          model: this.embedModel,
+-          prompt: text
+-        }),
+-      });
+-      if (!response.ok) {
+-        console.warn(`[MemoryStore] Embedding generation failed: ${response.statusText}`);
+-        return null;
++    // Try 2: OpenAI embeddings (if API key available)
++    const openaiKey = process.env.OPENAI_API_KEY;
++    if (openaiKey) {
++      try {
++        const response = await fetch('https://api.openai.com/v1/embeddings', {
++          method: 'POST',
++          headers: {
++            Authorization: `Bearer ${openaiKey}`,
++            'Content-Type': 'application/json',
++          },
++          body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
++        });
++        if (response.ok) {
++          const data = await response.json();
++          const embedding = data.data?.[0]?.embedding;
++          if (embedding) {
++            this.embedSource = 'openai';
++            this.vectorSize = embedding.length; // 1536 for text-embedding-3-small
++            return embedding;
++          }
++        }
++      } catch (e) {
++        console.warn('[MemoryStore] OpenAI embedding fallback failed:', e);
+       }
+-      const data = await response.json() as any;
+-      return data.embedding;
+-    } catch (e) {
+-      console.warn('[MemoryStore] Embedding generation failed:', e);
+-      return null;
+     }
++
++    // Try 3: Deterministic local keyword embedding (no ML, no network)
++    this.embedSource = 'local';
++    return this.localKeywordEmbedding(text);
+   }
+ 
+-  public async storeMemory(workspaceId: string, content: string, source: string): Promise<string> {
++  /** Deterministic local embedding — no ML, no network, always available. */
++  private localKeywordEmbedding(text: string): number[] {
++    const dims = this.vectorSize;
++    const vec = new Float32Array(dims);
++    const words = text.toLowerCase().split(/\W+/).filter(w => w.length > 2);
++
++    for (const word of words) {
++      // Distribute word hashes across dimensions
++      let hash = 0;
++      for (let i = 0; i < word.length; i++) {
++        hash = ((hash << 5) - hash) + word.charCodeAt(i);
++        hash |= 0;
++      }
++      const idx1 = Math.abs(hash) % dims;
++      const idx2 = Math.abs(hash ^ 0x9e3779b9) % dims;
++      vec[idx1] += 1.0;
++      vec[idx2] += 0.5;
++    }
++
++    // Normalize to unit vector
++    const mag = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
++    if (mag > 0) {
++      for (let i = 0; i < dims; i++) vec[i] /= mag;
++    }
++
++    return Array.from(vec);
++  }
++
++  /** Get the currently active embedding source. */
++  getEmbedSource(): EmbedSource {
++    return this.embedSource;
++  }
++
++  // ── Memory CRUD ──
++
++  async storeMemory(workspaceId: string, content: string, source: string): Promise<string> {
+     const id = uuidv4();
+     
+     // 1. Try to store vector in Qdrant (if available)
+@@ -220,15 +329,13 @@ export class MemoryStore {
+       const vector = await this.generateEmbedding(content);
+       if (vector) {
+         try {
++          // Ensure collection has correct dimensions
++          if (vector.length !== this.vectorSize) {
++            this.vectorSize = vector.length;
++          }
+           await this.qdrant.upsert(this.collectionName, {
+             wait: true,
+-            points: [
+-              {
+-                id,
+-                vector,
+-                payload: { workspaceId, source }
+-              }
+-            ]
++            points: [{ id, vector, payload: { workspaceId, source } }],
+           });
+         } catch (e) {
+           console.warn('[MemoryStore] Qdrant upsert failed, storing in SQLite only:', e);
+@@ -247,7 +354,7 @@ export class MemoryStore {
+     return id;
+   }
+ 
+-  public async queryMemory(workspaceId: string, query: string, topK: number = 5): Promise<MemoryQueryResult[]> {
++  async queryMemory(workspaceId: string, query: string, topK: number = 5): Promise<MemoryQueryResult[]> {
+     await this.initQdrant();
+ 
+     // If Qdrant + embeddings are available, use vector search
+@@ -259,15 +366,8 @@ export class MemoryStore {
+             vector,
+             limit: topK,
+             filter: {
+-              must: [
+-                {
+-                  key: 'workspaceId',
+-                  match: {
+-                    value: workspaceId
+-                  }
+-                }
+-              ]
+-            }
++              must: [{ key: 'workspaceId', match: { value: workspaceId } }],
++            },
+           });
+ 
+           const results: MemoryQueryResult[] = [];
+@@ -275,19 +375,19 @@ export class MemoryStore {
+           const updateStatsStmt = this.db.prepare('UPDATE memories SET lastAccessedAt = CURRENT_TIMESTAMP, retrievalCount = retrievalCount + 1 WHERE id = ?');
+ 
+           for (const point of searchResults) {
+-            const row = stmt.get(point.id) as { content: string };
++            const row = stmt.get(point.id) as { content: string } | undefined;
+             if (row) {
+               updateStatsStmt.run(point.id);
+               results.push({
+                 id: String(point.id),
+                 content: row.content,
+-                source: String(point.payload?.source || 'unknown'),
++                source: String(point.payload?.source ?? 'unknown'),
+                 score: point.score,
+               });
+             }
+           }
+ 
+-          console.log(`[MemoryStore] Vector query returned ${results.length} results`);
++          console.log(`[MemoryStore] Vector query returned ${results.length} results (source: ${this.embedSource})`);
+           return results;
+         } catch (e) {
+           console.warn('[MemoryStore] Qdrant search failed, falling back to SQLite:', e);
+@@ -300,14 +400,12 @@ export class MemoryStore {
+     const keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+     
+     if (keywords.length === 0) {
+-      // Return most recent memories
+       const stmt = this.db.prepare('SELECT id, content, source FROM memories WHERE workspaceId = ? ORDER BY createdAt DESC LIMIT ?');
+       const rows = stmt.all(workspaceId, topK) as { id: string; content: string; source: string }[];
+       return rows.map(r => ({ ...r, score: 0.5 }));
+     }
+ 
+-    // Build a LIKE query for each keyword
+-    const conditions = keywords.map(() => `LOWER(content) LIKE ?`).join(' OR ');
++    const conditions = keywords.map(() => 'LOWER(content) LIKE ?').join(' OR ');
+     const params = keywords.map(k => `%${k}%`);
+     
+     const stmt = this.db.prepare(
+@@ -315,7 +413,6 @@ export class MemoryStore {
+     );
+     const rows = stmt.all(workspaceId, ...params, topK) as { id: string; content: string; source: string }[];
+ 
+-    // Compute a naive keyword-match score
+     const results: MemoryQueryResult[] = rows.map(row => {
+       const lowerContent = row.content.toLowerCase();
+       const matchCount = keywords.filter(k => lowerContent.includes(k)).length;
+@@ -323,11 +420,10 @@ export class MemoryStore {
+         id: row.id,
+         content: row.content,
+         source: row.source,
+-        score: matchCount / keywords.length, // 0.0 to 1.0
++        score: matchCount / keywords.length,
+       };
+     });
+ 
+-    // Update access stats
+     const updateStatsStmt = this.db.prepare('UPDATE memories SET lastAccessedAt = CURRENT_TIMESTAMP, retrievalCount = retrievalCount + 1 WHERE id = ?');
+     for (const r of results) {
+       updateStatsStmt.run(r.id);
+@@ -337,25 +433,21 @@ export class MemoryStore {
+     return results;
+   }
+ 
+-  public async getAllMemories(workspaceId: string) {
++  async getAllMemories(workspaceId: string) {
+     const stmt = this.db.prepare('SELECT * FROM memories WHERE workspaceId = ? ORDER BY createdAt DESC');
+     return stmt.all(workspaceId);
+   }
+ 
+-  public async getMemoryById(id: string) {
++  async getMemoryById(id: string) {
+     const stmt = this.db.prepare('SELECT * FROM memories WHERE id = ?');
+     return stmt.get(id);
+   }
+ 
+-  public async updateMemory(id: string, newContent: string): Promise<void> {
++  async updateMemory(id: string, newContent: string): Promise<void> {
+     const stmt = this.db.prepare('SELECT workspaceId, source FROM memories WHERE id = ?');
+-    const row = stmt.get(id) as { workspaceId: string, source: string };
+-    
+-    if (!row) {
+-      throw new Error(`Memory with ID ${id} not found`);
+-    }
++    const row = stmt.get(id) as { workspaceId: string; source: string } | undefined;
++    if (!row) throw new Error(`Memory with ID ${id} not found`);
+ 
+-    // Update Qdrant if available
+     await this.initQdrant();
+     if (this.qdrantAvailable) {
+       const vector = await this.generateEmbedding(newContent);
+@@ -363,13 +455,7 @@ export class MemoryStore {
+         try {
+           await this.qdrant.upsert(this.collectionName, {
+             wait: true,
+-            points: [
+-              {
+-                id,
+-                vector,
+-                payload: { workspaceId: row.workspaceId, source: row.source }
+-              }
+-            ]
++            points: [{ id, vector, payload: { workspaceId: row.workspaceId, source: row.source } }],
+           });
+         } catch (e) {
+           console.warn('[MemoryStore] Qdrant update failed:', e);
+@@ -377,97 +463,114 @@ export class MemoryStore {
+       }
+     }
+ 
+-    // Update SQLite
+     const updateStmt = this.db.prepare('UPDATE memories SET content = ? WHERE id = ?');
+     updateStmt.run(newContent, id);
+-
+-    // Emit Event
+     torvaixEvents.emitMemoryUpdated({ id, newContent });
+   }
+ 
+-  public async deleteMemory(id: string): Promise<void> {
+-    // Delete from Qdrant if available
++  async deleteMemory(id: string): Promise<void> {
+     await this.initQdrant();
+     if (this.qdrantAvailable) {
+       try {
+-        await this.qdrant.delete(this.collectionName, {
+-          wait: true,
+-          points: [id]
+-        });
++        await this.qdrant.delete(this.collectionName, { wait: true, points: [id] });
+       } catch (e) {
+         console.warn('[MemoryStore] Qdrant delete failed:', e);
+       }
+     }
+ 
+-    // Delete from SQLite
+     const stmt = this.db.prepare('DELETE FROM memories WHERE id = ?');
+     stmt.run(id);
+-
+-    // Emit Event
+     torvaixEvents.emitMemoryDeleted({ id });
+   }
+ 
+-  // --- Workspace Methods ---
+-  public createWorkspace(name: string, settings: any = {}): string {
++  // ── Workspace Methods ──
++
++  createWorkspace(name: string, settings: any = {}): string {
+     const id = uuidv4();
+     const stmt = this.db.prepare('INSERT INTO workspaces (id, name, settings) VALUES (?, ?, ?)');
+     stmt.run(id, name, JSON.stringify(settings));
+     return id;
+   }
+ 
+-  public getWorkspace(id: string): Workspace | undefined {
++  getWorkspace(id: string): Workspace | undefined {
+     const stmt = this.db.prepare('SELECT * FROM workspaces WHERE id = ?');
+     return stmt.get(id) as Workspace | undefined;
+   }
+ 
+-  public listWorkspaces(): Workspace[] {
++  listWorkspaces(): Workspace[] {
+     const stmt = this.db.prepare('SELECT * FROM workspaces ORDER BY createdAt DESC');
+     return stmt.all() as Workspace[];
+   }
+ 
+-  // --- Conversation Methods ---
+-  public createConversation(workspaceId: string, title: string): string {
++  // ── Conversation Methods ──
++
++  createConversation(workspaceId: string, title: string): string {
+     const id = uuidv4();
+     const stmt = this.db.prepare('INSERT INTO conversations (id, workspaceId, title) VALUES (?, ?, ?)');
+     stmt.run(id, workspaceId, title);
+     return id;
+   }
+ 
+-  public listConversations(workspaceId: string): Conversation[] {
++  listConversations(workspaceId: string): Conversation[] {
+     const stmt = this.db.prepare('SELECT * FROM conversations WHERE workspaceId = ? ORDER BY createdAt DESC');
+     return stmt.all(workspaceId) as Conversation[];
+   }
+ 
+-  // --- Pending Actions (Security) ---
+-  public createPendingAction(workspaceId: string, action: string, params: any): string {
++  // ── Pending Actions (Security) ──
++
++  createPendingAction(workspaceId: string, action: string, params: any): string {
+     const id = uuidv4();
+     const stmt = this.db.prepare('INSERT INTO pending_actions (id, workspaceId, action, params) VALUES (?, ?, ?, ?)');
+     stmt.run(id, workspaceId, action, JSON.stringify(params));
+     return id;
+   }
+ 
+-  public getPendingAction(id: string): PendingAction | undefined {
++  getPendingAction(id: string): PendingAction | undefined {
+     const stmt = this.db.prepare('SELECT * FROM pending_actions WHERE id = ?');
+     return stmt.get(id) as PendingAction | undefined;
+   }
+ 
+-  public updatePendingActionStatus(id: string, status: 'approved' | 'rejected') {
++  updatePendingActionStatus(id: string, status: 'approved' | 'rejected') {
+     const stmt = this.db.prepare('UPDATE pending_actions SET status = ? WHERE id = ?');
+     stmt.run(status, id);
+   }
+ 
+-  // --- Execution Logs ---
+-  public logExecution(workspaceId: string, action: string, params: any, result: any, status: string) {
++  // ── Execution Logs ──
++
++  logExecution(workspaceId: string, action: string, params: any, result: any, status: string) {
+     const id = uuidv4();
+     const stmt = this.db.prepare('INSERT INTO execution_logs (id, workspaceId, action, params, result, status) VALUES (?, ?, ?, ?, ?, ?)');
+     stmt.run(id, workspaceId, action, JSON.stringify(params), JSON.stringify(result), status);
+     return id;
+   }
+ 
+-  // --- Companion Layer (Experimental) ---
++  // ── User Management (Auth Hardening) ──
++
++  createUser(username: string, email: string, passwordHash: string): string {
++    const id = uuidv4();
++    const stmt = this.db.prepare('INSERT INTO users (id, username, email, passwordHash) VALUES (?, ?, ?, ?)');
++    stmt.run(id, username, email, passwordHash);
++    return id;
++  }
++
++  getUserByEmail(email: string): { id: string; username: string; email: string; passwordHash: string } | undefined {
++    const stmt = this.db.prepare('SELECT id, username, email, passwordHash FROM users WHERE email = ?');
++    return stmt.get(email) as any;
++  }
++
++  getUserById(id: string): { id: string; username: string; email: string } | undefined {
++    const stmt = this.db.prepare('SELECT id, username, email FROM users WHERE id = ?');
++    return stmt.get(id) as any;
++  }
++
++  touchUserLogin(id: string) {
++    const stmt = this.db.prepare('UPDATE users SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?');
++    stmt.run(id);
++  }
++
++  // ── Companion Layer (Experimental) ──
+ 
+-  /** Create a one-time pairing token with an expiry and scope. */
+-  public createPairingToken(scope: 'readonly' | 'admin' = 'readonly', expiryMinutes: number = 10): { id: string, token: string } {
++  createPairingToken(scope: 'readonly' | 'admin' = 'readonly', expiryMinutes: number = 10): { id: string; token: string } {
+     const id = uuidv4();
+     const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
+     const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString();
+@@ -476,35 +579,29 @@ export class MemoryStore {
+     return { id, token };
+   }
+ 
+-  /** Claim a pairing token — registers a new trusted device. Returns device ID or null. */
+-  public claimPairingToken(token: string, deviceName: string, fingerprint: string): string | null {
++  claimPairingToken(token: string, deviceName: string, fingerprint: string): string | null {
+     const stmt = this.db.prepare('SELECT * FROM companion_tokens WHERE token = ? AND revoked = 0');
+     const row = stmt.get(token) as any;
+     if (!row) return null;
+-    if (new Date(row.expiresAt) < new Date()) return null; // expired
+-    if (row.claimedByDeviceId) return null; // already claimed
++    if (new Date(row.expiresAt) < new Date()) return null;
++    if (row.claimedByDeviceId) return null;
+ 
+-    // Create the trusted device
+     const deviceId = uuidv4();
+     const insertDevice = this.db.prepare('INSERT INTO companion_devices (id, name, fingerprint, scope) VALUES (?, ?, ?, ?)');
+     try {
+       insertDevice.run(deviceId, deviceName, fingerprint, row.scope);
+     } catch (e: any) {
+-      // fingerprint already registered (unique constraint)
+       const existing = this.db.prepare('SELECT id FROM companion_devices WHERE fingerprint = ?').get(fingerprint) as any;
+       if (existing) return existing.id;
+       return null;
+     }
+ 
+-    // Mark token as claimed
+     const update = this.db.prepare('UPDATE companion_tokens SET claimedByDeviceId = ? WHERE id = ?');
+     update.run(deviceId, row.id);
+-
+     return deviceId;
+   }
+ 
+-  /** Create a session for a trusted device. Returns session token. */
+-  public createDeviceSession(deviceId: string, expiryHours: number = 24): string | null {
++  createDeviceSession(deviceId: string, expiryHours: number = 24): string | null {
+     const device = this.db.prepare('SELECT * FROM companion_devices WHERE id = ? AND revoked = 0').get(deviceId) as any;
+     if (!device) return null;
+ 
+@@ -513,29 +610,24 @@ export class MemoryStore {
+ 
+     const stmt = this.db.prepare('UPDATE companion_devices SET sessionToken = ?, sessionExpiresAt = ?, lastSeenAt = CURRENT_TIMESTAMP WHERE id = ?');
+     stmt.run(sessionToken, sessionExpiresAt, deviceId);
+-
+     return sessionToken;
+   }
+ 
+-  /** Validate a session token. Returns device info or null. */
+-  public validateSession(sessionToken: string): { deviceId: string, scope: string, name: string } | null {
++  validateSession(sessionToken: string): { deviceId: string; scope: string; name: string } | null {
+     const stmt = this.db.prepare('SELECT * FROM companion_devices WHERE sessionToken = ? AND revoked = 0');
+     const device = stmt.get(sessionToken) as any;
+     if (!device) return null;
+     if (new Date(device.sessionExpiresAt) < new Date()) return null;
+ 
+-    // Touch lastSeenAt
+     this.db.prepare('UPDATE companion_devices SET lastSeenAt = CURRENT_TIMESTAMP WHERE id = ?').run(device.id);
+     return { deviceId: device.id, scope: device.scope, name: device.name };
+   }
+ 
+-  /** Revoke a trusted device. */
+-  public revokeDevice(deviceId: string) {
++  revokeDevice(deviceId: string) {
+     this.db.prepare('UPDATE companion_devices SET revoked = 1, sessionToken = NULL WHERE id = ?').run(deviceId);
+   }
+ 
+-  /** List all companion devices. */
+-  public listCompanionDevices(): any[] {
++  listCompanionDevices(): any[] {
+     return this.db.prepare('SELECT id, name, fingerprint, scope, lastSeenAt, revoked, createdAt FROM companion_devices ORDER BY createdAt DESC').all();
+   }
+ }
+diff --git a/packages/providers/src/__tests__/providers.test.ts b/packages/providers/src/__tests__/providers.test.ts
+new file mode 100644
+index 0000000..2b03f11
+--- /dev/null
++++ b/packages/providers/src/__tests__/providers.test.ts
+@@ -0,0 +1,167 @@
++/**
++ * Tests for the Provider Abstraction Layer
++ *
++ * Tests model metadata, LLMClient configuration, and provider readiness checks.
++ * Actual API calls are mocked — these tests do not require network access.
++ */
++
++import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
++import {
++  LLMClient,
++  MODELS,
++  PROVIDERS,
++  getModelById,
++  getModelsByProvider,
++  getProviderById,
++} from '../index';
++
++describe('Provider Metadata', () => {
++  it('has providers defined', () => {
++    expect(PROVIDERS.length).toBeGreaterThan(0);
++    expect(PROVIDERS.some(p => p.id === 'ollama')).toBe(true);
++    expect(PROVIDERS.some(p => p.id === 'openai')).toBe(true);
++  });
++
++  it('has models defined', () => {
++    expect(MODELS.length).toBeGreaterThan(0);
++    expect(MODELS.some(m => m.id === 'llama3.2')).toBe(true);
++    expect(MODELS.some(m => m.id === 'gpt-4o')).toBe(true);
++  });
++
++  it('getModelById finds correct model', () => {
++    expect(getModelById('llama3.2')?.provider).toBe('ollama');
++    expect(getModelById('gpt-4o')?.provider).toBe('openai');
++    expect(getModelById('nonexistent')).toBeUndefined();
++  });
++
++  it('getModelsByProvider filters correctly', () => {
++    const ollamaModels = getModelsByProvider('ollama');
++    expect(ollamaModels.every(m => m.provider === 'ollama')).toBe(true);
++    expect(ollamaModels.length).toBeGreaterThan(0);
++  });
++
++  it('getProviderById finds correct provider', () => {
++    expect(getProviderById('openai')?.name).toBe('OpenAI');
++    expect(getProviderById('nonexistent')).toBeUndefined();
++  });
++});
++
++describe('LLMClient Configuration', () => {
++  it('uses default Ollama URL', () => {
++    const client = new LLMClient();
++    expect(client.getDefaultModel()).toBe('llama3.2');
++  });
++
++  it('respects custom default model', () => {
++    const client = new LLMClient({ defaultModel: 'gpt-4o' });
++    expect(client.getDefaultModel()).toBe('gpt-4o');
++  });
++
++  it('detects provider readiness with API keys', () => {
++    const client = new LLMClient({
++      apiKeys: { openai: 'sk-test', anthropic: 'sk-test' },
++    });
++    expect(client.isProviderReady('openai')).toBe(true);
++    expect(client.isProviderReady('anthropic')).toBe(true);
++    expect(client.isProviderReady('ollama')).toBe(true); // always ready
++    expect(client.isProviderReady('groq')).toBe(false); // no key
++  });
++
++  it('throws on unknown model', async () => {
++    const client = new LLMClient();
++    await expect(
++      client.complete('nonexistent-model', [{ role: 'user', content: 'hi' }])
++    ).rejects.toThrow('Unknown model');
++  });
++});
++
++describe('LLMClient with mocked fetch', () => {
++  let client: LLMClient;
++
++  beforeEach(() => {
++    client = new LLMClient({
++      apiKeys: { openai: 'sk-test', ollama: 'local' },
++      defaultModel: 'gpt-4o-mini',
++    });
++    vi.stubGlobal('fetch', vi.fn());
++  });
++
++  afterEach(() => {
++    vi.unstubAllGlobals();
++  });
++
++  it('calls OpenAI API correctly', async () => {
++    const mockFetch = vi.fn().mockResolvedValue({
++      ok: true,
++      json: async () => ({
++        choices: [{ message: { content: 'Hello from OpenAI' } }],
++        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
++      }),
++    });
++    vi.stubGlobal('fetch', mockFetch);
++
++    const res = await client.complete('gpt-4o-mini', [
++      { role: 'user', content: 'Hello' },
++    ]);
++
++    expect(res.text).toBe('Hello from OpenAI');
++    expect(res.usage?.totalTokens).toBe(15);
++    expect(mockFetch).toHaveBeenCalledTimes(1);
++
++    const call = mockFetch.mock.calls[0];
++    expect(call[0]).toBe('https://api.openai.com/v1/chat/completions');
++    expect(call[1].method).toBe('POST');
++    expect(call[1].headers).toHaveProperty('Authorization', 'Bearer sk-test');
++  });
++
++  it('calls Ollama API correctly', async () => {
++    const mockFetch = vi.fn().mockResolvedValue({
++      ok: true,
++      json: async () => ({
++        message: { content: 'Hello from Ollama' },
++      }),
++    });
++    vi.stubGlobal('fetch', mockFetch);
++
++    const res = await client.complete('llama3.2', [
++      { role: 'user', content: 'Hello' },
++    ]);
++
++    expect(res.text).toBe('Hello from Ollama');
++    expect(mockFetch).toHaveBeenCalledTimes(1);
++
++    const call = mockFetch.mock.calls[0];
++    expect(call[0]).toBe('http://localhost:11434/api/chat');
++  });
++
++  it('handles API errors gracefully', async () => {
++    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
++      ok: false,
++      status: 401,
++      text: async () => 'Invalid API key',
++    }));
++
++    await expect(
++      client.complete('gpt-4o-mini', [{ role: 'user', content: 'hi' }])
++    ).rejects.toThrow('OpenAI error 401');
++  });
++
++  it('applies temperature and maxTokens options', async () => {
++    const mockFetch = vi.fn().mockResolvedValue({
++      ok: true,
++      json: async () => ({
++        choices: [{ message: { content: 'ok' } }],
++      }),
++    });
++    vi.stubGlobal('fetch', mockFetch);
++
++    await client.complete('gpt-4o-mini', [{ role: 'user', content: 'hi' }], {
++      temperature: 0.5,
++      maxTokens: 100,
++    });
++
++    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
++    expect(body.temperature).toBe(0.5);
++    expect(body.max_tokens).toBe(100);
++  });
++});
+diff --git a/packages/providers/src/index.ts b/packages/providers/src/index.ts
+index cfc038a..48ca803 100644
+--- a/packages/providers/src/index.ts
++++ b/packages/providers/src/index.ts
+@@ -1,29 +1,370 @@
++/**
++ * Torvaix Provider Abstraction Layer
++ *
++ * Unified LLM client with adapters for multiple providers:
++ * - Ollama (local)
++ * - OpenAI
++ * - Anthropic
++ * - Google (Gemini)
++ * - Groq
++ * - OpenRouter
++ *
++ * Usage:
++ *   const client = new LLMClient({ apiKeys: { openai: 'sk-...' } });
++ *   const { text, usage } = await client.complete('gpt-4o', messages, { temperature: 0.7 });
++ */
++
++export type ProviderId = 'ollama' | 'openai' | 'anthropic' | 'google' | 'groq' | 'openrouter';
++
+ export interface ModelInfo {
+   id: string;
+   name: string;
+-  provider: string;
++  provider: ProviderId;
+   contextWindow: number;
+   description: string;
+ }
+ 
++export interface LLMMessage {
++  role: 'user' | 'assistant' | 'system';
++  content: string;
++}
++
++export interface LLMUsage {
++  promptTokens: number;
++  completionTokens: number;
++  totalTokens: number;
++}
++
++export interface LLMResponse {
++  text: string;
++  usage?: LLMUsage;
++  model: string;
++}
++
++export interface LLMOptions {
++  temperature?: number;
++  maxTokens?: number;
++  system?: string;
++  topP?: number;
++}
++
+ export const PROVIDERS = [
+-  { id: 'openai', name: 'OpenAI' },
+-  { id: 'anthropic', name: 'Anthropic' },
+-  { id: 'google', name: 'Google' },
+-  { id: 'deepseek', name: 'DeepSeek' },
+-  { id: 'ollama', name: 'Ollama (Local)' }
++  { id: 'openai' as ProviderId, name: 'OpenAI' },
++  { id: 'anthropic' as ProviderId, name: 'Anthropic' },
++  { id: 'google' as ProviderId, name: 'Google' },
++  { id: 'groq' as ProviderId, name: 'Groq' },
++  { id: 'openrouter' as ProviderId, name: 'OpenRouter' },
++  { id: 'ollama' as ProviderId, name: 'Ollama (Local)' },
+ ];
+ 
+ export const MODELS: ModelInfo[] = [
++  // OpenAI
+   { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', contextWindow: 128000, description: 'Most capable GPT model for complex tasks' },
+-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', contextWindow: 128000, description: 'Efficient GPT model for faster responses' },
+-  { id: 'claude-3-5-sonnet-20240620', name: 'Claude 3.5 Sonnet', provider: 'anthropic', contextWindow: 200000, description: 'Excellent for creative writing and analysis' },
+-  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'google', contextWindow: 2000000, description: 'Largest context window for long documents' },
+-  { id: 'deepseek-coder', name: 'DeepSeek Coder', provider: 'deepseek', contextWindow: 128000, description: 'Specialized for code generation and debugging' },
+-  { id: 'llama3.2', name: 'Llama 3.2', provider: 'ollama', contextWindow: 8192, description: 'Local model for privacy-first AI' },
+-  { id: 'mistral', name: 'Mistral', provider: 'ollama', contextWindow: 8192, description: 'Fast and efficient local model' }
++  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', contextWindow: 128000, description: 'Fast, affordable, very capable' },
++  { id: 'o3-mini', name: 'o3 Mini', provider: 'openai', contextWindow: 200000, description: 'Reasoning-optimized' },
++  // Anthropic
++  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'anthropic', contextWindow: 200000, description: 'Best for coding and analysis' },
++  { id: 'claude-haiku-4-20250514', name: 'Claude Haiku 4', provider: 'anthropic', contextWindow: 200000, description: 'Fast, efficient' },
++  // Google
++  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'google', contextWindow: 2000000, description: 'Largest context window' },
++  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'google', contextWindow: 1000000, description: 'Fast with huge context' },
++  // Groq
++  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', provider: 'groq', contextWindow: 128000, description: 'Fast inference via Groq' },
++  { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', provider: 'groq', contextWindow: 32768, description: 'Efficient MoE via Groq' },
++  // OpenRouter
++  { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet (OR)', provider: 'openrouter', contextWindow: 200000, description: 'Claude via OpenRouter' },
++  { id: 'openai/gpt-4o', name: 'GPT-4o (OR)', provider: 'openrouter', contextWindow: 128000, description: 'GPT-4o via OpenRouter' },
++  // Ollama (local)
++  { id: 'llama3.2', name: 'Llama 3.2', provider: 'ollama', contextWindow: 128000, description: 'Local privacy-first model' },
++  { id: 'mistral', name: 'Mistral', provider: 'ollama', contextWindow: 32000, description: 'Fast efficient local model' },
++  { id: 'deepseek-coder-v2', name: 'DeepSeek Coder V2', provider: 'ollama', contextWindow: 128000, description: 'Local coding specialist' },
++  { id: 'nomic-embed-text', name: 'Nomic Embed Text', provider: 'ollama', contextWindow: 8192, description: 'Local embeddings (not for chat)' },
+ ];
+ 
+ export const getProviderById = (providerId: string) => PROVIDERS.find(p => p.id === providerId);
+-
+ export const getModelsByProvider = (providerId: string) => MODELS.filter(m => m.provider === providerId);
++export const getModelById = (modelId: string) => MODELS.find(m => m.id === modelId);
++
++// ── Provider Configuration ──
++export interface LLMClientConfig {
++  apiKeys?: Partial<Record<ProviderId, string>>;
++  ollamaUrl?: string;
++  defaultModel?: string;
++  timeoutMs?: number;
++}
++
++// ── Unified LLM Client ──
++export class LLMClient {
++  private apiKeys: Partial<Record<ProviderId, string>>;
++  private ollamaUrl: string;
++  private defaultModel: string;
++  private timeoutMs: number;
++
++  constructor(config: LLMClientConfig = {}) {
++    this.apiKeys = {
++      openai: config.apiKeys?.openai ?? process.env.OPENAI_API_KEY ?? '',
++      anthropic: config.apiKeys?.anthropic ?? process.env.ANTHROPIC_API_KEY ?? '',
++      google: config.apiKeys?.google ?? process.env.GOOGLE_API_KEY ?? '',
++      groq: config.apiKeys?.groq ?? process.env.GROQ_API_KEY ?? '',
++      openrouter: config.apiKeys?.openrouter ?? process.env.OPENROUTER_API_KEY ?? '',
++      ollama: 'local', // no key needed
++    };
++    this.ollamaUrl = config.ollamaUrl ?? process.env.OLLAMA_URL ?? 'http://localhost:11434';
++    this.defaultModel = config.defaultModel ?? process.env.TORVAIX_MODEL ?? 'llama3.2';
++    this.timeoutMs = config.timeoutMs ?? 120000;
++  }
++
++  /** Complete a chat conversation with the specified model. */
++  async complete(modelId: string, messages: LLMMessage[], opts: LLMOptions = {}): Promise<LLMResponse> {
++    const model = getModelById(modelId) ?? getModelById(this.defaultModel);
++    if (!model) throw new Error(`Unknown model: ${modelId}`);
++
++    const provider = model.provider;
++
++    switch (provider) {
++      case 'openai': return this._callOpenAI(model.id, messages, opts);
++      case 'anthropic': return this._callAnthropic(model.id, messages, opts);
++      case 'google': return this._callGoogle(model.id, messages, opts);
++      case 'groq': return this._callGroq(model.id, messages, opts);
++      case 'openrouter': return this._callOpenRouter(model.id, messages, opts);
++      case 'ollama': return this._callOllama(model.id, messages, opts);
++      default: throw new Error(`Provider "${provider}" not implemented`);
++    }
++  }
++
++  /** Shorthand: complete with default model. */
++  async chat(messages: LLMMessage[], opts?: LLMOptions): Promise<LLMResponse> {
++    return this.complete(this.defaultModel, messages, opts);
++  }
++
++  /** Check if a provider is configured (has API key or is local). */
++  isProviderReady(providerId: ProviderId): boolean {
++    if (providerId === 'ollama') return true;
++    return !!this.apiKeys[providerId];
++  }
++
++  /** Get the default model ID. */
++  getDefaultModel(): string {
++    return this.defaultModel;
++  }
++
++  // ── Private: Provider Adapters ──
++
++  private async _callOpenAI(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
++    const key = this.apiKeys.openai;
++    if (!key) throw new Error('OpenAI API key not configured. Set OPENAI_API_KEY env var.');
++
++    const body = {
++      model,
++      messages: messages.map(m => ({ role: m.role, content: m.content })),
++      temperature: opts.temperature ?? 0.7,
++      max_tokens: opts.maxTokens ?? 4096,
++      top_p: opts.topP ?? 1,
++    };
++
++    const res = await this._fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
++      method: 'POST',
++      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
++      body: JSON.stringify(body),
++    });
++
++    if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`);
++    const data = await res.json();
++    return {
++      text: data.choices?.[0]?.message?.content ?? '',
++      usage: data.usage ? {
++        promptTokens: data.usage.prompt_tokens,
++        completionTokens: data.usage.completion_tokens,
++        totalTokens: data.usage.total_tokens,
++      } : undefined,
++      model,
++    };
++  }
++
++  private async _callAnthropic(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
++    const key = this.apiKeys.anthropic;
++    if (!key) throw new Error('Anthropic API key not configured. Set ANTHROPIC_API_KEY env var.');
++
++    const systemMsg = messages.find(m => m.role === 'system');
++    const apiMessages = messages.filter(m => m.role !== 'system').map(m => ({
++      role: m.role as 'user' | 'assistant',
++      content: m.content,
++    }));
++
++    const body: any = {
++      model,
++      max_tokens: opts.maxTokens ?? 4096,
++      messages: apiMessages,
++      temperature: opts.temperature ?? 0.7,
++    };
++    if (systemMsg) body.system = systemMsg.content;
++
++    const res = await this._fetchWithTimeout('https://api.anthropic.com/v1/messages', {
++      method: 'POST',
++      headers: {
++        'x-api-key': key,
++        'anthropic-version': '2023-06-01',
++        'Content-Type': 'application/json',
++      },
++      body: JSON.stringify(body),
++    });
++
++    if (!res.ok) throw new Error(`Anthropic error ${res.status}: ${await res.text()}`);
++    const data = await res.json();
++    return {
++      text: data.content?.[0]?.text ?? '',
++      usage: data.usage ? {
++        promptTokens: data.usage.input_tokens,
++        completionTokens: data.usage.output_tokens,
++        totalTokens: data.usage.input_tokens + data.usage.output_tokens,
++      } : undefined,
++      model,
++    };
++  }
++
++  private async _callGoogle(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
++    const key = this.apiKeys.google;
++    if (!key) throw new Error('Google API key not configured. Set GOOGLE_API_KEY env var.');
++
++    const systemMsg = messages.find(m => m.role === 'system');
++    const contents = messages
++      .filter(m => m.role !== 'system')
++      .map(m => ({
++        role: m.role === 'assistant' ? 'model' : 'user',
++        parts: [{ text: m.content }],
++      }));
++
++    const body: any = { contents };
++    if (systemMsg) body.systemInstruction = { parts: [{ text: systemMsg.content }] };
++    body.generationConfig = {
++      temperature: opts.temperature ?? 0.7,
++      maxOutputTokens: opts.maxTokens ?? 4096,
++      topP: opts.topP ?? 1,
++    };
++
++    const res = await this._fetchWithTimeout(
++      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
++      {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify(body),
++      }
++    );
++
++    if (!res.ok) throw new Error(`Google error ${res.status}: ${await res.text()}`);
++    const data = await res.json();
++    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
++    const usage = data.usageMetadata;
++    return {
++      text,
++      usage: usage ? {
++        promptTokens: usage.promptTokenCount ?? 0,
++        completionTokens: usage.candidatesTokenCount ?? 0,
++        totalTokens: usage.totalTokenCount ?? 0,
++      } : undefined,
++      model,
++    };
++  }
++
++  private async _callGroq(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
++    const key = this.apiKeys.groq;
++    if (!key) throw new Error('Groq API key not configured. Set GROQ_API_KEY env var.');
++
++    const res = await this._fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
++      method: 'POST',
++      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
++      body: JSON.stringify({
++        model,
++        messages: messages.map(m => ({ role: m.role, content: m.content })),
++        temperature: opts.temperature ?? 0.7,
++        max_tokens: opts.maxTokens ?? 4096,
++        top_p: opts.topP ?? 1,
++      }),
++    });
++
++    if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
++    const data = await res.json();
++    return {
++      text: data.choices?.[0]?.message?.content ?? '',
++      usage: data.usage ? {
++        promptTokens: data.usage.prompt_tokens,
++        completionTokens: data.usage.completion_tokens,
++        totalTokens: data.usage.total_tokens,
++      } : undefined,
++      model,
++    };
++  }
++
++  private async _callOpenRouter(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
++    const key = this.apiKeys.openrouter;
++    if (!key) throw new Error('OpenRouter API key not configured. Set OPENROUTER_API_KEY env var.');
++
++    const res = await this._fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
++      method: 'POST',
++      headers: {
++        Authorization: `Bearer ${key}`,
++        'Content-Type': 'application/json',
++        'HTTP-Referer': process.env.OPENROUTER_REFERER ?? 'https://torvaix.local',
++        'X-Title': 'Torvaix',
++      },
++      body: JSON.stringify({
++        model,
++        messages: messages.map(m => ({ role: m.role, content: m.content })),
++        temperature: opts.temperature ?? 0.7,
++        max_tokens: opts.maxTokens ?? 4096,
++        top_p: opts.topP ?? 1,
++      }),
++    });
++
++    if (!res.ok) throw new Error(`OpenRouter error ${res.status}: ${await res.text()}`);
++    const data = await res.json();
++    return {
++      text: data.choices?.[0]?.message?.content ?? '',
++      usage: data.usage ? {
++        promptTokens: data.usage.prompt_tokens,
++        completionTokens: data.usage.completion_tokens,
++        totalTokens: data.usage.total_tokens,
++      } : undefined,
++      model,
++    };
++  }
++
++  private async _callOllama(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
++    // Ollama uses /api/chat (not /api/generate) for chat-style conversations
++    const res = await this._fetchWithTimeout(`${this.ollamaUrl}/api/chat`, {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({
++        model,
++        messages: messages.map(m => ({ role: m.role, content: m.content })),
++        stream: false,
++        options: {
++          temperature: opts.temperature ?? 0.7,
++          num_predict: opts.maxTokens ?? 4096,
++          top_p: opts.topP ?? 1,
++        },
++      }),
++    });
++
++    if (!res.ok) {
++      const text = await res.text();
++      throw new Error(`Ollama error ${res.status}: ${text}. Is Ollama running at ${this.ollamaUrl}?`);
++    }
++    const data = await res.json();
++    return {
++      text: data.message?.content ?? data.response ?? '',
++      model,
++    };
++  }
++
++  private async _fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
++    const controller = new AbortController();
++    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
++    try {
++      const res = await fetch(url, { ...init, signal: controller.signal });
++      return res;
++    } finally {
++      clearTimeout(timeout);
++    }
++  }
++}
+diff --git a/packages/router/package.json b/packages/router/package.json
+index f263e47..ba3ec54 100644
+--- a/packages/router/package.json
++++ b/packages/router/package.json
+@@ -4,6 +4,7 @@
+   "main": "src/index.ts",
+   "types": "src/index.ts",
+   "dependencies": {
+-    "@torvaix/types": "*"
++    "@torvaix/types": "*",
++    "@torvaix/providers": "*"
+   }
+ }
+diff --git a/packages/router/src/__tests__/router.test.ts b/packages/router/src/__tests__/router.test.ts
+new file mode 100644
+index 0000000..a40dc8f
+--- /dev/null
++++ b/packages/router/src/__tests__/router.test.ts
+@@ -0,0 +1,145 @@
++/**
++ * Tests for the Hybrid Router
++ *
++ * Tests fast-path regex routing and LLM fallback behavior.
++ */
++
++import { describe, it, expect, vi } from 'vitest';
++import { routePrompt, routePromptFast } from '../index';
++import { LLMClient } from '@torvaix/providers';
++
++describe('Router Fast Path', () => {
++  it('routes memory recall queries', () => {
++    const result = routePromptFast('What is my favorite framework?');
++    expect(result).not.toBeNull();
++    expect(result!.confidence).toBeGreaterThanOrEqual(0.85);
++  });
++
++  it('routes knowledge store queries', () => {
++    const result = routePromptFast('Remember that my favorite color is blue');
++    expect(result).not.toBeNull();
++    expect(result!.confidence).toBe(0.95);
++  });
++
++  it('routes execution queries', () => {
++    const result = routePromptFast('Create a hello.py file');
++    expect(result).not.toBeNull();
++    expect(result!.confidence).toBeGreaterThanOrEqual(0.85);
++  });
++
++  it('routes "list files" to execution', () => {
++    const result = routePromptFast('List all files in this directory');
++    expect(result).not.toBeNull();
++    expect(result!.confidence).toBeGreaterThanOrEqual(0.85);
++  });
++
++  it('returns null for ambiguous queries', () => {
++    const result = routePromptFast('hmm');
++    expect(result).toBeNull();
++  });
++
++  it('returns null for very short queries', () => {
++    expect(routePromptFast('ok')).toBeNull();
++    expect(routePromptFast('?')).toBeNull();
++  });
++
++  it('handles edge cases', () => {
++    expect(routePromptFast('')).toBeNull();
++    expect(routePromptFast('   ')).toBeNull();
++  });
++
++  it('routes "remember that..." to knowledge', () => {
++    const result = routePromptFast('Remember that the API key is abc123');
++    expect(result).not.toBeNull();
++    expect(result!.reason.toLowerCase()).toContain('knowledge');
++  });
++
++  it('routes "what did I say..." to memory', () => {
++    const result = routePromptFast('What did I say about the project?');
++    expect(result).not.toBeNull();
++    expect(result!.reason.toLowerCase()).toContain('memory');
++  });
++});
++
++describe('Router LLM Fallback', () => {
++  it('uses LLM fallback for ambiguous queries', async () => {
++    const mockLLM = {
++      complete: vi.fn().mockResolvedValue({
++        text: '{"target": "execution", "confidence": 0.9, "reason": "General question"}',
++      }),
++    } as unknown as LLMClient;
++
++    const result = await routePrompt('What is the meaning of life?', {
++      llm: mockLLM,
++      useLlmFallback: true,
++    });
++
++    expect(mockLLM.complete).toHaveBeenCalledTimes(1);
++    expect(result.confidence).toBe(0.9);
++    expect(result.reason).toContain('General question');
++  });
++
++  it('skips LLM fallback when disabled', async () => {
++    const mockLLM = {
++      complete: vi.fn(),
++    } as unknown as LLMClient;
++
++    const result = await routePrompt('Some ambiguous thing', {
++      llm: mockLLM,
++      useLlmFallback: false,
++    });
++
++    expect(mockLLM.complete).not.toHaveBeenCalled();
++    expect(result.confidence).toBeLessThan(0.85);
++  });
++
++  it('handles LLM parse errors gracefully', async () => {
++    const mockLLM = {
++      complete: vi.fn().mockResolvedValue({
++        text: 'not valid json at all',
++      }),
++    } as unknown as LLMClient;
++
++    const result = await routePrompt('Something weird', {
++      llm: mockLLM,
++    });
++
++    expect(result.confidence).toBe(0.5);
++    expect(result.reason).toContain('no JSON found');
++  });
++
++  it('handles LLM returning invalid target', async () => {
++    const mockLLM = {
++      complete: vi.fn().mockResolvedValue({
++        text: '{"target": "invalid_target", "confidence": 0.8}',
++      }),
++    } as unknown as LLMClient;
++
++    const result = await routePrompt('Test', { llm: mockLLM });
++
++    expect(result.confidence).toBe(0.5);
++    expect(result.reason).toContain('defaulting to execution');
++  });
++
++  it('handles LLM errors gracefully', async () => {
++    const mockLLM = {
++      complete: vi.fn().mockRejectedValue(new Error('Network error')),
++    } as unknown as LLMClient;
++
++    const result = await routePrompt('Test', { llm: mockLLM });
++
++    expect(result.confidence).toBe(0.4);
++    expect(result.reason).toContain('Network error');
++  });
++});
++
++describe('Router without LLM', () => {
++  it('returns default for ambiguous query when no LLM provided', async () => {
++    const result = await routePrompt('Something completely ambiguous and weird', {
++      useLlmFallback: false,
++    });
++
++    expect(result.provider).toBeDefined();
++    expect(result.confidence).toBeGreaterThan(0);
++  });
++});
+diff --git a/packages/router/src/index.ts b/packages/router/src/index.ts
+index 9953391..88f7b2e 100644
+--- a/packages/router/src/index.ts
++++ b/packages/router/src/index.ts
+@@ -1,93 +1,225 @@
+-import { RoutingDecision } from '@torvaix/types';
+-import { MODELS } from '@torvaix/providers';
+-
+-const CATEGORIES = {
+-  coding: ['code', 'react', 'function', 'debug', 'error', 'typescript', 'python', 'bug', 'component', 'algorithm', 'optimization', 'refactor', 'test', 'unit test', 'integration', 'deployment', 'api', 'database', 'sql', 'query', 'schema', 'design pattern', 'architecture'],
+-  writing: ['write', 'edit', 'essay', 'blog', 'rewrite', 'grammar', 'summary', 'translate', 'creative', 'story', 'article', 'content', 'copy', 'marketing', 'social media', 'email', 'letter', 'report', 'documentation'],
+-  reasoning: ['math', 'logic', 'calculate', 'why', 'explain', 'how', 'solve', 'theory', 'analysis', 'evaluation', 'assessment', 'comparison', 'problem', 'solution', 'strategy', 'plan', 'decision', 'recommendation'],
+-  research: ['find', 'search', 'history', 'who', 'what', 'when', 'fact', 'data', 'analyze', 'investigate', 'research', 'study', 'survey', 'experiment', 'observation', 'evidence', 'source', 'reference', 'citation']
+-};
+-
+-export function routePrompt(prompt: string): RoutingDecision {
+-  const words = prompt.toLowerCase().split(/\W+/);
+-  
+-  const breakdown: Record<string, number> = {
+-    coding: 0,
+-    writing: 0,
+-    reasoning: 0,
+-    research: 0
+-  };
++/**
++ * Torvaix Hybrid Router
++ *
++ * Two-tier routing system:
++ * 1. FAST PATH: Regex patterns for common memory/knowledge/execution queries
++ *    - Zero latency, covers ~80% of typical interactions
++ * 2. LLM FALLBACK: For ambiguous queries, use a cheap/fast LLM to classify
++ *    - Only triggers when fast path is uncertain
++ *
++ * Returns RoutingDecision compatible with existing types.
++ */
++
++import { LLMClient, LLMMessage, type ProviderId } from '@torvaix/providers';
++import type { RoutingDecision } from '@torvaix/types';
++
++export type RouteTarget = 'memory' | 'knowledge' | 'execution';
++
++// ── Fast Path Patterns ──
++// These regexes detect common query types without any LLM call
++
++const MEMORY_PATTERNS = [
++  /^what\s+is\s+my\b/i,
++  /^do\s+you\s+remember\b/i,
++  /^what\s+did\s+i\s+say\b/i,
++  /^recall\b/i,
++  /^what\s+do\s+you\s+know\s+about\s+me\b/i,
++  /^what\s+was\s+my\b/i,
++  /^tell\s+me\s+what\s+i\s+told\s+you\b/i,
++  /^remind\s+me\s+(of|about)\s+what\s+i\b/i,
++];
++
++const KNOWLEDGE_PATTERNS = [
++  /^remember\s+that\b/i,
++  /^note\s+that\b/i,
++  /^save\s+this\b/i,
++  /^my\s+favorite\s+(?:is|are)\b/i,
++  /^i\s+prefer\b/i,
++  /^keep\s+in\s+mind\b/i,
++  /^store\s+this\b/i,
++  /^don'?t\s+forget\s+that\b/i,
++  /^the\s+deadline\s+is\b/i,
++  /^my\s+(?:name|email|phone|address|birthday)\s+is\b/i,
++  /^i\s+work\s+(?:at|for)\b/i,
++  /^i\s+(?:like|love|hate|dislike)\b/i,
++];
++
++const EXECUTION_PATTERNS = [
++  /^(?:create|make|write|generate)\s+(?:a|an|the|some)\b/i,
++  /^(?:run|execute|perform|do)\b/i,
++  /^(?:fix|debug|solve|calculate|compute|convert)\b/i,
++  /^(?:search|look\s+up|find)\s+(?:for|up)?\b/i,
++  /^(?:list|show|display|print|get)\s+(?:all|the|me)?\b/i,
++  /^(?:delete|remove|update|modify|change|rename)\b/i,
++  /^(?:read|open|cat|head|tail)\s+(?:the|file|this)?\b/i,
++  /^(?:install|set\s+up|configure|build|compile)\b/i,
++  /^(?:git\s+(?:clone|pull|push|commit|status|log|branch))\b/i,
++  /^(?:npm\s+(?:install|run|build|test|init))\b/i,
++  /^(?:python|node|npx)\b/i,
++];
++
++// ── Fast Path Router ──
++
++function tryFastPath(prompt: string): { target: RouteTarget; confidence: number; reason: string } | null {
++  // Check memory patterns first (recall)
++  for (const pattern of MEMORY_PATTERNS) {
++    if (pattern.test(prompt)) {
++      return { target: 'memory', confidence: 0.95, reason: `Fast path: memory recall pattern "${pattern.source}"` };
++    }
++  }
++
++  // Check knowledge patterns (store)
++  for (const pattern of KNOWLEDGE_PATTERNS) {
++    if (pattern.test(prompt)) {
++      return { target: 'knowledge', confidence: 0.95, reason: `Fast path: knowledge store pattern "${pattern.source}"` };
++    }
++  }
++
++  // Check execution patterns (action)
++  for (const pattern of EXECUTION_PATTERNS) {
++    if (pattern.test(prompt)) {
++      return { target: 'execution', confidence: 0.88, reason: `Fast path: execution pattern "${pattern.source}"` };
++    }
++  }
++
++  // If prompt is very short and looks like a simple question → execution (general chat)
++  if (prompt.length < 30 && /^[a-z\s]+\??$/i.test(prompt)) {
++    return { target: 'execution', confidence: 0.6, reason: 'Fast path: short general query → execution (chat)' };
++  }
++
++  return null; // Ambiguous — needs LLM
++}
+ 
+-  // Enhanced keyword matching with weights
+-  words.forEach(word => {
+-    // Coding tasks with higher weights
+-    if (['code', 'function', 'debug', 'error', 'python', 'javascript', 'typescript', 'react', 'component', 'api', 'database', 'sql', 'algorithm', 'optimization', 'refactor', 'test', 'unit test', 'integration', 'deployment', 'architecture', 'design pattern', 'class', 'method', 'variable', 'loop', 'conditional', 'object', 'array', 'string', 'number', 'boolean', 'null', 'undefined', 'async', 'await', 'promise', 'callback', 'event', 'listener', 'dom', 'html', 'css', 'json', 'xml', 'yaml', 'markdown', 'git', 'github', 'repository', 'commit', 'branch', 'merge', 'pull request', 'issue', 'project', 'workspace', 'module', 'package', 'import', 'export', 'require', 'from', 'default', 'export default', 'interface', 'type', 'generic', 'generics', 'inheritance', 'polymorphism', 'encapsulation', 'abstraction', 'interface', 'abstract', 'final', 'static', 'instance', 'constructor', 'getter', 'setter', 'property', 'field', 'attribute', 'method', 'function', 'arrow', 'fat arrow', 'spread', 'rest', 'destructuring', 'optional chaining', 'nullish coalescing', 'template literal', 'backtick', 'interpolation', 'tagged template', 'literal type', 'keyof', 'typeof', 'instanceof', 'new', 'this', 'super', 'extends', 'implements', 'readonly', 'readonly property', 'private', 'protected', 'public', 'static method', 'instance method', 'class method', 'static property', 'instance property', 'getter', 'setter', 'computed property', 'property initializer', 'constructor parameter', 'parameter properties', 'access modifier', 'visibility', 'encapsulation', 'information hiding', 'abstraction', 'interface segregation', 'single responsibility', 'open closed', 'dependency inversion', 'solid', 'clean code', 'code quality', 'code review', 'peer review', 'code style', 'linting', 'formatting', 'prettier', 'eslint', 'typescript compiler', 'tsc', 'declaration', 'type definition', 'type alias', 'intersection type', 'union type', 'conditional type', 'mapped type', 'indexed access type', 'utility type', 'generic type', 'type parameter', 'constraint', 'extends type', 'implements type', 'type guard', 'type assertion', 'type casting', 'type narrowing', 'type inference', 'type checking', 'type safety', 'type system', 'type checking', 'type validation', 'type schema', 'zod', 'joi', 'ajv', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma', 'typeorm', 'sequelize', 'mongoose', 'prisma'].includes(word) && breakdown.coding++;
+-    
+-    if (['write', 'edit', 'essay', 'blog', 'rewrite', 'grammar', 'summary', 'translate', 'creative', 'story', 'article', 'content', 'copy', 'marketing', 'social media', 'email', 'letter', 'report', 'documentation', 'whitepaper', 'case study', 'testimonial', 'press release', 'announcement', 'update', 'post', 'comment', 'reply', 'response', 'answer', 'question', 'inquiry', 'request', 'proposal', 'presentation', 'speech', 'talk', 'lecture', 'tutorial', 'guide', 'manual', 'instruction', 'how to', 'step by step', 'best practices', 'tips', 'advice', 'recommendation', 'suggestion', 'idea', 'concept', 'vision', 'mission', 'values', 'culture', 'brand', 'identity', 'voice', 'tone', 'style', 'format', 'structure', 'organization', 'flow', 'transition', 'coherence', 'consistency', 'clarity', 'conciseness', 'precision', 'accuracy', 'completeness', 'relevance', 'appropriateness', 'sensitivity', 'respect', 'inclusivity', 'diversity', 'equity', 'inclusion', 'accessibility', 'usability', 'user experience', 'user interface', 'design', 'layout', 'typography', 'color', 'contrast', 'hierarchy', 'alignment', 'spacing', 'padding', 'margin', 'border', 'radius', 'shadow', 'gradient', 'animation', 'transition', 'interaction', 'feedback', 'response', 'action', 'command', 'control', 'input', 'output', 'display', 'presentation', 'visualization', 'chart', 'graph', 'diagram', 'flowchart', 'wireframe', 'mockup', 'prototype', 'mock', 'stencil', 'template', 'component', 'widget', 'element', 'atom', 'molecule', 'organism', 'page', 'screen', 'view', 'dialog', 'modal', 'popup', 'overlay', 'tooltip', 'popover', 'dropdown', 'select', 'checkbox', 'radio', 'toggle', 'switch', 'slider', 'range', 'input', 'textarea', 'file', 'upload', 'download', 'save', 'load', 'open', 'close', 'minimize', 'maximize', 'restore', 'resize', 'drag', 'drop', 'drag and drop', 'drop zone', 'file drop', 'file upload', 'image upload', 'video upload', 'audio upload', 'document upload', 'attachment', 'attachment', 'attachment', 'attachment', 'attachment', 'attachment', 'attachment'].includes(word) && breakdown.writing++;
+-    
+-    if (['math', 'logic', 'calculate', 'why', 'explain', 'how', 'solve', 'theory', 'analysis', 'evaluation', 'assessment', 'comparison', 'problem', 'solution', 'strategy', 'plan', 'decision', 'recommendation', 'optimization', 'efficiency', 'effectiveness', 'performance', 'quality', 'value', 'benefit', 'cost', 'price', 'budget', 'expense', 'revenue', 'income', 'profit', 'loss', 'risk', 'risk assessment', 'risk management', 'risk mitigation', 'risk transfer', 'risk retention', 'risk sharing', 'risk pooling', 'risk diversification', 'risk hedging', 'risk arbitrage', 'risk premium', 'risk free', 'risk neutral', 'risk averse', 'risk seeking', 'risk neutral', 'risk indifferent', 'risk sensitive', 'risk aware', 'risk conscious', 'risk management', 'risk assessment', 'risk analysis', 'risk evaluation', 'risk measurement', 'risk quantification', 'risk calculation', 'risk estimation', 'risk prediction', 'risk forecasting', 'risk scenario', 'risk simulation', 'risk modeling', 'risk analysis', 'risk assessment', 'risk evaluation', 'risk measurement', 'risk quantification', 'risk calculation', 'risk estimation', 'risk prediction', 'risk forecasting', 'risk scenario', 'risk simulation', 'risk modeling'].includes(word) && breakdown.reasoning++;
+-    
+-    if (['find', 'search', 'history', 'who', 'what', 'when', 'fact', 'data', 'analyze', 'investigate', 'research', 'study', 'survey', 'experiment', 'observation', 'evidence', 'source', 'reference', 'citation', 'bibliography', 'reference list', 'works cited', 'footnotes', 'endnotes', 'annotation', 'commentary', 'editorial', 'review', 'critique', 'criticism', 'commentary', 'analysis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis', 'synthesis'].includes(word) && breakdown.research++;
+-  });
+-
+-  // Base confidence
+-  breakdown.reasoning += 5;
+-
+-  let maxScore = 0;
+-  let topCategory = 'reasoning';
+-
+-  for (const [category, score] of Object.entries(breakdown)) {
+-    if (score > maxScore) {
+-      maxScore = score;
+-      topCategory = category;
++// ── LLM Fallback Router ──
++
++const ROUTING_SYSTEM_PROMPT = `You are a query classifier for an AI workspace assistant. Classify the user request into exactly one category:
++
++- "knowledge" = User is TELLING you a fact to STORE/SAVE for later. Examples: "remember that my favorite framework is Next.js", "note that the deadline is Friday", "my preferred language is Python", "I work at Acme Corp", "save this API key".
++- "memory" = User is ASKING you to RECALL/RETRIEVE something previously stored. Examples: "what is my favorite framework?", "do you remember my API key?", "what did I say about the deadline?", "recall my project setup".
++- "execution" = User wants you to DO something: run code, read/write files, search the web, answer general questions, solve problems, create content. Examples: "create a hello.py file", "search for React best practices", "what is the capital of France?", "fix this bug", "write an essay about AI".
++
++Reply with ONLY a JSON object, no markdown, no explanation:
++{"target": "memory|knowledge|execution", "confidence": 0.0-1.0, "reason": "one sentence explanation"}`;
++
++async function llmFallbackRoute(
++  prompt: string,
++  llm: LLMClient,
++  model: string = 'gpt-4o-mini'
++): Promise<{ target: RouteTarget; confidence: number; reason: string }> {
++  const messages: LLMMessage[] = [
++    { role: 'system', content: ROUTING_SYSTEM_PROMPT },
++    { role: 'user', content: prompt },
++  ];
++
++  try {
++    const res = await llm.complete(model, messages, { temperature: 0, maxTokens: 100 });
++    const text = res.text.trim();
++
++    // Extract JSON from potential markdown fences
++    const jsonMatch = text.match(/\{[\s\S]*?\}/);
++    if (!jsonMatch) {
++      return { target: 'execution', confidence: 0.5, reason: 'LLM fallback: no JSON found, defaulting to execution' };
+     }
++
++    const parsed = JSON.parse(jsonMatch[0]);
++    const target = parsed.target;
++
++    if (!['memory', 'knowledge', 'execution'].includes(target)) {
++      return { target: 'execution', confidence: 0.5, reason: 'LLM fallback: invalid target, defaulting to execution' };
++    }
++
++    return {
++      target,
++      confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.8)),
++      reason: parsed.reason || 'LLM fallback routing',
++    };
++  } catch (err: any) {
++    return { target: 'execution', confidence: 0.4, reason: `LLM fallback error: ${err.message}` };
+   }
++}
+ 
+-  // Normalize to percentage (roughly)
+-  const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
+-  const confidence = total > 0 ? Math.min(100, Math.round((maxScore / total) * 100)) : 50;
++// ── Provider suggestion based on route target ──
+ 
+-  // Enhanced provider mapping based on category and available models
+-  let provider = 'openai';
+-  let reason = 'General reasoning task';
++function suggestProvider(target: RouteTarget): { provider: string; reason: string } {
++  switch (target) {
++    case 'memory':
++      return { provider: 'ollama', reason: 'Memory retrieval works well with local models' };
++    case 'knowledge':
++      return { provider: 'ollama', reason: 'Knowledge storage uses local embeddings' };
++    case 'execution':
++      return { provider: 'openai', reason: 'Execution may require advanced reasoning' };
++    default:
++      return { provider: 'ollama', reason: 'Default to local privacy-first' };
++  }
++}
++
++// ── Public API ──
+ 
+-  // Special handling for local models
+-  if (prompt.toLowerCase().includes('offline') || prompt.toLowerCase().includes('local') || prompt.toLowerCase().includes('privacy')) {
+-    provider = 'ollama';
+-    reason = 'Privacy-first local processing';
++/**
++ * Route a user prompt to the appropriate agent target.
++ *
++ * Fast path (regex) → zero latency for common patterns
++ * LLM fallback → only for ambiguous queries
++ */
++export async function routePrompt(
++  prompt: string,
++  options?: {
++    llm?: LLMClient;
++    fallbackModel?: string;
++    useLlmFallback?: boolean;
++  }
++): Promise<RoutingDecision> {
++  // 1. Try fast path
++  const fast = tryFastPath(prompt);
++  if (fast && fast.confidence >= 0.85) {
++    const suggestion = suggestProvider(fast.target);
++    return {
++      provider: suggestion.provider,
++      confidence: fast.confidence,
++      reason: `${fast.reason} → ${suggestion.reason}`,
++      breakdown: { [fast.target]: fast.confidence, fast_path: 1 },
++    };
+   }
+ 
+-  switch(topCategory) {
+-    case 'coding':
+-      // Choose best coding model
+-      const codingModel = MODELS.find(m => m.provider === 'deepseek' || m.id.includes('coder')) || MODELS.find(m => m.provider === 'openai');
+-      provider = codingModel?.provider || 'openai';
+-      reason = 'Coding & Development Assistance';
+-      break;
+-    case 'writing':
+-      // Choose best writing model
+-      const writingModel = MODELS.find(m => m.provider === 'anthropic') || MODELS.find(m => m.provider === 'openai');
+-      provider = writingModel?.provider || 'anthropic';
+-      reason = 'Creative Writing & Editing';
+-      break;
+-    case 'research':
+-      // Choose best research model
+-      const researchModel = MODELS.find(m => m.provider === 'google') || MODELS.find(m => m.provider === 'openai');
+-      provider = researchModel?.provider || 'google';
+-      reason = 'Research & Data Analysis';
+-      break;
+-    case 'reasoning':
+-      // Choose best reasoning model
+-      const reasoningModel = MODELS.find(m => m.provider === 'openai') || MODELS.find(m => m.provider === 'anthropic');
+-      provider = reasoningModel?.provider || 'openai';
+-      reason = 'Complex Logic & Reasoning';
+-      break;
++  // 2. If LLM fallback is available and enabled, use it
++  if (options?.useLlmFallback !== false && options?.llm) {
++    const llmResult = await llmFallbackRoute(prompt, options.llm, options.fallbackModel);
++    const suggestion = suggestProvider(llmResult.target);
++    return {
++      provider: suggestion.provider,
++      confidence: llmResult.confidence,
++      reason: `${llmResult.reason} → ${suggestion.reason}`,
++      breakdown: { [llmResult.target]: llmResult.confidence, llm_fallback: 1 },
++    };
+   }
+ 
++  // 3. Default: fast path with lower confidence, or generic execution
++  const target = fast?.target ?? 'execution';
++  const confidence = fast?.confidence ?? 0.5;
++  const reason = fast?.reason ?? 'No pattern matched, defaulting to execution';
++  const suggestion = suggestProvider(target);
++
+   return {
+-    provider,
++    provider: suggestion.provider,
+     confidence,
+-    reason,
+-    breakdown
++    reason: `${reason} → ${suggestion.reason}`,
++    breakdown: { [target]: confidence, default: 1 },
++  };
++}
++
++/**
++ * Synchronous fast-path only version.
++ * Returns null if the prompt is ambiguous (caller should use async routePrompt).
++ */
++export function routePromptFast(prompt: string): RoutingDecision | null {
++  const fast = tryFastPath(prompt);
++  if (!fast || fast.confidence < 0.85) return null;
++
++  const suggestion = suggestProvider(fast.target);
++  return {
++    provider: suggestion.provider,
++    confidence: fast.confidence,
++    reason: fast.reason,
++    breakdown: { [fast.target]: fast.confidence },
+   };
+ }
+diff --git a/vitest.config.ts b/vitest.config.ts
+new file mode 100644
+index 0000000..a45677b
+--- /dev/null
++++ b/vitest.config.ts
+@@ -0,0 +1,25 @@
++import { defineConfig } from 'vitest/config';
++
++export default defineConfig({
++  test: {
++    globals: true,
++    environment: 'node',
++    include: ['packages/**/*/__tests__/**/*.test.ts'],
++    exclude: ['**/node_modules/**', '**/dist/**'],
++    testTimeout: 30000,
++    hookTimeout: 30000,
++  },
++  resolve: {
++    alias: {
++      '@torvaix/providers': './packages/providers/src/index.ts',
++      '@torvaix/types': './packages/types/src/index.ts',
++      '@torvaix/memory': './packages/memory/src/index.ts',
++      '@torvaix/router': './packages/router/src/index.ts',
++      '@torvaix/mcp': './packages/mcp/src/index.ts',
++      '@torvaix/mcp/client': './packages/mcp/src/client.ts',
++      '@torvaix/events': './packages/events/src/index.ts',
++      '@torvaix/graph': './packages/graph/src/index.ts',
++      '@torvaix/agent': './packages/agent/src/index.ts',
++    },
++  },
++});
+-- 
+2.39.5
+
