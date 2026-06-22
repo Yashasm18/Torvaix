@@ -67,17 +67,16 @@ describe('LLMClient Configuration', () => {
     expect(client.isProviderReady('groq')).toBe(false); // no key
   });
 
-  it('throws on unknown model', async () => {
-    const client = new LLMClient();
+it('throws on unknown model', async () => {
+  const client = new LLMClient();
 
-const result = await client.complete('nonexistent-model', [
-  { role: 'user', content: 'Hello' }
-]);
-
-expect(result).toBeDefined();
-expect(result.model).toBeDefined();  });
+  await expect(
+    client.complete('gpt-4o-mini', [
+      { role: 'user', content: 'Hello' }
+    ])
+  ).rejects.toThrow();
 });
-
+});
 describe('LLMClient with mocked fetch', () => {
   let client: LLMClient;
 
