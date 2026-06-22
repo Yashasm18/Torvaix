@@ -1,6 +1,6 @@
 {
   "name": "torvaix",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Torvaix: Workspace-first AI Operating System — local-first, privacy-first, no telemetry.",
   "license": "AGPL-3.0",
