@@ -525,6 +525,18 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         }
         state.messages.push({ role: 'system', content: `Tool ${tool} Result: ${resultText}` });
         endTrace({ tool, status: 'completed' });
+
+        // Terminal condition for write_file to prevent infinite loops
+        if (tool === 'write_file') {
+          const filePath = decision.args.filePath || 'Unknown File';
+          const content = decision.args.content || '';
+          const preview = content.split('\n').slice(0, 10).join('\n');
+          
+          state.output = `Created: ${filePath}\nPath: ${filePath}\n\nPreview:\n${preview}`;
+          state.nextNode = 'end';
+          return state;
+        }
+
       } catch (e: any) {
         const durationMs = performance.now() - toolStart;
         const errorText = `Tool execution failed: ${e.message}`;
