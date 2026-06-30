@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { motion, useInView } from "framer-motion"
+import { motion, useInView, AnimatePresence } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { MessageSquare, Terminal, Mail, Search, GitCompare, Database, Sparkles, Shield, BookOpen, Quote, ExternalLink, ArrowRight } from "lucide-react"
+import { MessageSquare, Terminal, Mail, Search, GitCompare, Database, Sparkles, Shield, BookOpen, ExternalLink, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react"
 import { HeroBackground } from "@/components/ui/hero-background"
 import { AppLogo } from "@/components/ui/app-logo"
 
@@ -93,24 +93,209 @@ const timeline = [
   }
 ]
 
-/* ── Testimonials data ── */
-const testimonials = [
+/* ── Memory Log Fragments data ── */
+const memoryLogs = [
   {
-    quote: "I deleted three SaaS subscriptions the week I installed Torvaix. Everything I need runs on my M2 now.",
-    author: "Alex K.",
-    role: "Independent Developer"
+    id: "001",
+    workspace: "Developer Workspace",
+    quote: "I asked it to summarize my repo last week.\nToday it remembered everything.",
+    metrics: { confidence: 98, nodes: 14, traces: 6 }
   },
   {
-    quote: "The privacy angle isn't theoretical — I watched the network tab. Zero outbound requests when running local models. This is real.",
-    author: "Priya S.",
-    role: "Security Researcher"
+    id: "002",
+    workspace: "Founder Workspace",
+    quote: "Torvaix remembered my investor notes\nand turned them into a pitch strategy.",
+    metrics: { confidence: 96, nodes: 11, traces: 4 }
   },
   {
-    quote: "Skills that self-evolve are wild. I asked it to research a topic and it built itself a web-scraping pipeline I didn't even know it could do.",
-    author: "Marcus T.",
-    role: "Data Scientist"
+    id: "003",
+    workspace: "Research Workspace",
+    quote: "It connected papers, experiments, and code\nwithout me re-explaining context.",
+    metrics: { confidence: 99, nodes: 23, traces: 9 }
+  },
+  {
+    id: "004",
+    workspace: "Security Workspace",
+    quote: "No cloud. No tracking.\nEverything stayed local.",
+    metrics: { confidence: 100, nodes: 8, traces: 3 }
+  },
+  {
+    id: "005",
+    workspace: "Product Workspace",
+    quote: "Torvaix converted conversations into tasks,\ntasks into execution, execution into memory.",
+    metrics: { confidence: 97, nodes: 19, traces: 7 }
   }
 ]
+
+/* ── Memory Log Carousel Component ── */
+function MemoryLogCarousel() {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [direction, setDirection] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const autoplayRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startAutoplay = () => {
+    if (autoplayRef.current) clearInterval(autoplayRef.current);
+    autoplayRef.current = setInterval(() => {
+      if (!isPaused) {
+        setDirection(1);
+        setCurrentIndex((prev) => (prev + 1) % memoryLogs.length);
+      }
+    }, 6000);
+  };
+
+  useEffect(() => {
+    startAutoplay();
+    return () => {
+      if (autoplayRef.current) clearInterval(autoplayRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPaused]);
+
+  const navigate = (dir: number) => {
+    setDirection(dir);
+    setCurrentIndex((prev) => {
+      const next = prev + dir;
+      if (next < 0) return memoryLogs.length - 1;
+      if (next >= memoryLogs.length) return 0;
+      return next;
+    });
+    // Reset autoplay on manual interaction
+    setIsPaused(true);
+    setTimeout(() => setIsPaused(false), 10000);
+  };
+
+  const goToSlide = (idx: number) => {
+    setDirection(idx > currentIndex ? 1 : -1);
+    setCurrentIndex(idx);
+    setIsPaused(true);
+    setTimeout(() => setIsPaused(false), 10000);
+  };
+
+  const slideVariants = {
+    enter: (dir: number) => ({
+      x: dir > 0 ? 300 : -300,
+      opacity: 0,
+      scale: 0.95,
+    }),
+    center: {
+      x: 0,
+      opacity: 1,
+      scale: 1,
+    },
+    exit: (dir: number) => ({
+      x: dir > 0 ? -300 : 300,
+      opacity: 0,
+      scale: 0.95,
+    }),
+  };
+
+  const log = memoryLogs[currentIndex];
+
+  return (
+    <div className="relative max-w-3xl mx-auto">
+      {/* Navigation Arrows */}
+      <button
+        onClick={() => navigate(-1)}
+        className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 md:-translate-x-14 z-20 w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#111827]/80 border border-white/10 flex items-center justify-center text-slate-400 hover:text-[#00D4AA] hover:border-[#00D4AA]/40 hover:shadow-[0_0_20px_rgba(0,212,170,0.15)] transition-all duration-300 backdrop-blur-sm"
+        aria-label="Previous memory log"
+      >
+        <ChevronLeft className="w-5 h-5" />
+      </button>
+      <button
+        onClick={() => navigate(1)}
+        className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 md:translate-x-14 z-20 w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#111827]/80 border border-white/10 flex items-center justify-center text-slate-400 hover:text-[#00D4AA] hover:border-[#00D4AA]/40 hover:shadow-[0_0_20px_rgba(0,212,170,0.15)] transition-all duration-300 backdrop-blur-sm"
+        aria-label="Next memory log"
+      >
+        <ChevronRight className="w-5 h-5" />
+      </button>
+
+      {/* Card Container */}
+      <div className="relative overflow-hidden rounded-2xl min-h-[340px] md:min-h-[320px]">
+        <AnimatePresence mode="wait" custom={direction}>
+          <motion.div
+            key={currentIndex}
+            custom={direction}
+            variants={slideVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="bg-[#111827] border border-[#00D4AA]/20 rounded-2xl p-7 md:p-10 text-left relative overflow-hidden shadow-[0_0_40px_rgba(0,212,170,0.06),0_0_80px_rgba(0,212,170,0.03)]"
+          >
+            {/* Top glow line */}
+            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#00D4AA]/50 to-transparent" />
+            
+            {/* Scanline effect */}
+            <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
+              backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,212,170,0.1) 2px, rgba(0,212,170,0.1) 4px)',
+            }} />
+
+            {/* Log Header */}
+            <div className="font-mono text-xs text-[#00D4AA]/60 mb-5 flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-[#00D4AA] animate-pulse" />
+              <span>[Workspace Log #{log.id}]</span>
+            </div>
+
+            {/* Quote */}
+            <div className="font-mono text-base md:text-lg text-slate-200 leading-relaxed mb-8 whitespace-pre-line">
+              <span className="text-[#00D4AA]/50 mr-2">{'>'}</span>
+              <span className="italic">&ldquo;{log.quote}&rdquo;</span>
+            </div>
+
+            {/* Metrics */}
+            <div className="grid grid-cols-3 gap-4 font-mono text-xs border-t border-white/5 pt-5">
+              <div>
+                <div className="text-slate-500 mb-1">Memory Confidence</div>
+                <div className="text-[#00D4AA] font-bold text-sm">
+                  {log.metrics.confidence}%
+                  <div className="mt-1.5 h-1 rounded-full bg-[#0B1020] overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${log.metrics.confidence}%` }}
+                      transition={{ duration: 1, delay: 0.3, ease: "easeOut" }}
+                      className="h-full rounded-full bg-gradient-to-r from-[#00D4AA] to-[#00D4AA]/60"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-500 mb-1">Knowledge Nodes</div>
+                <div className="text-[#00D4AA] font-bold text-sm">{log.metrics.nodes}</div>
+              </div>
+              <div>
+                <div className="text-slate-500 mb-1">Execution Traces</div>
+                <div className="text-[#00D4AA] font-bold text-sm">{log.metrics.traces}</div>
+              </div>
+            </div>
+
+            {/* Workspace Label */}
+            <div className="mt-6 pt-4 border-t border-white/5 font-mono text-xs text-slate-500 flex items-center gap-2">
+              <Terminal className="w-3.5 h-3.5 text-[#00D4AA]/40" />
+              — {log.workspace}
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* Pagination Dots */}
+      <div className="flex items-center justify-center gap-2.5 mt-8">
+        {memoryLogs.map((_, idx) => (
+          <button
+            key={idx}
+            onClick={() => goToSlide(idx)}
+            className={`transition-all duration-300 rounded-full ${
+              idx === currentIndex
+                ? 'w-8 h-2 bg-[#00D4AA] shadow-[0_0_10px_rgba(0,212,170,0.4)]'
+                : 'w-2 h-2 bg-slate-600 hover:bg-slate-400'
+            }`}
+            aria-label={`Go to memory log ${idx + 1}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function TypingEffect({ text }: { text: string }) {
   const [displayText, setDisplayText] = useState("");
@@ -216,7 +401,7 @@ export default function LandingPage() {
         </button>
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
           <Link href="#features" className="hover:text-foreground transition-colors duration-200">Features</Link>
-          <Link href="#testimonials" className="hover:text-foreground transition-colors duration-200">Testimonials</Link>
+          <Link href="#memory-fragments" className="hover:text-foreground transition-colors duration-200">Memory</Link>
           <Link href="#story" className="hover:text-foreground transition-colors duration-200">How it started</Link>
           <Link href="#install" className="hover:text-foreground transition-colors duration-200">Get started</Link>
         </div>
@@ -384,49 +569,43 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ════════════════════ TESTIMONIALS ════════════════════ */}
-      <section id="testimonials" className="relative z-10 py-28 px-4 border-t border-white/5">
-        <div className="max-w-6xl mx-auto text-center mb-16">
+      {/* ════════════════════ LIVE MEMORY FRAGMENTS ════════════════════ */}
+      <section id="memory-fragments" className="relative z-10 py-28 px-4 border-t border-white/5 overflow-hidden">
+        {/* Background ambient glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-[#00D4AA]/[0.03] rounded-full blur-[120px] pointer-events-none" />
+        
+        <div className="max-w-6xl mx-auto text-center mb-16 relative z-10">
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             className="flex items-center justify-center gap-2.5 mb-5"
           >
-            <Quote className="w-4 h-4 text-[#00D4AA]" />
-            <span className="text-[#00D4AA] font-mono text-xs font-bold tracking-[0.2em] uppercase">What people say</span>
+            <Terminal className="w-4 h-4 text-[#00D4AA]" />
+            <span className="text-[#00D4AA] font-mono text-xs font-bold tracking-[0.2em] uppercase">Live Memory Fragments</span>
           </motion.div>
           <motion.h3 
             initial={{ opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ delay: 0.1 }}
-            className="text-3xl md:text-5xl font-bold text-slate-200 mb-5"
+            className="text-3xl md:text-5xl font-bold text-slate-200 mb-4"
           >
-            Built for people who care about privacy
+            What Torvaix remembers
           </motion.h3>
+          <motion.p
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            transition={{ delay: 0.2 }}
+            className="text-slate-500 font-mono text-sm max-w-xl mx-auto"
+          >
+            Real workspace intelligence. Persistent context. Local execution.
+          </motion.p>
         </div>
 
-        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
-          {testimonials.map((t, idx) => (
-            <motion.div
-              key={idx}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: idx * 0.1, duration: 0.5 }}
-              className="bg-[#1F2937]/80 backdrop-blur-sm border border-white/[0.06] rounded-2xl p-7 text-left hover:border-[#00D4AA]/30 transition-all duration-300 flex flex-col"
-            >
-              <Quote className="w-6 h-6 text-[#00D4AA]/30 mb-4 shrink-0" />
-              <p className="text-slate-300 leading-relaxed mb-6 flex-1 italic">
-                &ldquo;{t.quote}&rdquo;
-              </p>
-              <div className="border-t border-white/5 pt-4">
-                <p className="font-semibold text-slate-200 text-sm">{t.author}</p>
-                <p className="text-xs text-slate-500">{t.role}</p>
-              </div>
-            </motion.div>
-          ))}
+        <div className="relative z-10">
+          <MemoryLogCarousel />
         </div>
       </section>
 
