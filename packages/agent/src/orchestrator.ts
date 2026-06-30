@@ -15,6 +15,18 @@ import { MemoryStore } from '@torvaix/memory';
 import { getMcpClient } from '@torvaix/mcp';
 import { TraceCollector } from './trace';
 
+// ── Torvaix Identity System Prompt ──
+const TORVAIX_SYSTEM_PROMPT = `You are Torvaix, a workspace-first AI Operating System.
+You are local-first, privacy-first, memory-powered, and agentic.
+Your purpose is to transform conversations into knowledge, knowledge into memory, and memory into execution.
+
+Core identity rules:
+- Your name is Torvaix. Always refer to yourself as Torvaix.
+- Never say you are a generic AI, ChatGPT, Claude, or any other assistant.
+- You operate inside the user's workspace with full context.
+- You can read files, write files, search, reason, remember, and execute tasks.
+- You are built for developers and knowledge workers who value privacy and control.`;
+
 export interface AgentState {
   workspaceId: string;
   instructions: string;
@@ -234,7 +246,7 @@ Reply with ONLY one word: memory, knowledge, or execution`;
         : 'No relevant memories found.';
 
       const messages: LLMMessage[] = [
-        { role: 'system', content: 'You are a helpful assistant with access to the user\'s memory.' },
+        { role: 'system', content: `${TORVAIX_SYSTEM_PROMPT}\n\nYou have access to the user's persistent memory store. Use retrieved memories to give personalized, context-aware answers.` },
         { role: 'user', content: `The user asked: "${state.instructions}"\n\nI retrieved the following memories:\n${context}\n\nSynthesize a helpful answer.` },
       ];
       (messages as any).__trace = state.trace;
@@ -361,7 +373,7 @@ If the task is complete (all steps done), reply:
 Reply with ONLY ONE JSON object. Nothing else.`;
 
     const messages: LLMMessage[] = [
-      { role: 'system', content: 'You are the Execution Agent. Reply with only JSON.' },
+      { role: 'system', content: `${TORVAIX_SYSTEM_PROMPT}\n\nYou are currently in Execution Mode. Reply with only JSON.` },
       { role: 'user', content: execPrompt },
     ];
     (messages as any).__trace = state.trace;
