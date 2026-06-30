@@ -40,8 +40,9 @@ export default function GraphPage() {
   
   const isDark = theme === 'dark' || !theme; // Default to dark
 
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+
   useEffect(() => {
-    // Fetch graph data
     fetch('/api/graph')
       .then(res => res.json())
       .then(data => {
@@ -65,7 +66,6 @@ export default function GraphPage() {
   }, []);
 
   useEffect(() => {
-    // Handle resize
     const handleResize = () => {
       if (containerRef.current) {
         setDimensions({
@@ -100,52 +100,100 @@ export default function GraphPage() {
         </div>
       </div>
       
-      <div 
-        ref={containerRef} 
-        className="flex-1 rounded-xl border border-border bg-[#0a0a0a] shadow-inner overflow-hidden relative"
-      >
-        <ForceGraph2D
-          ref={fgRef}
-          width={dimensions.width}
-          height={dimensions.height}
-          graphData={graphData}
-          nodeLabel="name"
-          nodeColor={node => (node as Node).color || '#fff'}
-          nodeRelSize={4}
-          linkColor={() => isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}
-          linkDirectionalParticles={2}
-          linkDirectionalParticleWidth={1.5}
-          linkDirectionalParticleSpeed={d => (d as Link).confidence * 0.01}
-          onNodeClick={(node) => {
-            // Center camera on clicked node
-            if (fgRef.current) {
-              fgRef.current.centerAt(node.x, node.y, 1000);
-              fgRef.current.zoom(8, 2000);
-            }
-          }}
-          nodeCanvasObject={(node, ctx, globalScale) => {
-            const label = (node as Node).name;
-            const fontSize = 12/globalScale;
-            ctx.font = `${fontSize}px Inter, sans-serif`;
-            const textWidth = ctx.measureText(label).width;
-            const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2); 
+      <div className="flex flex-1 gap-6 overflow-hidden">
+        <div 
+          ref={containerRef} 
+          className="flex-1 rounded-xl border border-border bg-[#0a0a0a] shadow-inner overflow-hidden relative"
+        >
+          <ForceGraph2D
+            ref={fgRef}
+            width={dimensions.width}
+            height={dimensions.height}
+            graphData={graphData}
+            nodeLabel="name"
+            nodeColor={node => (node as Node).color || '#fff'}
+            nodeRelSize={4}
+            linkColor={() => isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}
+            linkDirectionalParticles={2}
+            linkDirectionalParticleWidth={1.5}
+            linkDirectionalParticleSpeed={d => (d as Link).confidence * 0.01}
+            onNodeClick={(node) => {
+              setSelectedNode(node as Node);
+              // Center camera on clicked node
+              if (fgRef.current) {
+                fgRef.current.centerAt(node.x, node.y, 1000);
+                fgRef.current.zoom(8, 2000);
+              }
+            }}
+            nodeCanvasObject={(node, ctx, globalScale) => {
+              const label = (node as Node).name;
+              const fontSize = 12/globalScale;
+              ctx.font = `${fontSize}px Inter, sans-serif`;
+              const textWidth = ctx.measureText(label).width;
+              const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2); 
+  
+              ctx.fillStyle = isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)';
+              if (node.x && node.y) {
+                ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2 + 8, bckgDimensions[0], bckgDimensions[1]);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = (node as Node).color || (isDark ? '#fff' : '#000');
+                ctx.fillText(label, node.x, node.y + 8);
+                
+                // Draw node circle
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, (node as Node).val, 0, 2 * Math.PI, false);
+                ctx.fillStyle = (node as Node).color || '#fff';
+                ctx.fill();
+              }
+            }}
+          />
+        </div>
 
-            ctx.fillStyle = isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)';
-            if (node.x && node.y) {
-              ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2 + 8, bckgDimensions[0], bckgDimensions[1]);
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillStyle = (node as Node).color || (isDark ? '#fff' : '#000');
-              ctx.fillText(label, node.x, node.y + 8);
+        {/* Selected Node Details Panel */}
+        {selectedNode && (
+          <div className="w-80 flex flex-col rounded-xl border border-border bg-card p-6 shadow-sm overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">{selectedNode.name}</h2>
+              <button 
+                onClick={() => setSelectedNode(null)}
+                className="text-muted-foreground hover:text-foreground text-sm"
+              >
+                Close
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Type</h3>
+                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold" style={{ backgroundColor: selectedNode.color + '20', color: selectedNode.color }}>
+                  {selectedNode.type}
+                </span>
+              </div>
               
-              // Draw node circle
-              ctx.beginPath();
-              ctx.arc(node.x, node.y, (node as Node).val, 0, 2 * Math.PI, false);
-              ctx.fillStyle = (node as Node).color || '#fff';
-              ctx.fill();
-            }
-          }}
-        />
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Importance Score</h3>
+                <p className="text-sm font-mono bg-muted/50 p-2 rounded-md border border-border/50">
+                  {selectedNode.importance.toFixed(2)}
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">ID</h3>
+                <p className="text-xs font-mono text-muted-foreground break-all">
+                  {selectedNode.id}
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Connections</h3>
+                <p className="text-sm text-muted-foreground">
+                  {graphData.links.filter(l => l.source === selectedNode.id || l.target === selectedNode.id).length} edges
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -106,6 +106,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["query"],
         },
+      },
       {
         name: "repo_scan",
         description: "Analyze the repository workspace, including package structure, dependencies, and top-level architecture.",
@@ -123,6 +124,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
+    switch (name) {
       case "repo_scan": {
         const cwd = process.cwd();
         let packageJson = "Not found";
