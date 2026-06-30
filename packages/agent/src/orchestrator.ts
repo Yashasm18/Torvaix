@@ -539,18 +539,21 @@ Reply with ONLY ONE JSON object. Nothing else.`;
 
         // Terminal condition for repo_scan to prevent infinite execution loops
         if (tool === 'repo_scan') {
-          console.log('[Execution Agent] repo_scan complete, performing final summary bypass...');
-          const summaryMessages: LLMMessage[] = [
-            { role: 'system', content: `${TORVAIX_SYSTEM_PROMPT}\n\nYou are summarizing a repository scan. Output a structured Markdown summary directly in chat covering tech stack, architecture, routes, dependencies, key files, and risks. Do NOT write files. Be concise and authoritative.` },
-            { role: 'user', content: `Analyze this repository scan and summarize:\n\n${resultText}` }
-          ];
-          (summaryMessages as any).__trace = state.trace;
-          try {
-            const summaryRes = await this.callLLM(summaryMessages);
-            state.output = summaryRes.text;
-          } catch (err: any) {
-            state.output = `Repo scan complete, but summary failed: ${err.message}\n\nRaw scan:\n${resultText}`;
+          console.log('[TERMINATED] repo_scan complete');
+          
+          let techStack = 'Unknown';
+          let architecture = 'Unknown';
+          
+          if (resultText.includes('Package:')) {
+            techStack = resultText.split('Package:')[1]?.split('\n')[0]?.trim() || 'Unknown';
           }
+          if (resultText.includes('Structure:')) {
+            architecture = resultText.split('Structure:')[1]?.trim() || 'Unknown';
+          }
+
+          const summary = `### Repository Architecture Summary\n\n**Tech Stack & Package**\n${techStack}\n\n**Architecture & Structure**\n\`\`\`text\n${architecture}\n\`\`\`\n\n*(Analysis completed instantly via deterministic repo_scan)*`;
+          
+          state.output = summary;
           state.nextNode = 'end';
           return state;
         }
