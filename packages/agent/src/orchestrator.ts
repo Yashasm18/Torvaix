@@ -159,6 +159,20 @@ export class AgentOrchestrator {
     console.log('[Router Agent] Routing task...');
     const endTrace = state.trace!.startPhase('router', 'Classifying request');
 
+    // Fast-path routing for memory writes (bypasses LLM to guarantee persistence)
+    const input = state.instructions.toLowerCase();
+    if (
+      input.includes("remember") ||
+      input.includes("store this") ||
+      input.includes("note this") ||
+      input.includes("note to self")
+    ) {
+      endTrace({ decision: 'knowledge', bypass: true });
+      console.log(`[Router Agent] Decision: knowledge (keyword bypass)`);
+      state.nextNode = 'knowledge';
+      return state;
+    }
+
     const prompt = `Classify this user request into exactly ONE category.
 
 CATEGORIES:
