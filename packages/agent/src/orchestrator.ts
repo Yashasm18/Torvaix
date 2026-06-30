@@ -537,6 +537,24 @@ Reply with ONLY ONE JSON object. Nothing else.`;
           return state;
         }
 
+        // Terminal condition for repo_scan to prevent infinite execution loops
+        if (tool === 'repo_scan') {
+          console.log('[Execution Agent] repo_scan complete, performing final summary bypass...');
+          const summaryMessages: LLMMessage[] = [
+            { role: 'system', content: `${TORVAIX_SYSTEM_PROMPT}\n\nYou are summarizing a repository scan. Output a structured Markdown summary directly in chat covering tech stack, architecture, routes, dependencies, key files, and risks. Do NOT write files. Be concise and authoritative.` },
+            { role: 'user', content: `Analyze this repository scan and summarize:\n\n${resultText}` }
+          ];
+          (summaryMessages as any).__trace = state.trace;
+          try {
+            const summaryRes = await this.callLLM(summaryMessages);
+            state.output = summaryRes.text;
+          } catch (err: any) {
+            state.output = `Repo scan complete, but summary failed: ${err.message}\n\nRaw scan:\n${resultText}`;
+          }
+          state.nextNode = 'end';
+          return state;
+        }
+
       } catch (e: any) {
         const durationMs = performance.now() - toolStart;
         const errorText = `Tool execution failed: ${e.message}`;
