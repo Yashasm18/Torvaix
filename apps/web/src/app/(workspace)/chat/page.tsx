@@ -20,13 +20,16 @@ export default function ChatPage() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const { activeWorkspaceId } = useDBStore();
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append, data: streamData } = useChat({
     api: '/api/chat',
     body: {
       model: currentModel,
       provider: provider,
       workspaceId: activeWorkspaceId,
-    }
+    },
+    onError: (err) => {
+      console.error('[Torvaix Chat] Stream error:', err);
+    },
   });
 
   // --- Agent Trace State ---
@@ -87,26 +90,21 @@ export default function ChatPage() {
     }
   }, [messages]);
 
-  // Parse trace data from raw SSE chunks
+  // Parse trace data from stream data annotations (prefix 2:)
   useEffect(() => {
+    if (!streamData || !Array.isArray(streamData) || streamData.length === 0) return;
     const lastAssistantIdx = messages.length - 1;
-    const lastMsg = messages[lastAssistantIdx];
-    if (!lastMsg || lastMsg.role !== 'assistant') return;
-    // The trace data arrives as `e:` prefixed JSON in the stream annotations
-    // We check for it in data-stream annotations if useChat exposes them,
-    // but since we use a custom protocol, we parse from the message annotations
-    const annotations = (lastMsg as any).annotations;
-    if (annotations && Array.isArray(annotations)) {
-      for (const ann of annotations) {
-        try {
-          const parsed = typeof ann === 'string' ? JSON.parse(ann) : ann;
-          if (parsed.totalMs && parsed.events) {
-            setTraceMap(prev => new Map(prev).set(lastAssistantIdx, parsed));
-          }
-        } catch { /* not trace data */ }
-      }
+    if (lastAssistantIdx < 0) return;
+
+    for (const item of streamData) {
+      try {
+        const parsed = typeof item === 'string' ? JSON.parse(item) : item;
+        if (parsed.totalMs && parsed.events) {
+          setTraceMap(prev => new Map(prev).set(lastAssistantIdx, parsed));
+        }
+      } catch { /* not trace data */ }
     }
-  }, [messages]);
+  }, [streamData, messages]);
 
   const quickActions = [
     { icon: Terminal, text: "List files in directory", command: "ls -la" },

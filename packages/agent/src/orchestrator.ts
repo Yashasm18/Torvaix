@@ -12,7 +12,7 @@
 import crypto from 'crypto';
 import { LLMClient, type LLMMessage, type LLMResponse } from '@torvaix/providers';
 import { MemoryStore } from '@torvaix/memory';
-import { getMcpClient } from '@torvaix/mcp/client';
+import { getMcpClient } from '@torvaix/mcp';
 import { TraceCollector } from './trace';
 
 export interface AgentState {
@@ -521,7 +521,9 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       });
 
       if (onStreamChunk) {
-        onStreamChunk(`e:${trace.serialize(state.iteration)}\n`);
+        const traceJson = trace.serialize(state.iteration);
+        // Use data annotation prefix (2:) with array wrapping per Vercel AI SDK protocol
+        onStreamChunk(`2:${JSON.stringify([JSON.parse(traceJson)])}\n`);
       }
     }
 

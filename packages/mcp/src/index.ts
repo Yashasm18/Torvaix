@@ -191,3 +191,6 @@ async function run() {
 if (require.main === module) {
   run().catch(console.error);
 }
+
+export * from "./client";
+
