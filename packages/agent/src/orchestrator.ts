@@ -31,12 +31,13 @@ Core identity rules:
 export interface AgentState {
   workspaceId: string;
   instructions: string;
-  messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
-  nextNode: 'router' | 'memory' | 'knowledge' | 'execution' | 'end';
+  messages: LLMMessage[];
+  nextNode: 'router' | 'memory' | 'knowledge' | 'execution' | 'repo_analysis' | 'end';
   output: string;
   pendingActionId?: string;
   iteration: number;
   trace?: TraceCollector;
+  final?: boolean;
 }
 
 /** Per-tool approval entry with expiry. */
@@ -219,13 +220,23 @@ export class AgentOrchestrator {
       return state;
     }
 
-    // 3. repo_analysis, code_generation, web_research, task_execution -> all map to 'execution'
+    // 3. repo_analysis — deterministic bypass, NO execution agent
     if (
       input.includes("analyze repo") ||
+      input.includes("repository architecture") ||
       input.includes("inspect code") ||
-      input.includes("read file") ||
       input.includes("check routes") ||
-      input.includes("architecture") ||
+      input.includes("architecture")
+    ) {
+      endTrace({ decision: 'repo_analysis', bypass: true });
+      console.log(`[Router Agent] Decision: repo_analysis (deterministic bypass)`);
+      state.nextNode = 'repo_analysis';
+      return state;
+    }
+
+    // 4. code_generation, web_research, task_execution -> execution
+    if (
+      input.includes("read file") ||
       input.includes("latest") ||
       input.includes("search") ||
       input.includes("research") ||
@@ -338,6 +349,70 @@ Reply with ONLY one word: memory, knowledge, or execution`;
       state.trace!.recordError('knowledge', e.message);
     }
 
+    return state;
+  }
+
+  // NODE: Repo Analysis (Deterministic — NO LLM, NO loop)
+  private async nodeRepoAnalysis(state: AgentState, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
+    console.log('[STEP START] nodeRepoAnalysis — deterministic bypass');
+    const endTrace = state.trace!.startPhase('repo_analysis', 'Deterministic repo scan');
+    const mcp = getMcpClient();
+
+    const toolCallId = crypto.randomUUID();
+    if (onStreamChunk) {
+      onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: 'repo_scan', args: {} })}\n`);
+    }
+
+    try {
+      const result = await mcp.callTool('repo_scan', {});
+      const resultText = result.content?.[0]?.text ?? 'Repo scan returned no output.';
+      console.log('[TOOL EXECUTED] repo_scan');
+
+      if (onStreamChunk) {
+        onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
+      }
+
+      // Parse deterministically
+      let pkg = 'Unknown';
+      let deps = 'Unknown';
+      let structure = 'Unknown';
+
+      if (resultText.includes('Package:')) {
+        pkg = resultText.split('Package:')[1]?.split('\n')[0]?.trim() || 'Unknown';
+      }
+      if (resultText.includes('Dependencies:')) {
+        deps = resultText.split('Dependencies:')[1]?.split('\n')[0]?.trim() || 'Unknown';
+      }
+      if (resultText.includes('Structure:')) {
+        structure = resultText.split('Structure:')[1]?.trim() || 'Unknown';
+      }
+
+      state.output = `## Repository Architecture Summary
+
+**Package:** ${pkg}
+
+**Dependencies:** ${deps}
+
+**Directory Structure:**
+\`\`\`
+${structure}
+\`\`\`
+
+*Analysis completed via deterministic repo_scan.*`;
+
+      this.memoryStore.logExecution(state.workspaceId, 'repo_scan', {}, resultText, 'success');
+      state.trace!.recordToolCall('repo_scan', 0, 'success');
+      endTrace({ status: 'completed' });
+    } catch (e: any) {
+      state.output = `Repo analysis failed: ${e.message}`;
+      endTrace({ status: 'error', error: e.message });
+      state.trace!.recordError('repo_analysis', e.message);
+    }
+
+    // Hard terminate — no further steps
+    console.log('[FINAL BREAK] nodeRepoAnalysis complete');
+    state.final = true;
+    state.nextNode = 'end';
     return state;
   }
 
@@ -528,32 +603,22 @@ Reply with ONLY ONE JSON object. Nothing else.`;
 
         // Terminal condition for write_file to prevent infinite loops
         if (tool === 'write_file') {
+          console.log('[FINAL BREAK] write_file complete');
           const filePath = decision.args.filePath || 'Unknown File';
           const content = decision.args.content || '';
           const preview = content.split('\n').slice(0, 10).join('\n');
           
           state.output = `Created: ${filePath}\nPath: ${filePath}\n\nPreview:\n${preview}`;
+          state.final = true;
           state.nextNode = 'end';
           return state;
         }
 
-        // Terminal condition for repo_scan to prevent infinite execution loops
+        // Terminal condition for repo_scan (belt-and-suspenders, primary path is nodeRepoAnalysis)
         if (tool === 'repo_scan') {
-          console.log('[TERMINATED] repo_scan complete');
-          
-          let techStack = 'Unknown';
-          let architecture = 'Unknown';
-          
-          if (resultText.includes('Package:')) {
-            techStack = resultText.split('Package:')[1]?.split('\n')[0]?.trim() || 'Unknown';
-          }
-          if (resultText.includes('Structure:')) {
-            architecture = resultText.split('Structure:')[1]?.trim() || 'Unknown';
-          }
-
-          const summary = `### Repository Architecture Summary\n\n**Tech Stack & Package**\n${techStack}\n\n**Architecture & Structure**\n\`\`\`text\n${architecture}\n\`\`\`\n\n*(Analysis completed instantly via deterministic repo_scan)*`;
-          
-          state.output = summary;
+          console.log('[FINAL BREAK] repo_scan complete (execution fallback)');
+          state.output = resultText;
+          state.final = true;
           state.nextNode = 'end';
           return state;
         }
@@ -572,8 +637,10 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         endTrace({ tool, status: 'error', error: e.message });
       }
 
-      // Loop back to Execution Agent for next step
-      state.nextNode = 'execution';
+      // Loop back to Execution Agent for next step (only if not already terminated)
+      if (!state.final && state.nextNode !== 'end') {
+        state.nextNode = 'execution';
+      }
 
     } catch (e: any) {
       console.error('Failed to parse Execution Agent JSON:', rawResponse, e.message);
@@ -603,8 +670,9 @@ Reply with ONLY ONE JSON object. Nothing else.`;
     };
 
     try {
-      while (state.nextNode !== 'end' && state.iteration < this.maxIterations) {
+      while (state.nextNode !== 'end' && !state.final && state.iteration < this.maxIterations) {
         state.iteration++;
+        console.log(`[STEP START] Iteration ${state.iteration}`);
 
         switch (state.nextNode) {
           case 'router':
@@ -615,6 +683,9 @@ Reply with ONLY ONE JSON object. Nothing else.`;
             break;
           case 'knowledge':
             state = await this.nodeKnowledge(state);
+            break;
+          case 'repo_analysis':
+            state = await this.nodeRepoAnalysis(state, onStreamChunk);
             break;
           case 'execution':
             state = await this.nodeExecution(state, onStreamChunk);

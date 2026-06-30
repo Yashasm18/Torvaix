@@ -1,1 +1,1 @@
-function analyzeRepositoryArchitecture() { console.log('Analyzing repository architecture...'); }
+import { Torvaix } from "./orchestrator";
