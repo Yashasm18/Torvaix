@@ -174,12 +174,16 @@ export class AgentOrchestrator {
 
     // Fast-path routing for memory writes (bypasses LLM to guarantee persistence)
     const input = state.instructions.toLowerCase();
+    const normalized = input.trim();
 
     // 0. Identity fast-path (Deterministic branding)
     if (
-      input.includes("what is your name") ||
-      input.includes("who are you") ||
-      input.includes("what's your name")
+      normalized.includes("what is your name") ||
+      normalized.includes("who are you") ||
+      normalized.includes("whats your name") ||
+      normalized.includes("what's your name") ||
+      normalized.includes("whats ur name") ||
+      normalized.includes("your name")
     ) {
       endTrace({ decision: 'end', bypass: true });
       console.log(`[Router Agent] Decision: identity (keyword bypass)`);
