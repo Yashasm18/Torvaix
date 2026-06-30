@@ -419,6 +419,8 @@ CRITICAL RULES:
 2. Do ONE step at a time. You will be called again for the next step.
 3. To create a file, use write_file, NOT bash echo.
 4. To run a Python file, use bash with: {"command": "python3 filename.py"}
+5. After using write_file, when reporting completion, your message MUST include a success confirmation, the file path, and a preview of the first 20 lines. Format: "Created: <filename>\nPreview:\n<content>"
+6. For repo analysis, use repo_scan and summarize the findings DIRECTLY in your completion message. Include tech stack, architecture, routes, dependencies, key files, and risks. Do NOT write markdown files automatically unless explicitly requested.
 
 If you need to use a tool, reply:
 {"done": false, "tool": "write_file", "args": {"filePath": "hello.py", "content": "print('Hello')"}}
