@@ -1,74 +1,147 @@
 /**
  * TraceCollector — lightweight agent execution tracer.
- * Records phases, tool calls, approvals, errors, and events for observability.
+ * Matches exact test contract.
  */
 
 export class TraceCollector {
-  private phases: any[] = [];
   private events: any[] = [];
-  private errors: any[] = [];
-  private toolCalls: any[] = [];
-  private approvals: any[] = [];
-  private startTime: number = Date.now();
+  private startedAt = Date.now();
   private tokenUsage = { prompt: 0, completion: 0, total: 0 };
+
+  addEvent(phase: string, action: string, metadata: any = {}) {
+    this.events.push({
+      phase,
+      action,
+      metadata,
+      timestamp: Date.now(),
+    });
+  }
 
   startPhase(name: string, description: string) {
     const phaseStart = performance.now();
-    const phase = { name, description, startTime: phaseStart, endTime: 0, metadata: {} as any };
-    this.phases.push(phase);
-
-    // Return an endTrace function
     return (metadata?: any) => {
-      phase.endTime = performance.now();
-      phase.metadata = metadata ?? {};
+      this.events.push({
+        phase: name,
+        action: description,
+        metadata: metadata || {},
+        timestamp: Date.now(),
+        durationMs: performance.now() - phaseStart,
+      });
     };
   }
 
-  recordToolCall(tool: string, durationMs: number, status: string, metadata?: any) {
-    this.toolCalls.push({ tool, durationMs, status, metadata, timestamp: Date.now() });
+  getTrace() {
+    return this.events;
   }
 
-  recordApproval(tool: string, approved: boolean, metadata?: any) {
-    this.approvals.push({ tool, approved, metadata, timestamp: Date.now() });
-  }
+  recordLLMCall(model: string, durationMs: number, usage?: any, metadata: any = {}) {
+    let tokens = undefined;
+    if (usage) {
+      tokens = {
+        prompt: usage.prompt || 0,
+        completion: usage.completion || 0,
+        total: (usage.prompt || 0) + (usage.completion || 0),
+      };
+      this.tokenUsage.prompt += tokens.prompt;
+      this.tokenUsage.completion += tokens.completion;
+      this.tokenUsage.total += tokens.total;
+    }
 
-  recordError(category: string, message: string, metadata?: any) {
-    this.errors.push({ category, message, metadata, timestamp: Date.now() });
-  }
-
-  addEvent(type: string, description: string, metadata?: any) {
-    this.events.push({ type, description, metadata, timestamp: Date.now() });
-  }
-
-  recordTokenUsage(prompt: number, completion: number) {
-    this.tokenUsage.prompt += prompt;
-    this.tokenUsage.completion += completion;
-    this.tokenUsage.total += prompt + completion;
-  }
-
-  getTotalDurationMs(): number {
-    return Date.now() - this.startTime;
+    this.events.push({
+      phase: "llm_call",
+      action: `LLM call: ${model}`,
+      durationMs,
+      tokens,
+      metadata: {
+        model,
+        tokens,
+        ...metadata,
+      },
+      timestamp: Date.now(),
+    });
   }
 
   getTokenUsage() {
     return this.tokenUsage;
   }
 
-  serialize(iterations: number): string {
-    return JSON.stringify({
-      iterations,
-      totalMs: this.getTotalDurationMs(),
-      phases: this.phases.map(p => ({
-        name: p.name,
-        description: p.description,
-        durationMs: p.endTime ? p.endTime - p.startTime : 0,
-        metadata: p.metadata,
-      })),
-      toolCalls: this.toolCalls,
-      approvals: this.approvals,
-      errors: this.errors,
-      events: this.events,
-      tokens: this.tokenUsage,
+  recordToolCall(tool: string, durationMs: number, status: string, metadata: any = {}) {
+    this.events.push({
+      phase: "tool_call",
+      action: `Tool: ${tool}`,
+      durationMs,
+      metadata: {
+        tool,
+        status,
+        ...metadata,
+      },
+      timestamp: Date.now(),
     });
+  }
+
+  recordApproval(tool: string, approved: boolean, metadata: any = {}) {
+    this.events.push({
+      phase: "approval",
+      action: approved
+        ? `Auto-approved: ${tool}`
+        : `Awaiting approval: ${tool}`,
+      metadata,
+      timestamp: Date.now(),
+    });
+  }
+
+  recordError(phase: string, error: string, metadata: any = {}) {
+    this.events.push({
+      phase: "error",
+      action: error,
+      metadata: {
+        error,
+        ...metadata,
+      },
+      timestamp: Date.now(),
+    });
+  }
+
+  getTotalDurationMs() {
+    return Date.now() - this.startedAt;
+  }
+
+  summarize(iterations: number = 1) {
+    const llmCalls = this.events.filter(e => e.phase === "llm_call");
+    const toolCalls = this.events.filter(e => e.phase === "tool_call");
+    const approvalsAuto = this.events.filter(e => e.phase === "approval" && e.action.includes("Auto-approved"));
+    const approvalsReq = this.events.filter(e => e.phase === "approval" && e.action.includes("Awaiting"));
+    const errors = this.events.filter(e => e.phase === "error");
+
+    const phases: any = {};
+    for (const e of this.events) {
+      if (e.phase !== 'llm_call' && e.phase !== 'tool_call' && e.phase !== 'approval' && e.phase !== 'error') {
+        phases[e.phase] = (phases[e.phase] || 0) + 1;
+      }
+    }
+
+    return {
+      iterations,
+      llmCalls: llmCalls.length,
+      toolCalls: toolCalls.length,
+      approvalsRequested: approvalsReq.length,
+      approvalsAuto: approvalsAuto.length,
+      errors: errors.length,
+      tokensUsed: this.tokenUsage,
+      phases,
+      totalMs: this.getTotalDurationMs(),
+    };
+  }
+
+  serialize(iterations: number = 1) {
+    return JSON.stringify({
+      totalMs: this.getTotalDurationMs(),
+      summary: this.summarize(iterations),
+      events: this.events,
+    });
+  }
+
+  toJSON() {
+    return this.serialize(1);
   }
 }

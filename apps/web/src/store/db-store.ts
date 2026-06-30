@@ -13,7 +13,7 @@ interface DBState {
   activeWorkspaceId: string | null;
   setActiveWorkspaceId: (id: string | null) => void;
 
-  createWorkspace: (name: string, template: WorkspaceTemplate) => Workspace;
+  createWorkspace: (name: string, template: WorkspaceTemplate) => Promise<Workspace>;
   deleteWorkspace: (id: string) => void;
 
   createChat: (workspaceId: string, title: string) => Chat;
@@ -50,13 +50,31 @@ export const useDBStore = create<DBState>()(
 
       setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
 
-      createWorkspace: (name, template) => {
+      createWorkspace: async (name, template) => {
         const newWorkspace: Workspace = {
           id: nanoid(),
           name,
           template,
           createdAt: new Date(),
         };
+
+        // Notify backend to provision filesystem resources
+        try {
+          const token = localStorage.getItem('torvaix_token');
+          await fetch('http://localhost:3001/api/workspaces', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              id: newWorkspace.id,
+              name: newWorkspace.name
+            })
+          });
+        } catch(e) {
+          console.error("Failed to provision workspace on backend:", e);
+        }
 
         set((state) => ({
           workspaces: [...state.workspaces, newWorkspace],

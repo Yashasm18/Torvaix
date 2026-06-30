@@ -353,19 +353,24 @@ Reply with ONLY one word: memory, knowledge, or execution`;
   }
 
   // NODE: Repo Analysis (Deterministic — NO LLM, NO loop)
-  private async nodeRepoAnalysis(state: AgentState, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
+  private async nodeRepoAnalysis(state: AgentState, workspacePath: string, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
     console.log('[STEP START] nodeRepoAnalysis — deterministic bypass');
     const endTrace = state.trace!.startPhase('repo_analysis', 'Deterministic repo scan');
-    const mcp = getMcpClient();
-
-    const toolCallId = crypto.randomUUID();
     if (onStreamChunk) {
-      onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: 'repo_scan', args: {} })}\n`);
+      onStreamChunk(`> Running instantaneous repository analysis...\n`);
     }
 
     try {
-      const result = await mcp.callTool('repo_scan', {});
-      const resultText = result.content?.[0]?.text ?? 'Repo scan returned no output.';
+      const mcp = getMcpClient(workspacePath);
+      const mcpResult = await mcp.callTool('repo_scan', {});
+      
+      let resultText = '';
+      if (mcpResult.content && mcpResult.content.length > 0) {
+        resultText = mcpResult.content.map((c: any) => c.text).join('\n');
+      } else {
+        resultText = 'Repo scan returned no output.';
+      }
+      
       console.log('[TOOL EXECUTED] repo_scan');
 
       if (onStreamChunk) {
@@ -417,10 +422,10 @@ ${structure}
   }
 
   // NODE: Execution (Tool Calling via MCP)
-  private async nodeExecution(state: AgentState, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
+  private async nodeExecution(state: AgentState, workspacePath: string, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
     console.log('[Execution Agent] Planning execution...');
-    const endTrace = state.trace!.startPhase('execution', 'Planning next step');
-    const mcp = getMcpClient();
+    const endTrace = state.trace!.startPhase('execution', 'Planning and tool execution');
+    const mcp = getMcpClient(workspacePath);
 
     // If there is a pending action, it means it was just approved
     if (state.pendingActionId) {
@@ -669,6 +674,16 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       trace,
     };
 
+    // Fetch workspace path for isolated MCP execution
+    const workspace = this.memory.getWorkspace(state.workspaceId);
+    let workspaceSettings: any = {};
+    try {
+      if (workspace && workspace.settings) {
+        workspaceSettings = JSON.parse(workspace.settings);
+      }
+    } catch(e) {}
+    const workspacePath = workspaceSettings.path || process.cwd();
+
     try {
       while (state.nextNode !== 'end' && !state.final && state.iteration < this.maxIterations) {
         state.iteration++;
@@ -685,10 +700,10 @@ Reply with ONLY ONE JSON object. Nothing else.`;
             state = await this.nodeKnowledge(state);
             break;
           case 'repo_analysis':
-            state = await this.nodeRepoAnalysis(state, onStreamChunk);
+            state = await this.nodeRepoAnalysis(state, workspacePath, onStreamChunk);
             break;
           case 'execution':
-            state = await this.nodeExecution(state, onStreamChunk);
+            state = await this.nodeExecution(state, workspacePath, onStreamChunk);
             break;
           default:
             state.nextNode = 'end';

@@ -485,8 +485,28 @@ export class MemoryStore {
 
   // ── Workspace Methods ──
 
-  createWorkspace(name: string, settings: any = {}): string {
-    const id = uuidv4();
+  createWorkspace(name: string, settings: any = {}, forceId?: string): string {
+    const id = forceId || uuidv4();
+    
+    // Automatically provision workspace folder
+    if (!settings.path) {
+      const os = require('os');
+      const path = require('path');
+      const fs = require('fs');
+      
+      const TORVAIX_HOME = process.env.TORVAIX_HOME || path.join(os.homedir(), '.torvaix');
+      // Replace spaces and special chars in name to form a slug
+      const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+      const workspacePath = path.join(TORVAIX_HOME, 'workspaces', `${slug}-${id.substring(0, 8)}`);
+      
+      fs.mkdirSync(workspacePath, { recursive: true });
+      fs.mkdirSync(path.join(workspacePath, 'projects'), { recursive: true });
+      fs.mkdirSync(path.join(workspacePath, 'knowledge'), { recursive: true });
+      fs.mkdirSync(path.join(workspacePath, 'tasks'), { recursive: true });
+      
+      settings.path = workspacePath;
+    }
+
     const stmt = this.db.prepare('INSERT INTO workspaces (id, name, settings) VALUES (?, ?, ?)');
     stmt.run(id, name, JSON.stringify(settings));
     return id;

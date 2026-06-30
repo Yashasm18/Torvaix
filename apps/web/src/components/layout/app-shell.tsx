@@ -11,9 +11,63 @@ import {
 } from "@/components/ui/resizable"
 import { BrainCircuit, Clock, FileText } from "lucide-react"
 import { useMemoryContextStore } from "@/store/memory-context-store"
+import { useDBStore } from "@/store/db-store"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { retrievedMemories, averageConfidence, lastRetrievedAt } = useMemoryContextStore();
+
+  const { workspaces, createWorkspace } = useDBStore();
+  const [isCreating, setIsCreating] = React.useState(false);
+  const [workspaceName, setWorkspaceName] = React.useState("");
+
+  if (workspaces.length === 0) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-md p-8 border border-border bg-surface rounded-xl shadow-2xl flex flex-col items-center text-center"
+        >
+          <div className="h-12 w-12 bg-primary/20 rounded-full flex items-center justify-center mb-6">
+            <BrainCircuit className="h-6 w-6 text-primary" />
+          </div>
+          <h2 className="text-2xl font-bold text-foreground mb-2">Welcome to Torvaix</h2>
+          <p className="text-muted-foreground mb-8">Torvaix is a true multi-tenant AI operating system. To begin, create your first isolated workspace.</p>
+          
+          <form 
+            className="w-full flex flex-col gap-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!workspaceName.trim()) return;
+              setIsCreating(true);
+              try {
+                await createWorkspace(workspaceName, 'blank');
+              } finally {
+                setIsCreating(false);
+              }
+            }}
+          >
+            <input 
+              type="text" 
+              placeholder="e.g. My AI Startup"
+              className="w-full px-4 py-3 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
+              value={workspaceName}
+              onChange={(e) => setWorkspaceName(e.target.value)}
+              disabled={isCreating}
+              autoFocus
+            />
+            <button 
+              type="submit" 
+              disabled={!workspaceName.trim() || isCreating}
+              className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {isCreating ? "Provisioning Workspace..." : "Create Workspace"}
+            </button>
+          </form>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <SidebarProvider>

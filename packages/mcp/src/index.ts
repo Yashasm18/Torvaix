@@ -12,6 +12,16 @@ import * as path from "path";
 
 const execAsync = promisify(exec);
 
+function assertInsideWorkspace(targetPath: string, workspaceRoot: string) {
+  const resolved = path.resolve(targetPath);
+  if (!resolved.startsWith(path.resolve(workspaceRoot))) {
+    throw new Error("Workspace boundary violation: " + resolved);
+  }
+  return resolved;
+}
+
+const WORKSPACE_ROOT = process.env.TORVAIX_WORKSPACE_PATH || process.cwd();
+
 // Create server
 const server = new Server(
   {
@@ -126,20 +136,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case "repo_scan": {
-        const cwd = process.cwd();
         let packageJson = "Not found";
         let deps = "Unknown";
         let structure = "";
         
         try {
-          const pkgRaw = await fs.readFile(path.join(cwd, "package.json"), "utf-8");
+          const pkgRaw = await fs.readFile(path.join(WORKSPACE_ROOT, "package.json"), "utf-8");
           const pkg = JSON.parse(pkgRaw);
           packageJson = `Name: ${pkg.name}, Version: ${pkg.version}`;
           deps = Object.keys(pkg.dependencies || {}).concat(Object.keys(pkg.devDependencies || {})).join(", ");
         } catch (e) {}
         
         try {
-          const { stdout } = await execAsync("tree -L 2 -I 'node_modules|.git|dist|build|.next'", { timeout: 5000 });
+          // ensure we run tree in the WORKSPACE_ROOT
+          const { stdout } = await execAsync("tree -L 2 -I 'node_modules|.git|dist|build|.next'", { cwd: WORKSPACE_ROOT, timeout: 5000 });
           structure = stdout;
         } catch (e) {
           structure = "Tree command failed or not installed.";
@@ -148,15 +158,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{ 
             type: "text", 
-            text: `[Repository Intelligence]\nRoot: ${cwd}\nPackage: ${packageJson}\nDependencies: ${deps}\n\nStructure:\n${structure}`
+            text: `[Repository Intelligence]\nRoot: ${WORKSPACE_ROOT}\nPackage: ${packageJson}\nDependencies: ${deps}\n\nStructure:\n${structure}`
           }]
         };
       }
 
       case "read_file": {
         const { filePath } = ReadFileArgsSchema.parse(args);
-        const resolvedPath = path.resolve(process.cwd(), filePath);
         try {
+          const resolvedPath = assertInsideWorkspace(path.resolve(WORKSPACE_ROOT, filePath), WORKSPACE_ROOT);
           const content = await fs.readFile(resolvedPath, "utf-8");
           return { content: [{ type: "text", text: content }] };
         } catch (e: any) {
@@ -166,8 +176,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "write_file": {
         const { filePath, content } = WriteFileArgsSchema.parse(args);
-        const resolvedPath = path.resolve(process.cwd(), filePath);
         try {
+          const resolvedPath = assertInsideWorkspace(path.resolve(WORKSPACE_ROOT, filePath), WORKSPACE_ROOT);
           await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
           await fs.writeFile(resolvedPath, content, "utf-8");
           return { content: [{ type: "text", text: `Successfully wrote to ${resolvedPath}` }] };
@@ -180,7 +190,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { command: rawCommand } = BashArgsSchema.parse(args);
         const command = rawCommand.replace(/\bpython\b(?!3)/g, 'python3');
         try {
-          const { stdout, stderr } = await execAsync(command, { timeout: 15000 });
+          const { stdout, stderr } = await execAsync(command, { cwd: WORKSPACE_ROOT, timeout: 15000 });
           return { content: [{ type: "text", text: stdout || stderr || "Command executed successfully with no output." }] };
         } catch (e: any) {
           return { content: [{ type: "text", text: `Command failed: ${e.message}\nStdout: ${e.stdout}\nStderr: ${e.stderr}` }], isError: true };
@@ -189,10 +199,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "python": {
         const { code } = PythonArgsSchema.parse(args);
-        const tempFile = `/tmp/temp_script_${Date.now()}.py`;
+        const tempFile = path.join(WORKSPACE_ROOT, `.temp_script_${Date.now()}.py`);
         await fs.writeFile(tempFile, code);
         try {
-          const { stdout, stderr } = await execAsync(`python3 ${tempFile}`, { timeout: 15000 });
+          const { stdout, stderr } = await execAsync(`python3 ${tempFile}`, { cwd: WORKSPACE_ROOT, timeout: 15000 });
           return { content: [{ type: "text", text: stdout || stderr || "Script executed successfully with no output." }] };
         } catch (e: any) {
           return { content: [{ type: "text", text: `Script failed: ${e.message}\nStdout: ${e.stdout}\nStderr: ${e.stderr}` }], isError: true };

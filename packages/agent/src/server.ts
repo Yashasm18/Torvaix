@@ -32,13 +32,24 @@ const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX = 60; // requests per window per user
 const AGENT_RATE_LIMIT_MAX = 30; // stricter for agent runs
 
+import os from 'os';
+import fs from 'fs';
+
 // ── App Setup ──
+
+const TORVAIX_HOME = process.env.TORVAIX_HOME || path.join(os.homedir(), '.torvaix');
+const DATA_DIR = path.join(TORVAIX_HOME, 'data');
+const WORKSPACES_DIR = path.join(TORVAIX_HOME, 'workspaces');
+
+// Bootstrap directories
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(WORKSPACES_DIR)) fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const memoryDbPath = path.join(process.cwd(), 'torvaix_metadata.db');
+const memoryDbPath = path.join(DATA_DIR, 'torvaix.db');
 const memoryStore = new MemoryStore(memoryDbPath);
 const llmClient = new LLMClient();
 
@@ -204,6 +215,27 @@ app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
 });
 
 // ── Protected Routes ──
+
+app.post('/api/workspaces', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+  try {
+    const { id, name = 'New Workspace', settings = {} } = req.body;
+    
+    // Check if it already exists
+    if (id && memoryStore.getWorkspace(id)) {
+      return res.json({ success: true, id });
+    }
+
+    // Call memory store to provision workspace
+    // We modify MemoryStore to accept id in a moment, or we can just use the provided ID manually here.
+    // Wait, MemoryStore.createWorkspace generates a UUID.
+    // Let's just insert it manually or modify MemoryStore.
+    // For now, let's just let MemoryStore handle it and we'll change MemoryStore to accept ID.
+    const createdId = memoryStore.createWorkspace(name, settings, id);
+    res.status(201).json({ success: true, id: createdId });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to create workspace' });
+  }
+});
 
 app.post('/api/conversations', requireAuth, rateLimit(), (req: AuthRequest, res) => {
   try {

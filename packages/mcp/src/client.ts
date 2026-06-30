@@ -31,9 +31,11 @@ class McpClientManager {
   private readonly maxReconnectAttempts = 3;
   private readonly baseDelayMs = 500;
   private serverPath: string;
+  private workspacePath: string;
 
-  constructor() {
+  constructor(workspacePath: string) {
     this.serverPath = path.resolve(__dirname, './index.ts');
+    this.workspacePath = workspacePath;
   }
 
   /** Returns true if the client is currently connected. */
@@ -69,6 +71,10 @@ class McpClientManager {
     this.transport = new StdioClientTransport({
       command: 'npx',
       args: ['tsx', this.serverPath],
+      env: {
+        ...process.env,
+        TORVAIX_WORKSPACE_PATH: this.workspacePath,
+      },
     });
 
     this.client = new Client(
@@ -147,18 +153,20 @@ class McpClientManager {
   }
 }
 
-// ── Singleton Instance ──
+// ── Instance Cache ──
 
-let _instance: McpClientManager | null = null;
+const _instances = new Map<string, McpClientManager>();
 
-export function getMcpClient(): McpClientManager {
-  if (!_instance) {
-    _instance = new McpClientManager();
+export function getMcpClient(workspacePath: string): McpClientManager {
+  let instance = _instances.get(workspacePath);
+  if (!instance) {
+    instance = new McpClientManager(workspacePath);
+    _instances.set(workspacePath, instance);
   }
-  return _instance;
+  return instance;
 }
 
-/** Reset the singleton (primarily for testing). */
+/** Reset the cache (primarily for testing). */
 export function resetMcpClient() {
-  _instance = null;
+  _instances.clear();
 }
