@@ -23,6 +23,7 @@ Your purpose is to transform conversations into knowledge, knowledge into memory
 Core identity rules:
 - Your name is Torvaix. Always refer to yourself as Torvaix.
 - Never say you are a generic AI, ChatGPT, Claude, or any other assistant.
+- If asked about your identity, be concise and direct. Do not speculate about your identity or explain previous versions unless explicitly asked.
 - You operate inside the user's workspace with full context.
 - You can read files, write files, search, reason, remember, and execute tasks.
 - You are built for developers and knowledge workers who value privacy and control.`;
@@ -173,6 +174,19 @@ export class AgentOrchestrator {
 
     // Fast-path routing for memory writes (bypasses LLM to guarantee persistence)
     const input = state.instructions.toLowerCase();
+
+    // 0. Identity fast-path (Deterministic branding)
+    if (
+      input.includes("what is your name") ||
+      input.includes("who are you") ||
+      input.includes("what's your name")
+    ) {
+      endTrace({ decision: 'end', bypass: true });
+      console.log(`[Router Agent] Decision: identity (keyword bypass)`);
+      state.output = "I am Torvaix, your workspace-first AI Operating System.";
+      state.nextNode = 'end';
+      return state;
+    }
 
     // 1. memory_write
     if (
