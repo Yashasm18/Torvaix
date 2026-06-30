@@ -106,6 +106,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["query"],
         },
+      {
+        name: "repo_scan",
+        description: "Analyze the repository workspace, including package structure, dependencies, and top-level architecture.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
       },
     ],
   };
@@ -115,33 +123,66 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
-    switch (name) {
+      case "repo_scan": {
+        const cwd = process.cwd();
+        let packageJson = "Not found";
+        let deps = "Unknown";
+        let structure = "";
+        
+        try {
+          const pkgRaw = await fs.readFile(path.join(cwd, "package.json"), "utf-8");
+          const pkg = JSON.parse(pkgRaw);
+          packageJson = `Name: ${pkg.name}, Version: ${pkg.version}`;
+          deps = Object.keys(pkg.dependencies || {}).concat(Object.keys(pkg.devDependencies || {})).join(", ");
+        } catch (e) {}
+        
+        try {
+          const { stdout } = await execAsync("tree -L 2 -I 'node_modules|.git|dist|build|.next'", { timeout: 5000 });
+          structure = stdout;
+        } catch (e) {
+          structure = "Tree command failed or not installed.";
+        }
+
+        return {
+          content: [{ 
+            type: "text", 
+            text: `[Repository Intelligence]\nRoot: ${cwd}\nPackage: ${packageJson}\nDependencies: ${deps}\n\nStructure:\n${structure}`
+          }]
+        };
+      }
+
       case "read_file": {
         const { filePath } = ReadFileArgsSchema.parse(args);
         const resolvedPath = path.resolve(process.cwd(), filePath);
-        const content = await fs.readFile(resolvedPath, "utf-8");
-        return {
-          content: [{ type: "text", text: content }],
-        };
+        try {
+          const content = await fs.readFile(resolvedPath, "utf-8");
+          return { content: [{ type: "text", text: content }] };
+        } catch (e: any) {
+          return { content: [{ type: "text", text: `Failed to read file: ${e.message}` }], isError: true };
+        }
       }
 
       case "write_file": {
         const { filePath, content } = WriteFileArgsSchema.parse(args);
         const resolvedPath = path.resolve(process.cwd(), filePath);
-        await fs.writeFile(resolvedPath, content, "utf-8");
-        return {
-          content: [{ type: "text", text: `Successfully wrote to ${resolvedPath}` }],
-        };
+        try {
+          await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+          await fs.writeFile(resolvedPath, content, "utf-8");
+          return { content: [{ type: "text", text: `Successfully wrote to ${resolvedPath}` }] };
+        } catch (e: any) {
+          return { content: [{ type: "text", text: `Failed to write file: ${e.message}` }], isError: true };
+        }
       }
 
-    case "bash": {
+      case "bash": {
         const { command: rawCommand } = BashArgsSchema.parse(args);
-        // macOS ships python3, not python
         const command = rawCommand.replace(/\bpython\b(?!3)/g, 'python3');
-        const { stdout, stderr } = await execAsync(command);
-        return {
-          content: [{ type: "text", text: stdout || stderr }],
-        };
+        try {
+          const { stdout, stderr } = await execAsync(command, { timeout: 15000 });
+          return { content: [{ type: "text", text: stdout || stderr || "Command executed successfully with no output." }] };
+        } catch (e: any) {
+          return { content: [{ type: "text", text: `Command failed: ${e.message}\nStdout: ${e.stdout}\nStderr: ${e.stderr}` }], isError: true };
+        }
       }
 
       case "python": {
@@ -149,25 +190,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const tempFile = `/tmp/temp_script_${Date.now()}.py`;
         await fs.writeFile(tempFile, code);
         try {
-          const { stdout, stderr } = await execAsync(`python3 ${tempFile}`);
-          return {
-            content: [{ type: "text", text: stdout || stderr }],
-          };
+          const { stdout, stderr } = await execAsync(`python3 ${tempFile}`, { timeout: 15000 });
+          return { content: [{ type: "text", text: stdout || stderr || "Script executed successfully with no output." }] };
+        } catch (e: any) {
+          return { content: [{ type: "text", text: `Script failed: ${e.message}\nStdout: ${e.stdout}\nStderr: ${e.stderr}` }], isError: true };
         } finally {
-          await fs.unlink(tempFile);
+          await fs.unlink(tempFile).catch(() => {});
         }
       }
 
       case "web_search": {
-        // Simple DuckDuckGo abstraction for demo
         const { query } = WebSearchArgsSchema.parse(args);
-        const response = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&pretty=1`);
-        const data = await response.json() as any;
-        const abstract = data.Abstract || "No results found";
-        const related = data.RelatedTopics?.slice(0, 5).map((t: any) => t.Text).join("\n") || "";
-        return {
-          content: [{ type: "text", text: `Abstract: ${abstract}\n\nRelated Topics:\n${related}` }],
-        };
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+          
+          const response = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&pretty=1`, {
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json() as any;
+          const abstract = data.Abstract || "No direct abstract found.";
+          const related = data.RelatedTopics?.slice(0, 5).map((t: any) => t.Text).join("\n") || "";
+          
+          return {
+            content: [{ type: "text", text: `Abstract: ${abstract}\n\nRelated Topics:\n${related}` }],
+          };
+        } catch (e: any) {
+          return { content: [{ type: "text", text: `Web search failed: ${e.message}` }], isError: true };
+        }
       }
 
       default:

@@ -40,33 +40,33 @@ export function CommandPalette() {
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Actions">
-          <CommandItem onSelect={() => runCommand(() => router.push('/app/knowledge'))}>
+          <CommandItem onSelect={() => runCommand(() => router.push('/knowledge'))}>
             <Search className="mr-2 h-4 w-4" />
             <span>Search Knowledge</span>
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push('/app/projects/new'))}>
+          <CommandItem onSelect={() => runCommand(() => router.push('/projects/new'))}>
             <Plus className="mr-2 h-4 w-4" />
             <span>Create Project</span>
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push('/app/agents'))}>
+          <CommandItem onSelect={() => runCommand(() => router.push('/agents'))}>
             <Bot className="mr-2 h-4 w-4" />
             <span>Run Agent</span>
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push('/app/models'))}>
+          <CommandItem onSelect={() => runCommand(() => router.push('/models'))}>
             <Cpu className="mr-2 h-4 w-4" />
             <span>Switch Model</span>
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push('/app/tasks'))}>
+          <CommandItem onSelect={() => runCommand(() => router.push('/tasks'))}>
             <CheckSquare className="mr-2 h-4 w-4" />
             <span>Open Task</span>
           </CommandItem>
         </CommandGroup>
         <CommandSeparator />
         <CommandGroup heading="Navigation">
-          <CommandItem onSelect={() => runCommand(() => router.push('/app'))}>
+          <CommandItem onSelect={() => runCommand(() => router.push('/workspace'))}>
             Workspace
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push('/app/chat'))}>
+          <CommandItem onSelect={() => runCommand(() => router.push('/chat'))}>
             Ask Torvaix
           </CommandItem>
         </CommandGroup>

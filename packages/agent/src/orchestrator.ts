@@ -173,15 +173,52 @@ export class AgentOrchestrator {
 
     // Fast-path routing for memory writes (bypasses LLM to guarantee persistence)
     const input = state.instructions.toLowerCase();
+
+    // 1. memory_write
     if (
       input.includes("remember") ||
       input.includes("store this") ||
       input.includes("note this") ||
+      input.includes("save this") ||
+      input.includes("memorize this") ||
       input.includes("note to self")
     ) {
       endTrace({ decision: 'knowledge', bypass: true });
       console.log(`[Router Agent] Decision: knowledge (keyword bypass)`);
       state.nextNode = 'knowledge';
+      return state;
+    }
+
+    // 2. memory_query
+    if (
+      input.includes("recall") ||
+      input.includes("what do you know") ||
+      input.includes("what did i say")
+    ) {
+      endTrace({ decision: 'memory', bypass: true });
+      console.log(`[Router Agent] Decision: memory (keyword bypass)`);
+      state.nextNode = 'memory';
+      return state;
+    }
+
+    // 3. repo_analysis, code_generation, web_research, task_execution -> all map to 'execution'
+    if (
+      input.includes("analyze repo") ||
+      input.includes("inspect code") ||
+      input.includes("read file") ||
+      input.includes("check routes") ||
+      input.includes("architecture") ||
+      input.includes("latest") ||
+      input.includes("search") ||
+      input.includes("research") ||
+      input.includes("create") ||
+      input.includes("write") ||
+      input.includes("modify") ||
+      input.includes("generate file")
+    ) {
+      endTrace({ decision: 'execution', bypass: true });
+      console.log(`[Router Agent] Decision: execution (keyword bypass)`);
+      state.nextNode = 'execution';
       return state;
     }
 
@@ -354,6 +391,7 @@ Available tools:
 - bash: Run a shell command. Args: {"command": "shell command"}
 - python: Execute Python code. Args: {"code": "python code"}
 - web_search: Search the web. Args: {"query": "search query"}
+- repo_scan: Scan the workspace architecture and dependencies. Args: {}
 
 Current task: "${state.instructions}"
 ${contextStr ? `History:\n${contextStr}` : ''}

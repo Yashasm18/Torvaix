@@ -122,7 +122,7 @@ export default function OSWorkspace() {
                   animate={{ rotate: 360 }}
                   transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
                 >
-                  <Link href="/app/agents">
+                  <Link href="/agents">
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-background border border-border px-3 py-1 rounded-full text-xs text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer">Agents</div>
                   </Link>
                 </motion.div>
@@ -132,7 +132,7 @@ export default function OSWorkspace() {
                   animate={{ rotate: -360 }}
                   transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
                 >
-                  <Link href="/app/projects">
+                  <Link href="/projects">
                     <div className="absolute top-1/2 -left-3 -translate-y-1/2 bg-background border border-border px-3 py-1 rounded-full text-xs text-muted-foreground hover:bg-blue-400/10 hover:text-blue-400 transition-colors cursor-pointer" style={{ transform: "translateY(-50%) rotate(360deg)" }}>Projects</div>
                   </Link>
                 </motion.div>
@@ -142,10 +142,10 @@ export default function OSWorkspace() {
                   animate={{ rotate: 360 }}
                   transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
                 >
-                  <Link href="/app/knowledge">
+                  <Link href="/knowledge">
                     <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-background border border-border px-3 py-1 rounded-full text-xs text-muted-foreground hover:bg-purple-400/10 hover:text-purple-400 transition-colors cursor-pointer" style={{ transform: "translateX(-50%) rotate(-360deg)" }}>Knowledge</div>
                   </Link>
-                  <Link href="/app/memory">
+                  <Link href="/debug/memory">
                     <div className="absolute top-1/2 -right-3 -translate-y-1/2 bg-background border border-border px-3 py-1 rounded-full text-xs text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer" style={{ transform: "translateY(-50%) rotate(-360deg)" }}>Memory</div>
                   </Link>
                 </motion.div>

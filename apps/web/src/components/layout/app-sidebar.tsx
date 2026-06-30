@@ -86,7 +86,7 @@ export function AppSidebar() {
 
   const navItems = [
     { title: "Chat", icon: MessageSquare, href: "/chat" },
-    { title: "Workspace", icon: Home, href: "/app" },
+    { title: "Workspace", icon: Home, href: "/workspace" },
     { title: "Projects", icon: Folder, href: "/projects" },
     { title: "Knowledge", icon: BookOpen, href: "/knowledge" },
     { title: "Graph", icon: Database, href: "/graph" },
