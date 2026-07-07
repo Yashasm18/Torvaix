@@ -13,6 +13,9 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.1",
     "@types/node": "^20.19.42",
+    "cheerio": "^1.0.0-rc.10",
+    "duck-duck-scrape": "^2.2.7",
+    "googlethis": "^1.8.0",
     "node-fetch": "^3.3.2",
     "typescript": "^5.9.3",
     "zod": "^3.25.76"

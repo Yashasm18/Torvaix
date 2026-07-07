@@ -355,6 +355,7 @@ Reply with ONLY one word: memory, knowledge, or execution`;
   // NODE: Repo Analysis (Deterministic — NO LLM, NO loop)
   private async nodeRepoAnalysis(state: AgentState, workspacePath: string, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
     console.log('[STEP START] nodeRepoAnalysis — deterministic bypass');
+    const toolCallId = `repo_scan_${crypto.randomUUID()}`;
     const endTrace = state.trace!.startPhase('repo_analysis', 'Deterministic repo scan');
     if (onStreamChunk) {
       onStreamChunk(`> Running instantaneous repository analysis...\n`);
@@ -422,6 +423,8 @@ ${structure}
   }
 
   // NODE: Execution (Tool Calling via MCP)
+  private lastToolCall: { tool: string; argsHash: string } | null = null;
+
   private async nodeExecution(state: AgentState, workspacePath: string, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
     console.log('[Execution Agent] Planning execution...');
     const endTrace = state.trace!.startPhase('execution', 'Planning and tool execution');
@@ -497,16 +500,19 @@ ${contextStr ? `History:\n${contextStr}` : ''}
 CRITICAL RULES:
 1. Return EXACTLY ONE JSON object. Never return multiple.
 2. Do ONE step at a time. You will be called again for the next step.
-3. To create a file, use write_file, NOT bash echo.
-4. To run a Python file, use bash with: {"command": "python3 filename.py"}
-5. After using write_file, when reporting completion, your message MUST include a success confirmation, the file path, and a preview of the first 20 lines. Format: "Created: <filename>\nPreview:\n<content>"
+3. To create a file, use write_file. If the user asks you to create a script and then run it, you must FIRST call write_file in step 1, and THEN call bash in step 2.
+4. To run a script, use bash with the appropriate execution command (e.g. "python3 script.py"). Note that files are created relative to the workspace root.
+5. After using write_file, wait for the next iteration to run it. When reporting final completion to the user, include a success confirmation.
 6. For repo analysis, use repo_scan and summarize the findings DIRECTLY in your completion message. Include tech stack, architecture, routes, dependencies, key files, and risks. Do NOT write markdown files automatically unless explicitly requested.
+7. NEVER call the same tool with the same arguments twice. If you already have results from a tool call in the History, you MUST use those results to respond. Calling the same tool again is STRICTLY FORBIDDEN.
+8. After web_search returns results, you MUST immediately respond with {"done": true, "message": "..."} containing a synthesized summary of the search results. NEVER call web_search again after receiving results.
+9. If you run a script or command to get a result for the user, you MUST include the output of that command in your final "message" response.
 
 If you need to use a tool, reply:
-{"done": false, "tool": "write_file", "args": {"filePath": "hello.py", "content": "print('Hello')"}}
+{"done": false, "tool": "write_file", "args": {"filePath": "example.txt", "content": "File content"}}
 
-If the task is complete (all steps done), reply:
-{"done": true, "message": "Summary of what was accomplished"}
+If the task is complete (all steps done) or if you want to respond to the user via chat, reply:
+{"done": true, "message": "Your response to the user here"}
 
 Reply with ONLY ONE JSON object. Nothing else.`;
 
@@ -564,6 +570,25 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       const tool = decision.tool as string;
       const isDangerous = tool === 'bash' || tool === 'python';
 
+      // ── Duplicate tool call detection ──
+      const argsHash = JSON.stringify(decision.args || {});
+      if (this.lastToolCall && this.lastToolCall.tool === tool && this.lastToolCall.argsHash === argsHash) {
+        console.log(`[FINAL BREAK] Duplicate tool call detected: ${tool} with same args. Forcing synthesis.`);
+        // Force the LLM to synthesize from existing context
+        const lastResult = state.messages.filter(m => m.content.startsWith(`Tool ${tool} Result:`)).pop();
+        if (lastResult) {
+          state.output = lastResult.content.replace(`Tool ${tool} Result: `, '');
+        } else {
+          state.output = 'The requested information was already retrieved. Please check the results above.';
+        }
+        state.final = true;
+        state.nextNode = 'end';
+        this.lastToolCall = null;
+        endTrace({ tool, status: 'duplicate_blocked' });
+        return state;
+      }
+      this.lastToolCall = { tool, argsHash };
+
       // Check approval
       this.gcApprovals(); // Clean expired approvals first
 
@@ -594,6 +619,11 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       const toolStart = performance.now();
       try {
         const result = await mcp.callTool(tool, decision.args);
+        
+        if ((result as any).isError) {
+            throw new Error(result.content?.[0]?.text ?? 'Unknown tool error');
+        }
+
         const resultText = result.content?.[0]?.text ?? 'Tool executed, no output.';
         const durationMs = performance.now() - toolStart;
 
@@ -606,17 +636,9 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         state.messages.push({ role: 'system', content: `Tool ${tool} Result: ${resultText}` });
         endTrace({ tool, status: 'completed' });
 
-        // Terminal condition for write_file to prevent infinite loops
+        // write_file no longer terminates execution, so the agent can write a file and then run it.
         if (tool === 'write_file') {
-          console.log('[FINAL BREAK] write_file complete');
-          const filePath = decision.args.filePath || 'Unknown File';
-          const content = decision.args.content || '';
-          const preview = content.split('\n').slice(0, 10).join('\n');
-          
-          state.output = `Created: ${filePath}\nPath: ${filePath}\n\nPreview:\n${preview}`;
-          state.final = true;
-          state.nextNode = 'end';
-          return state;
+          console.log('[STEP] write_file complete, continuing execution...');
         }
 
         // Terminal condition for repo_scan (belt-and-suspenders, primary path is nodeRepoAnalysis)
@@ -626,6 +648,12 @@ Reply with ONLY ONE JSON object. Nothing else.`;
           state.final = true;
           state.nextNode = 'end';
           return state;
+        }
+
+        // Terminal condition for web_search — force the LLM to synthesize on the next iteration
+        if (tool === 'web_search') {
+          console.log('[WEB_SEARCH] Results received, forcing synthesis on next iteration.');
+          state.messages.push({ role: 'system', content: 'SYSTEM: web_search results are above. You MUST now respond with {"done": true, "message": "..."} containing a summary. Do NOT call web_search again.' });
         }
 
       } catch (e: any) {
@@ -638,8 +666,17 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         if (onStreamChunk) {
           onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: errorText } })}\n`);
         }
+        
+        const prevMsg = state.messages.length > 0 ? state.messages[state.messages.length - 1] : null;
         state.messages.push({ role: 'system', content: errorText });
         endTrace({ tool, status: 'error', error: e.message });
+
+        if (prevMsg && prevMsg.content.startsWith('Tool execution failed:')) {
+          console.log('[FINAL BREAK] Repeated tool failure. Aborting execution.');
+          state.output = `Execution aborted due to repeated tool failures: ${e.message}`;
+          state.final = true;
+          state.nextNode = 'end';
+        }
       }
 
       // Loop back to Execution Agent for next step (only if not already terminated)
@@ -649,10 +686,19 @@ Reply with ONLY ONE JSON object. Nothing else.`;
 
     } catch (e: any) {
       console.error('Failed to parse Execution Agent JSON:', rawResponse, e.message);
-      state.output = `Agent parsing error: ${e.message}. Raw: ${rawResponse}`;
-      state.nextNode = 'end';
+      
+      const prevMsg = state.messages.length > 0 ? state.messages[state.messages.length - 1] : null;
+      if (prevMsg && prevMsg.content.includes('JSON Parsing Error')) {
+        state.output = `Agent parsing error: ${e.message}. Raw: ${rawResponse}`;
+        state.nextNode = 'end';
+        endTrace({ error: e.message });
+      } else {
+        console.log('[Execution Agent] JSON parse failed. Prompting LLM to fix unescaped quotes.');
+        state.messages.push({ role: 'system', content: `JSON Parsing Error: ${e.message}. Your JSON was invalid (likely due to unescaped double quotes inside the "content" string). You MUST escape all double quotes inside strings with \\". Please retry and return valid JSON.` });
+        state.nextNode = 'execution';
+        endTrace({ tool: 'json_fix', status: 'retrying' });
+      }
       state.trace!.recordError('execution', e.message, { rawResponse: rawResponse.slice(0, 500) });
-      endTrace({ error: e.message });
     }
 
     return state;
@@ -675,7 +721,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
     };
 
     // Fetch workspace path for isolated MCP execution
-    const workspace = this.memory.getWorkspace(state.workspaceId);
+    const workspace = this.memoryStore.getWorkspace(state.workspaceId);
     let workspaceSettings: any = {};
     try {
       if (workspace && workspace.settings) {

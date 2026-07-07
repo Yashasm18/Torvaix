@@ -41,7 +41,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               if (!workspaceName.trim()) return;
               setIsCreating(true);
               try {
-                await createWorkspace(workspaceName, 'blank');
+                await createWorkspace(workspaceName, 'general');
               } finally {
                 setIsCreating(false);
               }

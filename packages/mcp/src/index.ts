@@ -9,6 +9,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs/promises";
 import * as path from "path";
+import * as cheerio from "cheerio";
 
 const execAsync = promisify(exec);
 
@@ -213,26 +214,110 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "web_search": {
         const { query } = WebSearchArgsSchema.parse(args);
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-          
-          const response = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&pretty=1`, {
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-          
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const data = await response.json() as any;
-          const abstract = data.Abstract || "No direct abstract found.";
-          const related = data.RelatedTopics?.slice(0, 5).map((t: any) => t.Text).join("\n") || "";
-          
-          return {
-            content: [{ type: "text", text: `Abstract: ${abstract}\n\nRelated Topics:\n${related}` }],
-          };
-        } catch (e: any) {
-          return { content: [{ type: "text", text: `Web search failed: ${e.message}` }], isError: true };
+        const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+        // ── Helper: fetch with timeout ──
+        const timedFetch = (url: string, ms = 8000) => {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), ms);
+          return fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': UA } })
+            .finally(() => clearTimeout(timer));
+        };
+
+        // ── Provider 1: DuckDuckGo HTML ──
+        async function tryDuckDuckGo(q: string): Promise<string[] | null> {
+          try {
+            const res = await timedFetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`);
+            if (!res.ok) return null;
+            const html = await res.text();
+            if (html.toLowerCase().includes('anomaly') || html.includes('captcha')) return null;
+            const $ = cheerio.load(html);
+            const results: string[] = [];
+            $('.result').each((i, el) => {
+              if (i >= 5) return false;
+              const title = $(el).find('.result__title').text().trim();
+              const snippet = $(el).find('.result__snippet').text().trim();
+              const url = $(el).find('.result__url').attr('href');
+              if (title && snippet) {
+                results.push(`[${results.length + 1}] ${title}\nURL: ${url}\nSnippet: ${snippet}`);
+              }
+            });
+            return results.length > 0 ? results : null;
+          } catch { return null; }
         }
+
+        // ── Provider 2: Bing scraping ──
+        async function tryBing(q: string): Promise<string[] | null> {
+          try {
+            const res = await timedFetch(`https://www.bing.com/search?q=${encodeURIComponent(q)}`);
+            if (!res.ok) return null;
+            const html = await res.text();
+            const $ = cheerio.load(html);
+            const results: string[] = [];
+            $('li.b_algo').each((i, el) => {
+              if (i >= 5) return false;
+              const title = $(el).find('h2').text().trim();
+              const snippet = $(el).find('.b_caption p, p').first().text().trim();
+              const rawUrl = $(el).find('h2 a').attr('href') || '';
+              // Decode Bing redirect URLs to get the real destination
+              let finalUrl = rawUrl;
+              const m = rawUrl.match(/u=a1(.+?)&/);
+              if (m) {
+                try { finalUrl = Buffer.from(m[1], 'base64').toString('utf-8'); } catch {}
+              }
+              if (title) {
+                results.push(`[${results.length + 1}] ${title}\nURL: ${finalUrl}\nSnippet: ${snippet || 'No snippet available.'}`);
+              }
+            });
+            return results.length > 0 ? results : null;
+          } catch { return null; }
+        }
+
+        // ── Provider 3: Wikipedia API (last resort, factual queries) ──
+        async function tryWikipedia(q: string): Promise<string[] | null> {
+          try {
+            const res = await timedFetch(
+              `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&srlimit=5&utf8=&format=json`
+            );
+            if (!res.ok) return null;
+            const data = await res.json() as any;
+            const items = data?.query?.search;
+            if (!items || items.length === 0) return null;
+            return items.map((item: any, i: number) => {
+              const snippet = item.snippet?.replace(/<[^>]+>/g, '') || 'No snippet.';
+              return `[${i + 1}] ${item.title}\nURL: https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}\nSnippet: ${snippet}`;
+            });
+          } catch { return null; }
+        }
+
+        // ── Execute fallback chain ──
+        const providers = [
+          { name: 'DuckDuckGo', fn: tryDuckDuckGo },
+          { name: 'Bing',       fn: tryBing },
+          { name: 'Wikipedia',  fn: tryWikipedia },
+        ];
+
+        let results: string[] | null = null;
+        let usedProvider = '';
+
+        for (const provider of providers) {
+          results = await provider.fn(query);
+          if (results) {
+            usedProvider = provider.name;
+            break;
+          }
+        }
+
+        if (!results) {
+          return {
+            content: [{ type: "text", text: "All search providers failed (rate-limited or unavailable). Do NOT retry." }],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [{ type: "text", text: `Search Results (via ${usedProvider}):\n\n${results.join("\n\n")}` }],
+        };
       }
 
       default:
