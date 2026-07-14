@@ -184,6 +184,14 @@ Verify the trifecta:
 2. **Qdrant** docker container is healthy.
 3. Your **Workspace** is currently active in the UI.
 
+### "1 Issue" badge in the corner after pulling changes
+This is usually a stale Next.js dev cache, not a real bug — most often triggered by a route being
+renamed or restructured since your last build. Clear it and restart:
+```bash
+rm -rf apps/web/.next
+npm run dev
+```
+
 ---
 
 ## 🌐 Local Network Access (Optional)
@@ -208,9 +216,17 @@ To keep your local OS up to date:
 ```bash
 git pull
 npm install
+rm -rf apps/web/.next
 docker compose up -d --build
 npm run dev
 ```
+
+> [!NOTE]
+> The `rm -rf apps/web/.next` step matters after any `git pull` — Next.js's dev cache doesn't always
+> invalidate cleanly across renamed or restructured routes, and a stale cache can surface as a
+> "1 Issue" indicator in the bottom corner of the app with a confusing or unrelated error. If you
+> ever see that badge after pulling changes, clearing `apps/web/.next` and restarting `npm run dev`
+> is the first thing to try.
 
 ---
 
