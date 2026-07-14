@@ -41,11 +41,11 @@ Most AI tools send your data to the cloud, locking you into a subscription and g
 
 ## Key Features
 
-- **🧠 Multi-Agent Orchestration**: A custom state-graph routing system with specialized agents (Router, Memory, Knowledge, Execution).
-- **🛡️ Native Security Layer**: Human-in-the-loop approval UI for dangerous operations (like `bash` scripts or system file deletion).
-- **📚 Infinite Memory**: Dual-layer vector memory system powered by Qdrant embeddings and SQLite fallback.
-- **🔌 Model Context Protocol (MCP)**: Native integration with the MCP standard, connecting the Execution Agent to local filesystem, terminal, and browser tools.
-- **⚡ Premium UI/UX**: Built with Next.js 16, React 19, and Tailwind 4, featuring dynamic animations and glassmorphism.
+- ** Multi-Agent Orchestration**: A custom state-graph routing system with specialized agents (Router, Memory, Knowledge, Execution).
+- ** Native Security Layer**: Human-in-the-loop approval UI for dangerous operations (like `bash` scripts or system file deletion).
+- ** Infinite Memory**: Dual-layer vector memory system powered by Qdrant embeddings and SQLite fallback.
+- ** Model Context Protocol (MCP)**: Native integration with the MCP standard, connecting the Execution Agent to local filesystem, terminal, and browser tools.
+- ** Premium UI/UX**: Built with Next.js 16, React 19, and Tailwind 4, featuring dynamic animations and glassmorphism.
 
 ---
 
