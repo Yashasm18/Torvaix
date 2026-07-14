@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || 'http://localhost:3001';
+
 export async function POST(req: Request) {
   try {
     const { messages, workspaceId, pendingActionId: bodyPendingId } = await req.json();
@@ -13,7 +15,7 @@ export async function POST(req: Request) {
     }
 
     // Proxy the request to the Torvaix Agent Server with streaming enabled
-    const agentRes = await fetch('http://localhost:3001/api/agent/run?stream=true', {
+    const agentRes = await fetch(`${AGENT_SERVER_URL}/api/agent/run?stream=true`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

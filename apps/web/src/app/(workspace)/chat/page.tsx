@@ -17,6 +17,7 @@ export default function ChatPage() {
   const [provider] = useState('ollama');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const processedPulseId = useRef<string | null>(null);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const { activeWorkspaceId } = useDBStore();
 
@@ -100,10 +101,25 @@ export default function ChatPage() {
     for (const item of streamData) {
       try {
         const parsed = typeof item === 'string' ? JSON.parse(item) : item;
+
+        // Agent trace annotation
         if (parsed.totalMs && parsed.events) {
           setTraceMap(prev => new Map(prev).set(lastAssistantIdx, parsed));
         }
-      } catch { /* not trace data */ }
+
+        // Knowledge Pulse annotation — populate the side panel from the live agent run.
+        // Deduped by id since `streamData` accumulates across turns.
+        if (parsed.torvaixPulse && parsed.torvaixPulse.id !== processedPulseId.current) {
+          processedPulseId.current = parsed.torvaixPulse.id;
+          const pulse = parsed.torvaixPulse;
+          const store = useMemoryContextStore.getState();
+          store.setRetrievedMemories(pulse.retrievedMemories ?? []);
+          store.setDetectedEntities(pulse.detectedEntities ?? []);
+          store.setRelationships(pulse.relationships ?? []);
+          store.setGraphActivity(pulse.graphActivity ?? { nodesAdded: 0, relationshipsAdded: 0, updated: false });
+          store.setAgentSteps(pulse.agentSteps ?? []);
+        }
+      } catch { /* not structured data */ }
     }
   }, [streamData, messages]);
 
