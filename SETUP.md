@@ -54,7 +54,11 @@ Boot up the vector database and internal services:
 docker compose up -d
 ```
 > [!NOTE]
-> This spins up **Qdrant** (our semantic memory vector store) alongside necessary backend supporting services.
+> This spins up **Qdrant** (our semantic memory vector store) and the **Intelligence Layer**
+> (the Python NLP service that extracts entities/relationships into your knowledge graph).
+> The Intelligence Layer image is large on first build (bundled spaCy + sentence-transformers
+> models), so the initial `docker compose up` can take a few minutes. It's optional at runtime —
+> the agent calls it best-effort, so chat and memory keep working even while it's still starting.
 
 ### 4. Start Ollama
 Start your local inference engine:
