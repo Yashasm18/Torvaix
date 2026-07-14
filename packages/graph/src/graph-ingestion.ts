@@ -84,7 +84,7 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
         source_id: sourceId,
         relation: rel.relation.toUpperCase().replace(/\s+/g, '_'),
         target_id: targetId,
-        confidence: rel.confidence || 0.9 // Default confidence
+        confidence: rel.confidence ?? 0.9 // Default confidence
       });
     }
   });

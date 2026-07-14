@@ -20,13 +20,13 @@ async def analyze_memory(request: MemoryIntelligenceRequest):
     - Tags
     - Relationships (Source -> Relation -> Target)
     """
+    if not request.text or len(request.text.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Text cannot be empty.")
+
     try:
-        if not request.text or len(request.text.strip()) == 0:
-            raise HTTPException(status_code=400, detail="Text cannot be empty.")
-            
         intelligence = extract_intelligence(request.text)
         return MemoryIntelligenceResponse(**intelligence)
-        
+
     except Exception as e:
         logger.error(f"Error analyzing memory: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
