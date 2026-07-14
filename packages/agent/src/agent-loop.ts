@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import fetch from 'node-fetch';
-import { MemoryStore } from '../../memory/src';
+import { MemoryStore, MemoryQueryResult } from '../../memory/src';
 import { queryGraph, getNeighbors, findPath, findEntitiesByType } from '../../graph/src';
 import path from 'path';
 
@@ -16,6 +16,7 @@ export interface ToolResult {
   tool: string;
   output: string;
   success: boolean;
+  memories?: MemoryQueryResult[];
 }
 
 export async function executeStoreMemory(workspaceId: string, content: string, source: string): Promise<ToolResult> {
@@ -45,6 +46,7 @@ export async function executeQueryMemory(workspaceId: string, query: string, top
       tool: 'query_memory',
       output: output || 'No relevant memories found.',
       success: true,
+      memories: results,
     };
   } catch (error: any) {
     return {

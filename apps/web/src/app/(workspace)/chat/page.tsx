@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Bot, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal, XCircle, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck } from "lucide-react";
 import { useDBStore } from "@/store/db-store";
-import { useMemoryContextStore } from "@/store/memory-context-store";
+import { useMemoryContextStore, type RetrievedMemory } from "@/store/memory-context-store";
 import { AppLogo } from "@/components/ui/app-logo";
 import { MemoryModal } from "@/components/chat/memory-modal";
 
@@ -83,8 +83,9 @@ export default function ChatPage() {
       if (memoryQueries.length > 0) {
         // Get the latest query result
         const latestQuery = memoryQueries[memoryQueries.length - 1];
-        if ('result' in latestQuery && Array.isArray(latestQuery.result)) {
-           useMemoryContextStore.getState().setRetrievedMemories(latestQuery.result);
+        const queryResult = 'result' in latestQuery ? (latestQuery.result as { memories?: RetrievedMemory[] }) : undefined;
+        if (queryResult && Array.isArray(queryResult.memories)) {
+           useMemoryContextStore.getState().setRetrievedMemories(queryResult.memories);
         }
       }
     }
