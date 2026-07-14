@@ -32,6 +32,20 @@ Core identity rules:
 - You can read files, write files, search, reason, remember, and execute tasks.
 - You are built for developers and knowledge workers who value privacy and control.`;
 
+/**
+ * Live "Knowledge Pulse" snapshot for the workspace side-panel. Accumulated during a
+ * run and streamed to the frontend as a data annotation so the UI reflects exactly what
+ * the agent retrieved, detected, and wrote this turn.
+ */
+export interface KnowledgePulseData {
+  id: string;
+  retrievedMemories: { id: string; content: string; source: string; score: number }[];
+  detectedEntities: { text: string; type: string }[];
+  relationships: { source: string; relation: string; target: string; confidence?: number }[];
+  graphActivity: { nodesAdded: number; relationshipsAdded: number; updated: boolean };
+  agentSteps: string[];
+}
+
 export interface AgentState {
   workspaceId: string;
   instructions: string;
@@ -42,6 +56,7 @@ export interface AgentState {
   iteration: number;
   trace?: TraceCollector;
   final?: boolean;
+  pulse: KnowledgePulseData;
 }
 
 /** Per-tool approval entry with expiry. */
@@ -319,6 +334,14 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       await this.memoryStore.initQdrant();
       const results = await this.memoryStore.queryMemory(state.workspaceId, state.instructions, 5);
 
+      // Surface retrieved memories to the Knowledge Pulse panel.
+      state.pulse.retrievedMemories = results.map(r => ({
+        id: r.id,
+        content: r.content,
+        source: r.source,
+        score: r.score,
+      }));
+
       const hit = results.length > 0;
       const context = hit
         ? results.map(r => `[Score: ${r.score.toFixed(2)}] ${r.content}`).join('\n')
@@ -364,6 +387,13 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
         memoryContext =
           `\n\nRelevant things you remember about this user (use only if helpful, do not force them in):\n` +
           relevant.map(r => `- ${r.content}`).join('\n');
+        // Surface the memories that actually informed this answer to the Knowledge Pulse panel.
+        state.pulse.retrievedMemories = relevant.map(r => ({
+          id: r.id,
+          content: r.content,
+          source: r.source,
+          score: r.score,
+        }));
       }
     } catch (e: any) {
       state.trace!.recordError('conversation', `memory recall failed: ${e.message}`);
@@ -419,6 +449,16 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       if (intel) {
         const entityCount = intel.entities?.length ?? 0;
         const relCount = intel.relationships?.length ?? 0;
+
+        // Surface extracted knowledge to the Knowledge Pulse panel.
+        state.pulse.detectedEntities = intel.entities ?? [];
+        state.pulse.relationships = intel.relationships ?? [];
+        state.pulse.graphActivity = {
+          nodesAdded: entityCount,
+          relationshipsAdded: relCount,
+          updated: entityCount + relCount > 0,
+        };
+
         state.output =
           entityCount + relCount > 0
             ? `Got it — I've saved that and added ${entityCount} entit${entityCount === 1 ? 'y' : 'ies'} ` +
@@ -848,6 +888,14 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       pendingActionId: initialState.pendingActionId,
       iteration: 0,
       trace,
+      pulse: {
+        id: crypto.randomUUID(),
+        retrievedMemories: [],
+        detectedEntities: [],
+        relationships: [],
+        graphActivity: { nodesAdded: 0, relationshipsAdded: 0, updated: false },
+        agentSteps: [],
+      },
     };
 
     // Fetch workspace path for isolated MCP execution
@@ -902,10 +950,22 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         tokens: trace.getTokenUsage(),
       });
 
+      // Derive a clean reasoning path from the high-level agent phases only, dropping
+      // low-level sub-events (llm_call) and terminal/error markers.
+      const stepPhases = new Set([
+        'router', 'memory', 'knowledge', 'conversation', 'execution', 'repo_analysis',
+      ]);
+      state.pulse.agentSteps = trace
+        .getTrace()
+        .filter(e => stepPhases.has(e.phase))
+        .map(e => `${e.phase}: ${e.action}`);
+
       if (onStreamChunk) {
         const traceJson = trace.serialize(state.iteration);
-        // Use data annotation prefix (2:) with array wrapping per Vercel AI SDK protocol
+        // Use data annotation prefix (2:) with array wrapping per Vercel AI SDK protocol.
+        // Two separate annotations: the trace, and the Knowledge Pulse snapshot.
         onStreamChunk(`2:${JSON.stringify([JSON.parse(traceJson)])}\n`);
+        onStreamChunk(`2:${JSON.stringify([{ torvaixPulse: state.pulse }])}\n`);
       }
     }
 
