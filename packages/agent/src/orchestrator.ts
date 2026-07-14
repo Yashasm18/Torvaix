@@ -13,7 +13,11 @@ import crypto from 'crypto';
 import { LLMClient, type LLMMessage, type LLMResponse } from '@torvaix/providers';
 import { MemoryStore } from '@torvaix/memory';
 import { getMcpClient } from '@torvaix/mcp';
+import { ingestKnowledgeGraph, type MLIntelligencePayload } from '@torvaix/graph';
 import { TraceCollector } from './trace';
+
+// Intelligence (NLP) service — spaCy + sentence-transformers. Best-effort; never blocks a write.
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
 
 // ── Torvaix Identity System Prompt ──
 const TORVAIX_SYSTEM_PROMPT = `You are Torvaix, a workspace-first AI Operating System.
@@ -32,7 +36,7 @@ export interface AgentState {
   workspaceId: string;
   instructions: string;
   messages: LLMMessage[];
-  nextNode: 'router' | 'memory' | 'knowledge' | 'execution' | 'repo_analysis' | 'end';
+  nextNode: 'router' | 'memory' | 'knowledge' | 'execution' | 'conversation' | 'repo_analysis' | 'end';
   output: string;
   pendingActionId?: string;
   iteration: number;
@@ -119,12 +123,15 @@ export class AgentOrchestrator {
 
   // ── LLM Helper ──
 
-  private async callLLM(messages: LLMMessage[]): Promise<LLMResponse> {
+  private async callLLM(
+    messages: LLMMessage[],
+    opts?: { temperature?: number; maxTokens?: number }
+  ): Promise<LLMResponse> {
     const start = performance.now();
     try {
       const res = await this.llm.complete(this.model, messages, {
-        temperature: 0.1,
-        maxTokens: 4096,
+        temperature: opts?.temperature ?? 0.1,
+        maxTokens: opts?.maxTokens ?? 4096,
       });
       const durationMs = performance.now() - start;
       // Trace the LLM call
@@ -256,7 +263,8 @@ export class AgentOrchestrator {
 CATEGORIES:
 - "knowledge" = The user is TELLING you a fact to STORE/SAVE for later. Keywords: "remember that", "note that", "save this", "my favorite is", "I prefer", "keep in mind".
 - "memory" = The user is ASKING you to RECALL/RETRIEVE something previously stored. Keywords: "what is my", "do you remember", "what did I say", "recall", "what do you know about me".
-- "execution" = The user wants you to DO something: run code, read/write files, search the web, answer a question, solve a problem.
+- "execution" = The user wants you to perform an ACTION on the machine: run code, read/write files, search the web for live info. Keywords: "run", "create a file", "read the file", "search the web".
+- "conversation" = The user wants an explanation, answer, opinion, or general help that does NOT need a tool or stored memory. This is the DEFAULT for questions and chat. Keywords: "explain", "what is", "how does", "why", "can you help", "tell me about".
 
 EXAMPLES:
 - "Remember that my favorite framework is Next.js" → knowledge
@@ -266,10 +274,14 @@ EXAMPLES:
 - "What programming language do I prefer?" → memory
 - "List all files in this directory" → execution
 - "Note that the deadline is Friday" → knowledge
+- "Explain how transformers work" → conversation
+- "Can you explain this to me?" → conversation
+- "What is the capital of France?" → conversation
+- "Help me brainstorm names for my app" → conversation
 
 REQUEST: "${state.instructions}"
 
-Reply with ONLY one word: memory, knowledge, or execution`;
+Reply with ONLY one word: memory, knowledge, execution, or conversation`;
 
     const messages: LLMMessage[] = [
       { role: 'system', content: 'You are a query classifier. Reply with exactly one word.' },
@@ -281,8 +293,9 @@ Reply with ONLY one word: memory, knowledge, or execution`;
       const res = await this.callLLM(messages);
       let decision = res.text.trim().toLowerCase();
 
-      if (!['memory', 'knowledge', 'execution'].includes(decision)) {
-        decision = 'execution';
+      if (!['memory', 'knowledge', 'execution', 'conversation'].includes(decision)) {
+        // Anything ambiguous becomes a normal conversation, not a broken tool plan.
+        decision = 'conversation';
       }
 
       endTrace({ decision, model: this.model });
@@ -291,7 +304,7 @@ Reply with ONLY one word: memory, knowledge, or execution`;
     } catch (err: any) {
       endTrace({ error: err.message });
       state.trace!.recordError('router', err.message);
-      state.nextNode = 'execution'; // Fallback
+      state.nextNode = 'conversation'; // Fallback: answer the user rather than fail
     }
 
     return state;
@@ -331,6 +344,65 @@ Reply with ONLY one word: memory, knowledge, or execution`;
     return state;
   }
 
+  // NODE: Conversation (General-purpose, memory-augmented chat)
+  // This is the default route for questions/explanations/help that don't need a
+  // tool or an explicit memory lookup. It answers naturally with the LLM, and
+  // quietly injects any relevant stored memories as context (never as a gate).
+  private async nodeConversation(state: AgentState): Promise<AgentState> {
+    console.log('[Conversation Agent] Answering with memory context...');
+    const endTrace = state.trace!.startPhase('conversation', 'Answering with context');
+
+    // Best-effort memory recall — if it fails or is empty, we still answer.
+    let memoryContext = '';
+    let memHit = false;
+    try {
+      await this.memoryStore.initQdrant();
+      const results = await this.memoryStore.queryMemory(state.workspaceId, state.instructions, 3);
+      const relevant = results.filter(r => r.score > 0.4);
+      if (relevant.length > 0) {
+        memHit = true;
+        memoryContext =
+          `\n\nRelevant things you remember about this user (use only if helpful, do not force them in):\n` +
+          relevant.map(r => `- ${r.content}`).join('\n');
+      }
+    } catch (e: any) {
+      state.trace!.recordError('conversation', `memory recall failed: ${e.message}`);
+    }
+
+    // Rebuild the conversation for the LLM: system prompt (+ memory), prior turns, current message.
+    const history = this.trimMessages(
+      state.messages.filter(m => m.role === 'user' || m.role === 'assistant')
+    );
+
+    const messages: LLMMessage[] = [
+      {
+        role: 'system',
+        content:
+          `${TORVAIX_SYSTEM_PROMPT}\n\n` +
+          `You are in a normal conversation with the user. Answer their question or request directly, ` +
+          `clearly, and helpfully in natural language. Do NOT output JSON, tool calls, or apologies about ` +
+          `missing memory. If the message is vague, give your best helpful answer and, if truly needed, ask ` +
+          `one short clarifying question.${memoryContext}`,
+      },
+      ...history,
+      { role: 'user', content: state.instructions },
+    ];
+    (messages as any).__trace = state.trace;
+
+    try {
+      const res = await this.callLLM(messages, { temperature: 0.6 });
+      state.output = res.text.trim() || "Could you tell me a bit more about what you'd like help with?";
+      endTrace({ memHit });
+    } catch (e: any) {
+      state.output = `I hit an error while thinking that through: ${e.message}`;
+      endTrace({ error: e.message });
+      state.trace!.recordError('conversation', e.message);
+    }
+
+    state.nextNode = 'end';
+    return state;
+  }
+
   // NODE: Knowledge (Storage)
   private async nodeKnowledge(state: AgentState): Promise<AgentState> {
     console.log('[Knowledge Agent] Storing fact...');
@@ -339,9 +411,25 @@ Reply with ONLY one word: memory, knowledge, or execution`;
     try {
       await this.memoryStore.initQdrant();
       await this.memoryStore.storeMemory(state.workspaceId, state.instructions, 'User Chat');
-      state.output = 'I have stored this information in my memory.';
+
+      // NLP enrichment (best-effort): extract entities/relationships via the Python
+      // intelligence layer and fold them into the knowledge graph. This never blocks
+      // or fails the write — if the service is down, we still stored the memory.
+      const intel = await this.extractIntelligence(state.instructions, state.trace);
+      if (intel) {
+        const entityCount = intel.entities?.length ?? 0;
+        const relCount = intel.relationships?.length ?? 0;
+        state.output =
+          entityCount + relCount > 0
+            ? `Got it — I've saved that and added ${entityCount} entit${entityCount === 1 ? 'y' : 'ies'} ` +
+              `and ${relCount} relationship${relCount === 1 ? '' : 's'} to your knowledge graph.`
+            : "Got it — I've saved that to memory.";
+      } else {
+        state.output = "Got it — I've saved that to memory.";
+      }
+
       state.nextNode = 'end';
-      endTrace({ stored: true });
+      endTrace({ stored: true, enriched: !!intel });
     } catch (e: any) {
       state.output = `Knowledge Error: ${e.message}`;
       state.nextNode = 'end';
@@ -350,6 +438,48 @@ Reply with ONLY one word: memory, knowledge, or execution`;
     }
 
     return state;
+  }
+
+  /**
+   * Best-effort call to the Python NLP intelligence layer (spaCy + sentence-transformers).
+   * Returns the extracted payload and ingests it into the knowledge graph, or null if the
+   * service is unavailable. Never throws — memory persistence must not depend on this.
+   */
+  private async extractIntelligence(
+    text: string,
+    trace?: TraceCollector
+  ): Promise<MLIntelligencePayload | null> {
+    const endTrace = trace?.startPhase('knowledge', 'NLP intelligence extraction');
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${PYTHON_SERVICE_URL}/analyze/memory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        endTrace?.({ ok: false, status: res.status });
+        return null;
+      }
+
+      const intel = (await res.json()) as MLIntelligencePayload;
+      ingestKnowledgeGraph(intel);
+      endTrace?.({
+        ok: true,
+        entities: intel.entities?.length ?? 0,
+        relationships: intel.relationships?.length ?? 0,
+      });
+      return intel;
+    } catch (e: any) {
+      // Service down, timeout, or malformed response — degrade gracefully.
+      endTrace?.({ ok: false, error: e.message });
+      trace?.recordError('knowledge', `intelligence layer unavailable: ${e.message}`);
+      return null;
+    }
   }
 
   // NODE: Repo Analysis (Deterministic — NO LLM, NO loop)
@@ -744,6 +874,9 @@ Reply with ONLY ONE JSON object. Nothing else.`;
             break;
           case 'knowledge':
             state = await this.nodeKnowledge(state);
+            break;
+          case 'conversation':
+            state = await this.nodeConversation(state);
             break;
           case 'repo_analysis':
             state = await this.nodeRepoAnalysis(state, workspacePath, onStreamChunk);
