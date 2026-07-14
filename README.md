@@ -33,13 +33,13 @@
 
 ---
 
-## 🎯 The Problem
+## The Problem
 
 Most AI tools send your data to the cloud, locking you into a subscription and giving you zero control over how your information is used. Developers working with sensitive repositories, private APIs, or proprietary data **cannot risk** exposing their workspaces to external telemetry. 
 
 **Torvaix** solves this by providing a self-hosted, workspace-first AI OS. Every model call, conversation, and execution happens entirely on your machine. 
 
-## ✨ Key Features
+## Key Features
 
 - **🧠 Multi-Agent Orchestration**: A custom state-graph routing system with specialized agents (Router, Memory, Knowledge, Execution).
 - **🛡️ Native Security Layer**: Human-in-the-loop approval UI for dangerous operations (like `bash` scripts or system file deletion).
@@ -49,7 +49,7 @@ Most AI tools send your data to the cloud, locking you into a subscription and g
 
 ---
 
-## 🏗 System Architecture
+## System Architecture
 
 ```mermaid
 graph LR
@@ -117,7 +117,7 @@ stateDiagram-v2
 
 ---
 
-## 🔍 Observability (Agent Trace)
+## Observability (Agent Trace)
 
 Torvaix provides real-time transparency into agent reasoning. The collapsible **Agent Trace** panel in the UI surfaces:
 - Routing decisions (Memory vs Knowledge vs Execution)
@@ -125,7 +125,7 @@ Torvaix provides real-time transparency into agent reasoning. The collapsible **
 - Millisecond-precision tool execution timings
 - Security approval pauses
 
-## 📱 Companion Layer (Experimental)
+## Companion Layer (Experimental)
 
 A strictly isolated, SQLite-backed bridging protocol for secure LAN continuity. Connect secondary trusted devices (like mobile phones) to your Torvaix node via one-time pairing tokens with explicit `readonly` or `admin` scopes. 
 See [COMPANION.md](COMPANION.md) for architecture.
@@ -139,7 +139,7 @@ npm run benchmark
 ```
 Results are saved to `BENCHMARKS.md` and historically snapshotted to track regressions.
 
-## 🚀 Quick Start
+## Quick Start
 
 Torvaix is designed for a seamless local developer experience.
 
@@ -178,7 +178,7 @@ To demonstrate the full capabilities of Torvaix for the Kaggle Capstone:
 
 ---
 
-## 🧪 Advanced: Backend APIs
+## Advanced: Backend APIs
 
 Run these against the Agent Server (port 3001) to verify all systems:
 
