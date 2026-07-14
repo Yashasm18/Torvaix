@@ -52,25 +52,67 @@ Most AI tools send your data to the cloud, locking you into a subscription and g
 ## 🏗 System Architecture
 
 ```mermaid
-graph TD
-    User([User]) --> Workspace[Torvaix Workspace]
-    Workspace --> Router[Router Agent]
-    
-    Router -->|Fact Storage| Knowledge[Knowledge Agent]
-    Router -->|Context Recall| Memory[Memory Agent]
-    Router -->|Action| Exec[Execution Agent]
-    
-    Exec --> MCP[MCP Toolchain]
-    
-    Knowledge --> Storage[(Qdrant / SQLite / Ollama)]
-    Memory --> Storage
-    
-    style User fill:#2D3748,stroke:#4A5568,color:#fff
-    style Workspace fill:#2B6CB0,stroke:#2C5282,color:#fff
-    style Router fill:#4A5568,stroke:#2D3748,color:#fff
-    style Storage fill:#276749,stroke:#2F855A,color:#fff
-    style Exec fill:#DD6B20,stroke:#C05621,color:#fff
-    style MCP fill:#805AD5,stroke:#6B46C1,color:#fff
+graph LR
+    subgraph Client["🖥️ apps/web — Next.js 16"]
+        UI[Chat / Knowledge Pulse UI]
+    end
+
+    subgraph Server["⚙️ @torvaix/agent — Express + WebSocket :3001"]
+        Orchestrator[Agent Orchestrator<br/>state-graph runtime]
+        Trace[Trace Collector]
+    end
+
+    subgraph Reasoning["🧩 Reasoning & Tools"]
+        Providers[("@torvaix/providers<br/>Ollama · OpenAI · Anthropic · Gemini")]
+        MCP[("@torvaix/mcp<br/>filesystem · terminal · browser")]
+    end
+
+    subgraph Data["💾 Persistence"]
+        MemoryStore[("@torvaix/memory<br/>SQLite source of truth")]
+        Qdrant[(Qdrant Vectors)]
+        Graph[("@torvaix/graph<br/>Knowledge Graph SQLite")]
+    end
+
+    subgraph Intelligence["🐍 services/python-agent"]
+        PyIntel[FastAPI Intelligence Layer<br/>spaCy · sentence-transformers]
+    end
+
+    UI <-->|HTTP + WebSocket| Orchestrator
+    Orchestrator --> Trace
+    Orchestrator -->|generate / stream| Providers
+    Orchestrator -->|execute tools| MCP
+    Orchestrator -->|read / write| MemoryStore
+    MemoryStore -->|embed & search| Qdrant
+    MemoryStore -.->|falls back to| Providers
+    UI -.->|"/analyze/memory" — standalone, not yet in the write path| PyIntel
+    PyIntel -.->|entities & relations| Graph
+
+    style Client fill:#0f172a,stroke:#334155,color:#e2e8f0
+    style Server fill:#1e293b,stroke:#38bdf8,color:#e2e8f0
+    style Reasoning fill:#1e293b,stroke:#a78bfa,color:#e2e8f0
+    style Data fill:#1e293b,stroke:#34d399,color:#e2e8f0
+    style Intelligence fill:#1e293b,stroke:#f59e0b,color:#e2e8f0
+```
+
+### Agent Orchestration State Graph
+
+The orchestrator is a deterministic state graph, not a free-roaming LLM loop — every request is classified once and routed to a terminating node.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Router
+    Router --> Memory: context recall
+    Router --> Knowledge: fact storage
+    Router --> Execution: tool / file / shell action
+    Router --> RepoAnalysis: repo-wide question
+    Memory --> End
+    Knowledge --> End
+    Execution --> Approval: dangerous op
+    Approval --> Execution: approved
+    Approval --> End: rejected
+    Execution --> End
+    RepoAnalysis --> End
+    End --> [*]
 ```
 
 ---
