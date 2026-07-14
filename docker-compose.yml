@@ -44,6 +44,24 @@ services:
         wait $$OLLAMA_PID
       '
 
+  # Python Intelligence Layer (NLP): entity + relationship extraction that feeds
+  # the knowledge graph. The agent calls it best-effort, so the stack still works
+  # if this container is starting up or unavailable.
+  python-agent:
+    build:
+      context: ./services/python-agent
+      dockerfile: Dockerfile
+    container_name: torvaix-intelligence
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
   torvaix:
     build:
       context: .
@@ -57,6 +75,7 @@ services:
       - NODE_ENV=production
       - OLLAMA_URL=http://ollama:11434
       - QDRANT_URL=http://qdrant:6333
+      - PYTHON_SERVICE_URL=http://python-agent:8000
       - AGENT_PORT=3001
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - TORVAIX_MODEL=${TORVAIX_MODEL:-llama3.2}
@@ -72,6 +91,8 @@ services:
       qdrant:
         condition: service_healthy
       ollama:
+        condition: service_started
+      python-agent:
         condition: service_started
     restart: unless-stopped
     healthcheck:
