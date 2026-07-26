@@ -8,7 +8,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # Docker image references must be lowercase; the GitHub repository name contains capitals.
+  IMAGE_NAME: yashasm18/torvaix
 
 jobs:
   build:
