@@ -31,7 +31,7 @@ Before diving in, ensure your environment is prepared.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 Getting Torvaix running takes only a few commands.
 
@@ -80,7 +80,7 @@ Torvaix will orchestrate the startup sequence and automatically open your worksp
 
 ---
 
-## 🏗️ Architecture: Execution Flow
+## Architecture: Execution Flow
 
 When you run Torvaix, requests follow a strict state machine through the agent framework:
 
@@ -117,7 +117,7 @@ stateDiagram-v2
 
 ---
 
-## 🧪 First Run & Recommended Test Flow
+## First Run & Recommended Test Flow
 
 Once Torvaix is running, we recommend a standard sequence to ensure your local OS is fully operational. 
 
@@ -148,7 +148,7 @@ Delete all files in this workspace
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 If you hit a snag, check these common local-first development issues:
 
