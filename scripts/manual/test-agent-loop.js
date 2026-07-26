@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { runAgentLoop } = require('./packages/agent/src/agent-loop');
+const { runAgentLoop } = require('../../packages/agent/src/agent-loop');
 
 async function testAgentLoop() {
   console.log('Testing Torvaix Agent Loop...');

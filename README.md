@@ -22,9 +22,9 @@
 <br />
 <p align="center">
   <a href="#-quick-start">Quick Start</a> ·
-  <a href="SETUP.md">Setup Guide</a> ·
+  <a href="docs/guides/setup.md">Setup Guide</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
-  <a href="ROADMAP.md">Roadmap</a>
+  <a href="docs/planning/roadmap.md">Roadmap</a>
 </p>
 
 *Your data belongs to you. Keep it that way.*
@@ -128,7 +128,7 @@ Torvaix provides real-time transparency into agent reasoning. The collapsible **
 ## Companion Layer (Experimental)
 
 A strictly isolated, SQLite-backed bridging protocol for secure LAN continuity. Connect secondary trusted devices (like mobile phones) to your Torvaix node via one-time pairing tokens with explicit `readonly` or `admin` scopes. 
-See [COMPANION.md](COMPANION.md) for architecture.
+See the [Companion architecture](docs/architecture/companion.md) for details.
 
 ## ⏱️ Benchmarks
 

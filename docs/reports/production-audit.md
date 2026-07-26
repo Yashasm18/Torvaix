@@ -1,4 +1,4 @@
-# Torvaix Production Audit (PROD_AUDIT.md)
+# Torvaix Production Audit
 **Self-Debugging & Bottleneck Analysis**
 
 As part of the final push for V1, an internal audit was conducted across the Torvaix Monorepo to identify production bottlenecks, security concerns, and scaling limitations.
