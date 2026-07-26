@@ -1,7 +1,7 @@
 # Torvaix Milestone Execution Plan
-**Synthesized from ROADMAP.md**
+**Synthesized from [the roadmap](roadmap.md)**
 
-This document converts the strategic vision from `ROADMAP.md` into an actionable, trackable milestone execution plan.
+This document converts the strategic vision from `roadmap.md` into an actionable, trackable milestone execution plan.
 
 ## Milestone 1: The Core Foundation (v1.0.x)
 **Goal:** Stabilize the local environment and ensure absolute reliability of the existing routing, execution, and memory mechanics.
