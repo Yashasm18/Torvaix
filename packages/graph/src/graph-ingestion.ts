@@ -1,13 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './graph-store';
+import type { MLIntelligencePayload } from './types';
 
-export interface MLIntelligencePayload {
-  category: string;
-  importance: number;
-  entities: { text: string; type: string }[];
-  tags: string[];
-  relationships: { source: string; relation: string; target: string; confidence?: number }[];
-}
+export type { MLIntelligencePayload };
 
 /**
  * Slugs a string to be used as a deterministic node ID.
@@ -18,9 +13,10 @@ function slugify(text: string): string {
 }
 
 export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
-  // We use a transaction for safety
+  const affectedNodeIds = new Set<string>();
+
+  // Transaction for atomic safety
   const transaction = db.transaction(() => {
-    
     const insertNode = db.prepare(`
       INSERT INTO nodes (id, name, type, importance, metadata)
       VALUES (@id, @name, @type, @importance, @metadata)
@@ -36,7 +32,8 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
     for (const ent of payload.entities) {
       const nodeId = slugify(ent.text);
       if (!nodeId) continue;
-      
+      affectedNodeIds.add(nodeId);
+
       insertNode.run({
         id: nodeId,
         name: ent.text,
@@ -47,10 +44,11 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
     }
 
     const insertEdge = db.prepare(`
-      INSERT INTO edges (id, source_id, relation, target_id, confidence)
-      VALUES (@id, @source_id, @relation, @target_id, @confidence)
+      INSERT INTO edges (id, source_id, relation, target_id, confidence, frequency)
+      VALUES (@id, @source_id, @relation, @target_id, @confidence, 1)
       ON CONFLICT(source_id, relation, target_id) DO UPDATE SET
-        confidence = MAX(confidence, excluded.confidence)
+        frequency = edges.frequency + 1,
+        confidence = MIN(1.0, MAX(edges.confidence, excluded.confidence) + 0.05)
     `);
 
     // 2. Insert relationships
@@ -59,12 +57,13 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
       const targetId = slugify(rel.target);
       if (!sourceId || !targetId) continue;
 
-      // In case relationship sources/targets weren't explicitly in `entities`,
-      // we must ensure they exist in nodes to satisfy foreign keys.
+      affectedNodeIds.add(sourceId);
+      affectedNodeIds.add(targetId);
+
       insertNode.run({
         id: sourceId,
         name: rel.source,
-        type: 'UNKNOWN', // Fallback type
+        type: 'UNKNOWN',
         importance: payload.importance,
         metadata: JSON.stringify({ inferred: true })
       });
@@ -77,15 +76,27 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
         metadata: JSON.stringify({ inferred: true })
       });
 
-      // Insert the edge
       const edgeId = uuidv4();
       insertEdge.run({
         id: edgeId,
         source_id: sourceId,
         relation: rel.relation.toUpperCase().replace(/\s+/g, '_'),
         target_id: targetId,
-        confidence: rel.confidence ?? 0.9 // Default confidence
+        confidence: rel.confidence ?? 0.9
       });
+    }
+
+    // 3. Recalculate degree centrality for affected nodes
+    const updateDegree = db.prepare(`
+      UPDATE nodes 
+      SET degree = (
+        SELECT COUNT(*) FROM edges WHERE source_id = nodes.id OR target_id = nodes.id
+      )
+      WHERE id = ?
+    `);
+
+    for (const nodeId of affectedNodeIds) {
+      updateDegree.run(nodeId);
     }
   });
 

@@ -1,8 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ingestKnowledgeGraph, getNeighbors, findPath, queryGraph, getAllNodesAndEdges, db } from '../index';
+import {
+  ingestKnowledgeGraph,
+  getNeighbors,
+  findPath,
+  queryGraph,
+  queryGraphFiltered,
+  getEgoGraph,
+  getGraphStats,
+  getAllNodesAndEdges,
+  db,
+} from '../index';
 import type { MLIntelligencePayload } from '../types';
 
-describe('@torvaix/graph — Knowledge Graph', () => {
+describe('@torvaix/graph — Production Enterprise Knowledge Graph Engine', () => {
   beforeEach(() => {
     db.exec('DELETE FROM edges');
     db.exec('DELETE FROM nodes');
@@ -18,7 +28,7 @@ describe('@torvaix/graph — Knowledge Graph', () => {
       ],
       tags: ['database', 'storage'],
       relationships: [
-        { source: 'Torvaix OS', relation: 'PERSISTS_TO', target: 'SQLite', confidence: 0.99 },
+        { source: 'Torvaix OS', relation: 'PERSISTS_TO', target: 'SQLite', confidence: 0.95 },
       ],
     };
 
@@ -34,26 +44,138 @@ describe('@torvaix/graph — Knowledge Graph', () => {
     expect(neighbors[0].relation).toBe('PERSISTS_TO');
   });
 
-  it('queries nodes by name/entity search', () => {
+  it('reinforces edge frequency and confidence on repeated ingestion', () => {
+    const payload1: MLIntelligencePayload = {
+      category: 'Technical',
+      importance: 7.0,
+      entities: [
+        { text: 'Torvaix', type: 'PROJECT' },
+        { text: 'Qdrant', type: 'TECHNOLOGY' },
+      ],
+      tags: ['vector'],
+      relationships: [
+        { source: 'Torvaix', relation: 'USES', target: 'Qdrant', confidence: 0.8 },
+      ],
+    };
+
+    const payload2: MLIntelligencePayload = {
+      category: 'Technical',
+      importance: 8.5,
+      entities: [
+        { text: 'Torvaix', type: 'PROJECT' },
+        { text: 'Qdrant', type: 'TECHNOLOGY' },
+      ],
+      tags: ['vector'],
+      relationships: [
+        { source: 'Torvaix', relation: 'USES', target: 'Qdrant', confidence: 0.9 },
+      ],
+    };
+
+    ingestKnowledgeGraph(payload1);
+    ingestKnowledgeGraph(payload2);
+
+    const all = getAllNodesAndEdges();
+    expect(all.edges.length).toBe(1);
+    expect(all.edges[0].frequency).toBe(2);
+    expect(all.edges[0].confidence).toBeGreaterThan(0.9);
+  });
+
+  it('computes node degree centrality dynamically', () => {
     const payload: MLIntelligencePayload = {
       category: 'Technical',
-      importance: 8.0,
+      importance: 9.0,
       entities: [
-        { text: 'Next.js', type: 'FRAMEWORK' },
-        { text: 'React', type: 'LIBRARY' },
+        { text: 'Torvaix Hub', type: 'PROJECT' },
+        { text: 'Ollama', type: 'LLM' },
+        { text: 'Qdrant', type: 'VECTOR_DB' },
+        { text: 'FastAPI', type: 'BACKEND' },
       ],
-      tags: ['frontend'],
+      tags: ['architecture'],
       relationships: [
-        { source: 'Next.js', relation: 'USES', target: 'React', confidence: 0.95 },
+        { source: 'Torvaix Hub', relation: 'USES', target: 'Ollama', confidence: 0.9 },
+        { source: 'Torvaix Hub', relation: 'USES', target: 'Qdrant', confidence: 0.9 },
+        { source: 'Torvaix Hub', relation: 'USES', target: 'FastAPI', confidence: 0.9 },
       ],
     };
 
     ingestKnowledgeGraph(payload);
 
-    const results = queryGraph('Next.js');
-    expect(results.length).toBe(1);
-    expect(results[0].name).toBe('Next.js');
-    expect(results[0].type).toBe('FRAMEWORK');
+    const hubNode = db.prepare(`SELECT * FROM nodes WHERE name = 'Torvaix Hub'`).get() as any;
+    expect(hubNode.degree).toBe(3);
+  });
+
+  it('extracts N-hop ego graph sub-graph around a central node', () => {
+    ingestKnowledgeGraph({
+      category: 'Tech',
+      importance: 8.0,
+      entities: [
+        { text: 'A', type: 'NODE' },
+        { text: 'B', type: 'NODE' },
+      ],
+      tags: [],
+      relationships: [{ source: 'A', relation: 'LINKS', target: 'B', confidence: 0.9 }],
+    });
+
+    ingestKnowledgeGraph({
+      category: 'Tech',
+      importance: 8.0,
+      entities: [
+        { text: 'B', type: 'NODE' },
+        { text: 'C', type: 'NODE' },
+      ],
+      tags: [],
+      relationships: [{ source: 'B', relation: 'LINKS', target: 'C', confidence: 0.9 }],
+    });
+
+    const ego = getEgoGraph('A', 2, 50);
+    expect(ego).not.toBeNull();
+    expect(ego!.center.name).toBe('A');
+    expect(ego!.nodes.map((n) => n.name)).toContain('A');
+    expect(ego!.nodes.map((n) => n.name)).toContain('B');
+    expect(ego!.nodes.map((n) => n.name)).toContain('C');
+    expect(ego!.edges.length).toBe(2);
+  });
+
+  it('filters nodes with pagination via queryGraphFiltered', () => {
+    ingestKnowledgeGraph({
+      category: 'Tech',
+      importance: 9.0,
+      entities: [
+        { text: 'React 19', type: 'FRAMEWORK' },
+        { text: 'Vue 3', type: 'FRAMEWORK' },
+        { text: 'SQLite', type: 'DATABASE' },
+      ],
+      tags: [],
+      relationships: [],
+    });
+
+    const frameworksOnly = queryGraphFiltered({ type: 'FRAMEWORK' });
+    expect(frameworksOnly.total).toBe(2);
+    expect(frameworksOnly.nodes.map((n) => n.name)).toEqual(
+      expect.arrayContaining(['React 19', 'Vue 3'])
+    );
+
+    const searchResult = queryGraphFiltered({ search: 'React', limit: 10 });
+    expect(searchResult.total).toBe(1);
+    expect(searchResult.nodes[0].name).toBe('React 19');
+  });
+
+  it('calculates enterprise graph stats', () => {
+    ingestKnowledgeGraph({
+      category: 'Tech',
+      importance: 9.0,
+      entities: [
+        { text: 'Node X', type: 'SERVICE' },
+        { text: 'Node Y', type: 'SERVICE' },
+      ],
+      tags: [],
+      relationships: [{ source: 'Node X', relation: 'CALLS', target: 'Node Y', confidence: 0.9 }],
+    });
+
+    const stats = getGraphStats();
+    expect(stats.totalNodes).toBeGreaterThanOrEqual(2);
+    expect(stats.totalEdges).toBeGreaterThanOrEqual(1);
+    expect(stats.entityTypeCounts['SERVICE']).toBeGreaterThanOrEqual(2);
   });
 
   it('finds path between connected nodes across multi-hop relationships', () => {

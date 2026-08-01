@@ -13,7 +13,7 @@ import crypto from 'crypto';
 import { LLMClient, type LLMMessage, type LLMResponse } from '@torvaix/providers';
 import { MemoryStore } from '@torvaix/memory';
 import { getMcpClient } from '@torvaix/mcp';
-import { ingestKnowledgeGraph, type MLIntelligencePayload } from '@torvaix/graph';
+import { ingestKnowledgeGraph, queryGraph, getNeighbors, type MLIntelligencePayload } from '@torvaix/graph';
 import { TraceCollector } from './trace';
 
 // Intelligence (NLP) service — spaCy + sentence-transformers. Best-effort; never blocks a write.
@@ -394,6 +394,19 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
           source: r.source,
           score: r.score,
         }));
+      }
+
+      // Hybrid Graph Context Enrichment
+      const graphNodes = queryGraph(state.instructions);
+      if (graphNodes.length > 0) {
+        const primaryEntity = graphNodes[0];
+        const neighbors = getNeighbors(primaryEntity.name);
+        if (neighbors.length > 0) {
+          const relLines = neighbors.map(n => 
+            `- ${primaryEntity.name} ${n.direction === 'OUT' ? '→' : '←'} ${n.relation} ${n.direction === 'OUT' ? '→' : '←'} ${n.node.name} (${n.node.type})`
+          ).join('\n');
+          memoryContext += `\n\nKnowledge Graph relationships for context:\n${relLines}`;
+        }
       }
     } catch (e: any) {
       state.trace!.recordError('conversation', `memory recall failed: ${e.message}`);
