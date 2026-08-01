@@ -200,6 +200,15 @@ curl -X POST http://localhost:3001/api/memory/query \
 curl -X POST http://localhost:3001/api/agent/run \
   -H "Content-Type: application/json" \
   -d '{"workspaceId":"default","instructions":"Use bash to echo hello world"}'
+
+# Knowledge Graph Statistics & Analytics
+curl "http://localhost:3000/api/graph?stats=true"
+
+# Knowledge Graph Ego Sub-Graph Query (N-hop neighborhood around entity)
+curl "http://localhost:3000/api/graph?center=Torvaix&depth=2"
+
+# Filtered & Search Graph Query
+curl "http://localhost:3000/api/graph?q=Python&type=TECHNOLOGY&limit=10"
 ```
 
 ---
