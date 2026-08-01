@@ -84,8 +84,8 @@ graph LR
     Orchestrator -->|read / write| MemoryStore
     MemoryStore -->|embed & search| Qdrant
     MemoryStore -.->|falls back to| Providers
-    UI -.->|"/analyze/memory" — standalone, not yet in the write path| PyIntel
-    PyIntel -.->|entities & relations| Graph
+    Orchestrator -->|"/analyze/memory" NLP extraction| PyIntel
+    PyIntel -->|entities & relations| Graph
 
     style Client fill:#0f172a,stroke:#334155,color:#e2e8f0
     style Server fill:#1e293b,stroke:#38bdf8,color:#e2e8f0
