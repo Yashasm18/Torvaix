@@ -29,6 +29,7 @@ export interface MemoryQueryResult {
   content: string;
   source: string;
   score: number;
+  retrievalType?: 'vector' | 'keyword' | 'hybrid_rrf';
 }
 
 export interface Workspace {
@@ -164,7 +165,32 @@ export class MemoryStore {
         revoked INTEGER NOT NULL DEFAULT 0,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      -- Full-Text Search (FTS5) table and triggers for sparse BM25 retrieval
+      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+        id UNINDEXED,
+        workspaceId UNINDEXED,
+        content
+      );
+
+      CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts(id, workspaceId, content) VALUES (new.id, new.workspaceId, new.content);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+        DELETE FROM memories_fts WHERE id = old.id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+        DELETE FROM memories_fts WHERE id = old.id;
+        INSERT INTO memories_fts(id, workspaceId, content) VALUES (new.id, new.workspaceId, new.content);
+      END;
     `);
+    
+    // Populate FTS5 table for any pre-existing rows
+    try {
+      this.db.exec(`INSERT OR IGNORE INTO memories_fts(id, workspaceId, content) SELECT id, workspaceId, content FROM memories;`);
+    } catch (e) { /* Ignore if already populated or FTS error */ }
     
     // Attempt to alter table if the columns don't exist (for existing dev databases)
     try {
@@ -354,66 +380,56 @@ export class MemoryStore {
     return id;
   }
 
-  async queryMemory(workspaceId: string, query: string, topK: number = 5): Promise<MemoryQueryResult[]> {
-    await this.initQdrant();
+  /** Perform sparse keyword search using SQLite FTS5 BM25 or fallback LIKE search. */
+  performKeywordSearch(workspaceId: string, query: string, limit: number = 10): MemoryQueryResult[] {
+    const sanitized = query.replace(/[^a-zA-Z0-9\s]/g, ' ').trim();
+    const keywords = sanitized.toLowerCase().split(/\s+/).filter(w => w.length > 1);
 
-    // If Qdrant + embeddings are available, use vector search
-    if (this.qdrantAvailable) {
-      const vector = await this.generateEmbedding(query);
-      if (vector) {
-        try {
-          const searchResults = await this.qdrant.search(this.collectionName, {
-            vector,
-            limit: topK,
-            filter: {
-              must: [{ key: 'workspaceId', match: { value: workspaceId } }],
-            },
-          });
-
-          const results: MemoryQueryResult[] = [];
-          const stmt = this.db.prepare('SELECT content FROM memories WHERE id = ?');
-          const updateStatsStmt = this.db.prepare('UPDATE memories SET lastAccessedAt = CURRENT_TIMESTAMP, retrievalCount = retrievalCount + 1 WHERE id = ?');
-
-          for (const point of searchResults) {
-            const row = stmt.get(point.id) as { content: string } | undefined;
-            if (row) {
-              updateStatsStmt.run(point.id);
-              results.push({
-                id: String(point.id),
-                content: row.content,
-                source: String(point.payload?.source ?? 'unknown'),
-                score: point.score,
-              });
-            }
-          }
-
-          console.log(`[MemoryStore] Vector query returned ${results.length} results (source: ${this.embedSource})`);
-          return results;
-        } catch (e) {
-          console.warn('[MemoryStore] Qdrant search failed, falling back to SQLite:', e);
-        }
-      }
-    }
-
-    // FALLBACK: SQLite keyword search using LIKE
-    console.log('[MemoryStore] Using SQLite keyword fallback for memory query');
-    const keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-    
     if (keywords.length === 0) {
       const stmt = this.db.prepare('SELECT id, content, source FROM memories WHERE workspaceId = ? ORDER BY createdAt DESC LIMIT ?');
-      const rows = stmt.all(workspaceId, topK) as { id: string; content: string; source: string }[];
-      return rows.map(r => ({ ...r, score: 0.5 }));
+      const rows = stmt.all(workspaceId, limit) as { id: string; content: string; source: string }[];
+      return rows.map(r => ({ ...r, score: 0.5, retrievalType: 'keyword' as const }));
     }
 
+    // Try FTS5 BM25 search
+    try {
+      const ftsQuery = keywords.map(k => `"${k}"*`).join(' OR ');
+      const stmt = this.db.prepare(`
+        SELECT m.id, m.content, m.source, bm25(memories_fts) as bm25Score
+        FROM memories_fts f
+        JOIN memories m ON m.id = f.id
+        WHERE f.workspaceId = ? AND memories_fts MATCH ?
+        ORDER BY bm25Score ASC
+        LIMIT ?
+      `);
+      const rows = stmt.all(workspaceId, ftsQuery, limit) as { id: string; content: string; source: string; bm25Score: number }[];
+
+      if (rows.length > 0) {
+        const minBm25 = Math.min(...rows.map(r => r.bm25Score));
+        const maxBm25 = Math.max(...rows.map(r => r.bm25Score));
+        const range = maxBm25 - minBm25 || 1;
+
+        return rows.map(r => ({
+          id: r.id,
+          content: r.content,
+          source: r.source,
+          score: Number((1 - (r.bm25Score - minBm25) / range).toFixed(4)),
+          retrievalType: 'keyword' as const,
+        }));
+      }
+    } catch (e) {
+      // FTS5 syntax error or fallback
+    }
+
+    // Fallback SQLite LIKE search
     const conditions = keywords.map(() => 'LOWER(content) LIKE ?').join(' OR ');
     const params = keywords.map(k => `%${k}%`);
-    
     const stmt = this.db.prepare(
       `SELECT id, content, source FROM memories WHERE workspaceId = ? AND (${conditions}) ORDER BY createdAt DESC LIMIT ?`
     );
-    const rows = stmt.all(workspaceId, ...params, topK) as { id: string; content: string; source: string }[];
+    const rows = stmt.all(workspaceId, ...params, limit) as { id: string; content: string; source: string }[];
 
-    const results: MemoryQueryResult[] = rows.map(row => {
+    return rows.map(row => {
       const lowerContent = row.content.toLowerCase();
       const matchCount = keywords.filter(k => lowerContent.includes(k)).length;
       return {
@@ -421,15 +437,138 @@ export class MemoryStore {
         content: row.content,
         source: row.source,
         score: matchCount / keywords.length,
+        retrievalType: 'keyword' as const,
       };
     });
+  }
 
-    const updateStatsStmt = this.db.prepare('UPDATE memories SET lastAccessedAt = CURRENT_TIMESTAMP, retrievalCount = retrievalCount + 1 WHERE id = ?');
+  /**
+   * Reciprocal Rank Fusion (RRF) to merge dense (vector) and sparse (keyword) search results.
+   * RRF score formula: RRF(d) = sum_{m in rankers} w_m / (k + rank_m(d))
+   */
+  reciprocalRankFusion(
+    vectorResults: MemoryQueryResult[],
+    keywordResults: MemoryQueryResult[],
+    topK: number = 5,
+    kConstant: number = 60,
+    weights = { vector: 1.0, keyword: 1.0 }
+  ): MemoryQueryResult[] {
+    const scoreMap = new Map<string, { item: MemoryQueryResult; rrfScore: number; sources: Set<string> }>();
+
+    vectorResults.forEach((item, index) => {
+      const rank = index + 1;
+      const rankScore = weights.vector / (kConstant + rank);
+      const existing = scoreMap.get(item.id);
+      if (existing) {
+        existing.rrfScore += rankScore;
+        existing.sources.add('vector');
+      } else {
+        scoreMap.set(item.id, {
+          item: { ...item },
+          rrfScore: rankScore,
+          sources: new Set(['vector']),
+        });
+      }
+    });
+
+    keywordResults.forEach((item, index) => {
+      const rank = index + 1;
+      const rankScore = weights.keyword / (kConstant + rank);
+      const existing = scoreMap.get(item.id);
+      if (existing) {
+        existing.rrfScore += rankScore;
+        existing.sources.add('keyword');
+      } else {
+        scoreMap.set(item.id, {
+          item: { ...item },
+          rrfScore: rankScore,
+          sources: new Set(['keyword']),
+        });
+      }
+    });
+
+    const fusedList = Array.from(scoreMap.values()).sort((a, b) => b.rrfScore - a.rrfScore);
+    const maxRRF = fusedList.length > 0 ? fusedList[0].rrfScore : 1;
+
+    return fusedList.slice(0, topK).map(({ item, rrfScore, sources }) => {
+      const type: 'vector' | 'keyword' | 'hybrid_rrf' =
+        sources.has('vector') && sources.has('keyword')
+          ? 'hybrid_rrf'
+          : sources.has('vector')
+          ? 'vector'
+          : 'keyword';
+
+      return {
+        id: item.id,
+        content: item.content,
+        source: item.source,
+        score: Number((rrfScore / maxRRF).toFixed(4)),
+        retrievalType: type,
+      };
+    });
+  }
+
+  async queryMemory(workspaceId: string, query: string, topK: number = 5): Promise<MemoryQueryResult[]> {
+    await this.initQdrant();
+
+    let vectorResults: MemoryQueryResult[] = [];
+
+    // 1. Dense Vector Search via Qdrant (if available)
+    if (this.qdrantAvailable) {
+      const vector = await this.generateEmbedding(query);
+      if (vector) {
+        try {
+          const searchResults = await this.qdrant.search(this.collectionName, {
+            vector,
+            limit: topK * 2,
+            filter: {
+              must: [{ key: 'workspaceId', match: { value: workspaceId } }],
+            },
+          });
+
+          const stmt = this.db.prepare('SELECT content FROM memories WHERE id = ?');
+          for (const point of searchResults) {
+            const row = stmt.get(point.id) as { content: string } | undefined;
+            if (row) {
+              vectorResults.push({
+                id: String(point.id),
+                content: row.content,
+                source: String(point.payload?.source ?? 'unknown'),
+                score: point.score,
+                retrievalType: 'vector',
+              });
+            }
+          }
+          console.log(`[MemoryStore] Vector search returned ${vectorResults.length} candidates (source: ${this.embedSource})`);
+        } catch (e) {
+          console.warn('[MemoryStore] Qdrant search failed, proceeding with keyword retrieval:', e);
+        }
+      }
+    }
+
+    // 2. Sparse Keyword Search via SQLite FTS5 / BM25
+    const keywordResults = this.performKeywordSearch(workspaceId, query, topK * 2);
+
+    // 3. Fused Hybrid Retrieval using Reciprocal Rank Fusion (RRF)
+    let results: MemoryQueryResult[];
+
+    if (vectorResults.length > 0 && keywordResults.length > 0) {
+      results = this.reciprocalRankFusion(vectorResults, keywordResults, topK);
+      console.log(`[MemoryStore] Fused RRF returned ${results.length} hybrid results`);
+    } else if (vectorResults.length > 0) {
+      results = vectorResults.slice(0, topK);
+    } else {
+      results = keywordResults.slice(0, topK);
+    }
+
+    // 4. Record access stats for retrieved items
+    const updateStatsStmt = this.db.prepare(
+      'UPDATE memories SET lastAccessedAt = CURRENT_TIMESTAMP, retrievalCount = retrievalCount + 1 WHERE id = ?'
+    );
     for (const r of results) {
       updateStatsStmt.run(r.id);
     }
 
-    console.log(`[MemoryStore] SQLite keyword query returned ${results.length} results`);
     return results;
   }
 
