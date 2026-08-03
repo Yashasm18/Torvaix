@@ -248,3 +248,58 @@ describe('MemoryStore — Local Embedding', () => {
     expect(different).toBe(true);
   });
 });
+
+describe('MemoryStore — Hybrid Retrieval & RRF', () => {
+  let dbPath: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `torvaix-test-rrf-${Date.now()}.db`);
+    store = new MemoryStore(dbPath, {
+      ollamaUrl: 'http://127.0.0.1:59999',
+      qdrantUrl: 'http://127.0.0.1:59999',
+    });
+  });
+
+  afterEach(() => {
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+
+  it('performs Reciprocal Rank Fusion correctly', () => {
+    const vectorResults = [
+      { id: 'doc-1', content: 'TypeScript backend architecture', source: 'test', score: 0.9 },
+      { id: 'doc-2', content: 'React frontend layout', source: 'test', score: 0.8 },
+    ];
+
+    const keywordResults = [
+      { id: 'doc-3', content: 'SQLite FTS5 keyword indexing', source: 'test', score: 0.85 },
+      { id: 'doc-1', content: 'TypeScript backend architecture', source: 'test', score: 0.75 },
+    ];
+
+    const fused = store.reciprocalRankFusion(vectorResults, keywordResults, 5);
+    expect(fused.length).toBe(3);
+
+    // doc-1 appeared in both vector and keyword results, so it should be ranked highest as hybrid_rrf
+    expect(fused[0].id).toBe('doc-1');
+    expect(fused[0].retrievalType).toBe('hybrid_rrf');
+    expect(fused[0].score).toBe(1.0); // max normalized score
+
+    // doc-2 was vector-only, doc-3 was keyword-only
+    const doc2 = fused.find(r => r.id === 'doc-2');
+    const doc3 = fused.find(r => r.id === 'doc-3');
+    expect(doc2?.retrievalType).toBe('vector');
+    expect(doc3?.retrievalType).toBe('keyword');
+  });
+
+  it('queries memories with keyword search and tagging', async () => {
+    const wsId = store.createWorkspace('RRF Test');
+    await store.storeMemory(wsId, 'Qdrant vector embeddings database', 'test');
+    await store.storeMemory(wsId, 'SQLite relational storage engine', 'test');
+
+    const results = await store.queryMemory(wsId, 'vector embeddings', 5);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].retrievalType).toBeDefined();
+    expect(results[0].content).toContain('Qdrant');
+  });
+});
+
