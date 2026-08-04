@@ -165,7 +165,7 @@ npm run dev
 
 ---
 
-## 🎬 Demo Capabilities
+## Demo Capabilities
 
 To demonstrate the full capabilities of Torvaix for the Kaggle Capstone:
 
