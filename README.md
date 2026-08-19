@@ -5,7 +5,7 @@
   &nbsp;Torvaix
 </h1>
 
-**A workspace-first AI operating system for memory, agents, knowledge, and execution.**
+**A workspace-first AI operating system for memory, agents, knowledge, and executioಲ.**
 
 [![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=next.js&logoColor=white)](#)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](#)
