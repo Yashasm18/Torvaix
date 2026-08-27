@@ -44,7 +44,8 @@ Most AI tools send your data to the cloud, locking you into a subscription and g
 - Multi-Agent Orchestration: A custom state-graph routing system with specialized agents (Router, Memory, Knowledge, Execution).
 - Native Security Layer: Human-in-the-loop approval UI for dangerous operations (like `bash` scripts or system file deletion).
 - Infinite Memory: Dual-layer vector memory system powered by Qdrant embeddings and SQLite fallback.
-- Model Context Protocol (MCP): Native integration with the MCP standard, connecting the Execution Agent to local filesystem, terminal, and browser tools.
+- Autonomous Memory Consolidation & Synthesis: Built-in local intelligence engine (`@torvaix/intelligence`) for memory deduplication, decay/reinforcement scoring, thematic clustering, and knowledge graph edge generation.
+- Model Context Protocol (MCP) & Real-Time Execution Center: Native MCP tooling, live terminal execution logs, and interactive security clearance approvals.
 - Premium UI/UX: Built with Next.js 16, React 19, and Tailwind 4, featuring dynamic animations and glassmorphism.
 
 ---
@@ -200,6 +201,20 @@ curl -X POST http://localhost:3001/api/memory/query \
 curl -X POST http://localhost:3001/api/agent/run \
   -H "Content-Type: application/json" \
   -d '{"workspaceId":"default","instructions":"Use bash to echo hello world"}'
+
+# Autonomous Memory Consolidation & Synthesis
+curl -X POST http://localhost:3001/api/memory/consolidate \
+  -H "Content-Type: application/json" \
+  -d '{"workspaceId":"default"}'
+
+# Workspace Memory Insights & Health Diagnostics
+curl "http://localhost:3001/api/memory/insights?workspaceId=default"
+
+# Tool Execution Audit Logs
+curl "http://localhost:3001/api/agent/executions?workspaceId=default&limit=20"
+
+# Pending Security Clearance Actions
+curl "http://localhost:3001/api/agent/pending-actions?workspaceId=default"
 
 # Knowledge Graph Statistics & Analytics
 curl "http://localhost:3000/api/graph?stats=true"
