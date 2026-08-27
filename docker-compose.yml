@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   qdrant:
     image: qdrant/qdrant:v1.12.0
@@ -86,7 +84,8 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
     env_file:
-      - .env
+      - path: .env
+        required: false
     depends_on:
       qdrant:
         condition: service_healthy

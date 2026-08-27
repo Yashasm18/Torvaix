@@ -1,3 +1,4 @@
+import path from "path";
 import type { NextConfig } from "next";
 
 const securityHeaders = [
@@ -29,6 +30,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  turbopack: {
+    root: path.resolve(__dirname, "../../"),
+  },
   images: {
     unoptimized: true,
   },

@@ -28,7 +28,9 @@ const checkAndKillPort = (port) => {
   });
 };
 
-// Check the web server's port (3000).
-checkAndKillPort(3000)
+const ports = process.argv.slice(2).map(Number).filter(Boolean);
+const targetPorts = ports.length > 0 ? ports : [3000];
+
+Promise.all(targetPorts.map(checkAndKillPort))
   .then(() => process.exit(0))
   .catch(() => process.exit(1));

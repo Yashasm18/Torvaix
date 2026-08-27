@@ -16,8 +16,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:services\" \"wait-on http://localhost:3000 && open-cli http://localhost:3000\"",
-    "dev:services": "npm run dev --workspaces --if-present",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"AGENT,WEB\" -c \"blue.bold,green.bold\" \"npm run dev:agent\" \"npm run dev:web\"",
+    "dev:agent": "node scripts/check-port.js 3001 && npm run dev -w @torvaix/agent",
+    "dev:web": "npm run dev -w web",
+    "dev:services": "concurrently -k -p \"[{name}]\" -n \"AGENT,WEB\" -c \"blue.bold,green.bold\" \"npm run dev:agent\" \"npm run dev:web\"",
+    "dev:open": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && open-cli http://localhost:3000\"",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
