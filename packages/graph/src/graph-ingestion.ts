@@ -29,7 +29,7 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
     `);
 
     // 1. Insert all explicitly extracted entities
-    for (const ent of payload.entities) {
+    for (const ent of payload.entities || []) {
       const nodeId = slugify(ent.text);
       if (!nodeId) continue;
       affectedNodeIds.add(nodeId);
@@ -38,7 +38,7 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
         id: nodeId,
         name: ent.text,
         type: ent.type.toUpperCase(),
-        importance: payload.importance,
+        importance: payload.importance ?? 5,
         metadata: JSON.stringify({ source_category: payload.category, tags: payload.tags })
       });
     }
@@ -52,7 +52,7 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
     `);
 
     // 2. Insert relationships
-    for (const rel of payload.relationships) {
+    for (const rel of payload.relationships || []) {
       const sourceId = slugify(rel.source);
       const targetId = slugify(rel.target);
       if (!sourceId || !targetId) continue;

@@ -155,6 +155,44 @@ describe('MemoryStore — Pending Actions', () => {
     const rejected = store.getPendingAction(id);
     expect(rejected!.status).toBe('rejected');
   });
+
+  it('lists pending actions filtered by workspace and status', () => {
+    const wsId = store.createWorkspace('List Action Test');
+    const id1 = store.createPendingAction(wsId, 'bash', { command: 'echo 1' });
+    const id2 = store.createPendingAction(wsId, 'bash', { command: 'echo 2' });
+    store.updatePendingActionStatus(id1, 'approved');
+
+    const allActions = store.listPendingActions(wsId);
+    expect(allActions.length).toBe(2);
+
+    const pendingOnly = store.listPendingActions(wsId, 'pending');
+    expect(pendingOnly.length).toBe(1);
+    expect(pendingOnly[0].id).toBe(id2);
+  });
+
+  it('logs and lists execution logs', () => {
+    const wsId = store.createWorkspace('Exec Log Test');
+    store.logExecution(wsId, 'bash', { command: 'ls -la' }, 'file1\nfile2', 'success');
+    store.logExecution(wsId, 'python', { code: '1/0' }, 'ZeroDivisionError', 'error');
+
+    const logs = store.listExecutionLogs(wsId);
+    expect(logs.length).toBe(2);
+    expect(logs[0].action).toBe('python');
+    expect(logs[0].status).toBe('error');
+    expect(logs[1].action).toBe('bash');
+    expect(logs[1].status).toBe('success');
+  });
+
+  it('computes memory stats for a workspace', async () => {
+    const wsId = store.createWorkspace('Stats Test');
+    await store.storeMemory(wsId, 'Memory 1', 'test');
+    await store.storeMemory(wsId, 'Memory 2', 'test');
+
+    const stats = store.getMemoryStats(wsId);
+    expect(stats.total).toBe(2);
+    expect(stats.oldest).toBeDefined();
+    expect(stats.newest).toBeDefined();
+  });
 });
 
 describe('MemoryStore — Users (Auth)', () => {

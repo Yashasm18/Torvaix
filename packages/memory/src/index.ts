@@ -55,6 +55,16 @@ export interface PendingAction {
   createdAt: string;
 }
 
+export interface ExecutionLog {
+  id: string;
+  workspaceId: string;
+  action: string;
+  params: string;
+  result: string | null;
+  status: string;
+  createdAt: string;
+}
+
 /** Which embedding source is active. */
 export type EmbedSource = 'ollama' | 'openai' | 'local' | 'none';
 
@@ -694,6 +704,15 @@ export class MemoryStore {
     stmt.run(status, id);
   }
 
+  listPendingActions(workspaceId: string, status?: 'pending' | 'approved' | 'rejected'): PendingAction[] {
+    if (status) {
+      const stmt = this.db.prepare('SELECT * FROM pending_actions WHERE workspaceId = ? AND status = ? ORDER BY createdAt DESC');
+      return stmt.all(workspaceId, status) as PendingAction[];
+    }
+    const stmt = this.db.prepare('SELECT * FROM pending_actions WHERE workspaceId = ? ORDER BY createdAt DESC');
+    return stmt.all(workspaceId) as PendingAction[];
+  }
+
   // ── Execution Logs ──
 
   logExecution(workspaceId: string, action: string, params: any, result: any, status: string) {
@@ -701,6 +720,24 @@ export class MemoryStore {
     const stmt = this.db.prepare('INSERT INTO execution_logs (id, workspaceId, action, params, result, status) VALUES (?, ?, ?, ?, ?, ?)');
     stmt.run(id, workspaceId, action, JSON.stringify(params), JSON.stringify(result), status);
     return id;
+  }
+
+  listExecutionLogs(workspaceId: string, limit: number = 50): ExecutionLog[] {
+    const stmt = this.db.prepare('SELECT * FROM execution_logs WHERE workspaceId = ? ORDER BY createdAt DESC, rowid DESC LIMIT ?');
+    return stmt.all(workspaceId, limit) as ExecutionLog[];
+  }
+
+  getMemoryStats(workspaceId: string) {
+    const totalStmt = this.db.prepare('SELECT COUNT(*) as count, AVG(retrievalCount) as avgRetrieval FROM memories WHERE workspaceId = ?');
+    const totalRow = totalStmt.get(workspaceId) as { count: number; avgRetrieval: number | null } | undefined;
+    const timestampsStmt = this.db.prepare('SELECT MIN(createdAt) as oldest, MAX(createdAt) as newest FROM memories WHERE workspaceId = ?');
+    const tsRow = timestampsStmt.get(workspaceId) as { oldest: string | null; newest: string | null } | undefined;
+    return {
+      total: totalRow?.count ?? 0,
+      avgRetrieval: totalRow?.avgRetrieval ? Number(totalRow.avgRetrieval.toFixed(2)) : 0,
+      oldest: tsRow?.oldest ?? null,
+      newest: tsRow?.newest ?? null,
+    };
   }
 
   // ── User Management (Auth Hardening) ──

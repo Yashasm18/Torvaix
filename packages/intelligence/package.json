@@ -3,5 +3,14 @@
   "version": "0.1.0",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "dependencies": {}
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.0.0"
+  }
 }

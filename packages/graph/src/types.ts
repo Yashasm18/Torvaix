@@ -38,3 +38,12 @@ export interface GraphStats {
   entityTypeCounts: Record<string, number>;
   topHubs: { name: string; type: string; degree: number; importance: number }[];
 }
+
+export interface MLIntelligencePayload {
+  entities?: { text: string; type: string }[];
+  relationships?: { source: string; relation: string; target: string; confidence?: number }[];
+  category?: string;
+  importance?: number;
+  tags?: string[];
+}
+

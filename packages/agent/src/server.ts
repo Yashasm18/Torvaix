@@ -19,6 +19,7 @@ import bcrypt from 'bcryptjs';
 import { AgentOrchestrator } from './orchestrator';
 import { MemoryStore } from '@torvaix/memory';
 import { LLMClient } from '@torvaix/providers';
+import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
 
 // ── Environment & Config ──
 
@@ -324,7 +325,78 @@ app.post('/api/agent/approve', requireAuth, rateLimit(), (req: AuthRequest, res)
   }
 });
 
+// List Execution Logs
+app.get('/api/agent/executions', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+  try {
+    const workspaceId = (req.query.workspaceId as string) || 'default';
+    const limit = parseInt((req.query.limit as string) || '50', 10);
+    const logs = memoryStore.listExecutionLogs(workspaceId, limit);
+    res.json({ success: true, logs });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch execution logs', details: error.message });
+  }
+});
+
+// List Pending Actions
+app.get('/api/agent/pending-actions', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+  try {
+    const workspaceId = (req.query.workspaceId as string) || 'default';
+    const status = (req.query.status as any) || 'pending';
+    const actions = memoryStore.listPendingActions(workspaceId, status);
+    res.json({ success: true, actions });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch pending actions', details: error.message });
+  }
+});
+
+// Dispatch Agent Task Directly
+app.post('/api/agent/tasks', requireAuth, rateLimit(AGENT_RATE_LIMIT_MAX), async (req: AuthRequest, res) => {
+  try {
+    const { instructions, workspaceId = 'default', priority = 'medium' } = req.body;
+    if (!instructions || typeof instructions !== 'string') {
+      res.status(400).json({ error: 'Instructions are required' });
+      return;
+    }
+
+    const orchestrator = new AgentOrchestrator(memoryStore, {
+      llm: llmClient,
+      model: process.env.TORVAIX_MODEL,
+    });
+
+    const finalState = await orchestrator.run({
+      workspaceId,
+      instructions,
+      messages: [],
+    });
+
+    res.json({
+      success: true,
+      task: {
+        id: crypto.randomUUID(),
+        workspaceId,
+        instructions,
+        priority,
+        status: finalState.pendingActionId ? 'pending_confirmation' : 'completed',
+        output: finalState.output,
+        pendingActionId: finalState.pendingActionId,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to execute agent task', details: error.message });
+  }
+});
+
 // Direct memory endpoints
+app.get('/api/memory/list', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const workspaceId = (req.query.workspaceId as string) || 'default';
+    const memories = await memoryStore.getAllMemories(workspaceId);
+    res.json({ success: true, memories });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to list memories', details: error.message });
+  }
+});
+
 app.post('/api/memory/store', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
   try {
     const { workspaceId, content, source } = req.body;
@@ -342,6 +414,48 @@ app.post('/api/memory/query', requireAuth, rateLimit(), async (req: AuthRequest,
     res.json({ success: true, results });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to query memory', details: error.message });
+  }
+});
+
+app.delete('/api/memory/:id', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    await memoryStore.deleteMemory(id);
+    res.json({ success: true, id });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete memory', details: error.message });
+  }
+});
+
+// Autonomous Memory Consolidation & Workspace Knowledge Synthesis
+app.post('/api/memory/consolidate', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const { workspaceId = 'default' } = req.body;
+    const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
+    const synthesizer = new WorkspaceKnowledgeSynthesizer();
+    const report = synthesizer.consolidateWorkspace(workspaceId, memories);
+    res.json({ success: true, report });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to consolidate memory', details: error.message });
+  }
+});
+
+app.get('/api/memory/insights', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const workspaceId = (req.query.workspaceId as string) || 'default';
+    const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
+    const stats = memoryStore.getMemoryStats(workspaceId);
+    const synthesizer = new WorkspaceKnowledgeSynthesizer();
+    const report = synthesizer.consolidateWorkspace(workspaceId, memories);
+    res.json({
+      success: true,
+      stats,
+      health: report.healthMetrics,
+      insights: report.synthesizedInsights,
+      clusters: report.clusters,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch memory insights', details: error.message });
   }
 });
 
