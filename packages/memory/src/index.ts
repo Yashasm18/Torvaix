@@ -65,6 +65,34 @@ export interface ExecutionLog {
   createdAt: string;
 }
 
+export interface AutomationRecord {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  triggerType: 'schedule' | 'event' | 'manual';
+  triggerConfig: string; // JSON
+  actionType: string;
+  actionConfig: string; // JSON
+  status: 'active' | 'paused' | 'draft';
+  lastRunAt: string | null;
+  runCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AutomationLogRecord {
+  id: string;
+  automationId: string;
+  workspaceId: string;
+  status: 'running' | 'success' | 'error';
+  output: string;
+  durationMs: number;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+
 /** Which embedding source is active. */
 export type EmbedSource = 'ollama' | 'openai' | 'local' | 'none';
 
@@ -138,6 +166,40 @@ export class MemoryStore {
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(workspaceId) REFERENCES workspaces(id)
       );
+
+      -- Automation Workflows & Logs
+      CREATE TABLE IF NOT EXISTS automations (
+        id TEXT PRIMARY KEY,
+        workspaceId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        triggerType TEXT NOT NULL,
+        triggerConfig TEXT NOT NULL DEFAULT '{}',
+        actionType TEXT NOT NULL,
+        actionConfig TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'active',
+        lastRunAt DATETIME,
+        runCount INTEGER DEFAULT 0,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(workspaceId) REFERENCES workspaces(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS automation_logs (
+        id TEXT PRIMARY KEY,
+        automationId TEXT NOT NULL,
+        workspaceId TEXT NOT NULL,
+        status TEXT NOT NULL,
+        output TEXT NOT NULL DEFAULT '',
+        durationMs INTEGER NOT NULL DEFAULT 0,
+        startedAt DATETIME NOT NULL,
+        completedAt DATETIME,
+        FOREIGN KEY(automationId) REFERENCES automations(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_automations_workspace ON automations(workspaceId);
+      CREATE INDEX IF NOT EXISTS idx_automation_logs_auto ON automation_logs(automationId);
+
 
       -- Users table (for auth hardening)
       CREATE TABLE IF NOT EXISTS users (
@@ -325,12 +387,15 @@ export class MemoryStore {
   private localKeywordEmbedding(text: string): number[] {
     const dims = this.vectorSize;
     const vec = new Float32Array(dims);
-    const words = text.toLowerCase().split(/\W+/).filter(w => w.length > 2);
+    const safeText = typeof text === 'string' ? text.slice(0, 10000) : '';
+    const rawWords = safeText.toLowerCase().split(/\W+/);
+    const words = rawWords.filter(w => typeof w === 'string' && w.length > 2 && w.length <= 64).slice(0, 500);
 
     for (const word of words) {
       // Distribute word hashes across dimensions
       let hash = 0;
-      for (let i = 0; i < word.length; i++) {
+      const wordLen = Math.min(typeof word === 'string' ? word.length : 0, 64);
+      for (let i = 0; i < wordLen; i++) {
         hash = ((hash << 5) - hash) + word.charCodeAt(i);
         hash |= 0;
       }
@@ -739,6 +804,198 @@ export class MemoryStore {
       newest: tsRow?.newest ?? null,
     };
   }
+
+  // ── Automation Workflows & Logs ──
+
+  createAutomation(params: {
+    id?: string;
+    workspaceId: string;
+    name: string;
+    description?: string;
+    triggerType: 'schedule' | 'event' | 'manual';
+    triggerConfig?: any;
+    actionType: string;
+    actionConfig?: any;
+    status?: 'active' | 'paused' | 'draft';
+  }): AutomationRecord {
+    const id = params.id || uuidv4();
+    const description = params.description || '';
+    const triggerConfig = typeof params.triggerConfig === 'string' ? params.triggerConfig : JSON.stringify(params.triggerConfig || {});
+    const actionConfig = typeof params.actionConfig === 'string' ? params.actionConfig : JSON.stringify(params.actionConfig || {});
+    const status = params.status || 'active';
+    const now = new Date().toISOString();
+
+    const stmt = this.db.prepare(`
+      INSERT INTO automations (id, workspaceId, name, description, triggerType, triggerConfig, actionType, actionConfig, status, runCount, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    `);
+    stmt.run(id, params.workspaceId, params.name, description, params.triggerType, triggerConfig, params.actionType, actionConfig, status, now, now);
+
+    return this.getAutomation(id)!;
+  }
+
+  getAutomation(id: string): AutomationRecord | null {
+    const stmt = this.db.prepare('SELECT * FROM automations WHERE id = ?');
+    const row = stmt.get(id) as AutomationRecord | undefined;
+    return row || null;
+  }
+
+  listAutomations(workspaceId?: string): AutomationRecord[] {
+    if (workspaceId) {
+      const stmt = this.db.prepare('SELECT * FROM automations WHERE workspaceId = ? ORDER BY createdAt DESC');
+      return stmt.all(workspaceId) as AutomationRecord[];
+    }
+    const stmt = this.db.prepare('SELECT * FROM automations ORDER BY createdAt DESC');
+    return stmt.all() as AutomationRecord[];
+  }
+
+  updateAutomation(id: string, updates: Partial<{
+    name: string;
+    description: string;
+    triggerType: 'schedule' | 'event' | 'manual';
+    triggerConfig: any;
+    actionType: string;
+    actionConfig: any;
+    status: 'active' | 'paused' | 'draft';
+    lastRunAt: string;
+    runCount: number;
+    updatedAt: string;
+  }>): boolean {
+    const existing = this.getAutomation(id);
+    if (!existing) return false;
+
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.name !== undefined) { fields.push('name = ?'); values.push(updates.name); }
+    if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
+    if (updates.triggerType !== undefined) { fields.push('triggerType = ?'); values.push(updates.triggerType); }
+    if (updates.triggerConfig !== undefined) {
+      fields.push('triggerConfig = ?');
+      values.push(typeof updates.triggerConfig === 'string' ? updates.triggerConfig : JSON.stringify(updates.triggerConfig));
+    }
+    if (updates.actionType !== undefined) { fields.push('actionType = ?'); values.push(updates.actionType); }
+    if (updates.actionConfig !== undefined) {
+      fields.push('actionConfig = ?');
+      values.push(typeof updates.actionConfig === 'string' ? updates.actionConfig : JSON.stringify(updates.actionConfig));
+    }
+    if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
+    if (updates.lastRunAt !== undefined) { fields.push('lastRunAt = ?'); values.push(updates.lastRunAt); }
+    if (updates.runCount !== undefined) { fields.push('runCount = ?'); values.push(updates.runCount); }
+
+    fields.push('updatedAt = ?');
+    values.push(updates.updatedAt || new Date().toISOString());
+
+    values.push(id);
+
+    const stmt = this.db.prepare(`UPDATE automations SET ${fields.join(', ')} WHERE id = ?`);
+    stmt.run(...values);
+    return true;
+  }
+
+  deleteAutomation(id: string): boolean {
+    const deleteLogs = this.db.prepare('DELETE FROM automation_logs WHERE automationId = ?');
+    deleteLogs.run(id);
+    const stmt = this.db.prepare('DELETE FROM automations WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  logAutomationRun(log: {
+    id?: string;
+    automationId: string;
+    workspaceId: string;
+    status: 'running' | 'success' | 'error' | string;
+    output?: string;
+    durationMs?: number;
+    startedAt: string;
+    completedAt?: string;
+  }): AutomationLogRecord {
+    const id = log.id || uuidv4();
+    const output = log.output || '';
+    const durationMs = log.durationMs || 0;
+    const completedAt = log.completedAt || new Date().toISOString();
+
+    const stmt = this.db.prepare(`
+      INSERT INTO automation_logs (id, automationId, workspaceId, status, output, durationMs, startedAt, completedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(id, log.automationId, log.workspaceId, log.status, output, durationMs, log.startedAt, completedAt);
+
+    return {
+      id,
+      automationId: log.automationId,
+      workspaceId: log.workspaceId,
+      status: log.status as any,
+      output,
+      durationMs,
+      startedAt: log.startedAt,
+      completedAt
+    };
+  }
+
+  listAutomationLogs(automationId: string, limit = 50): AutomationLogRecord[] {
+    const stmt = this.db.prepare('SELECT * FROM automation_logs WHERE automationId = ? ORDER BY startedAt DESC, rowid DESC LIMIT ?');
+    return stmt.all(automationId, limit) as AutomationLogRecord[];
+  }
+
+  getAutomationStats(workspaceId?: string) {
+    const filter = workspaceId ? 'WHERE workspaceId = ?' : '';
+    const totalStmt = this.db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active, SUM(CASE WHEN status = 'paused' THEN 1 ELSE 0 END) as paused, SUM(runCount) as totalRuns FROM automations ${filter}`);
+    const row = (workspaceId ? totalStmt.get(workspaceId) : totalStmt.get()) as any;
+
+    const logFilter = workspaceId ? 'WHERE workspaceId = ?' : '';
+    const logStmt = this.db.prepare(`SELECT SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful, SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failed FROM automation_logs ${logFilter}`);
+    const logRow = (workspaceId ? logStmt.get(workspaceId) : logStmt.get()) as any;
+
+    return {
+      totalAutomations: row?.total || 0,
+      activeCount: row?.active || 0,
+      pausedCount: row?.paused || 0,
+      totalRuns: row?.totalRuns || 0,
+      successfulRuns: logRow?.successful || 0,
+      failedRuns: logRow?.failed || 0,
+    };
+  }
+
+  seedDefaultAutomations(workspaceId = 'default'): void {
+    const existing = this.listAutomations(workspaceId);
+    if (existing.length > 0) return;
+
+    this.createAutomation({
+      workspaceId,
+      name: 'Autonomous Memory Consolidation',
+      description: 'Review recent conversation memories, deduplicate, and strengthen important connections in the knowledge graph.',
+      triggerType: 'schedule',
+      triggerConfig: { frequency: 'weekly', dayOfWeek: 0, timeOfDay: '02:00' },
+      actionType: 'consolidate_memory',
+      actionConfig: {},
+      status: 'active'
+    });
+
+    this.createAutomation({
+      workspaceId,
+      name: 'Workspace Knowledge Graph Indexer',
+      description: 'When new knowledge is added, automatically analyze relationships and synthesize updated graph entity edges.',
+      triggerType: 'event',
+      triggerConfig: { eventName: 'MEMORY_CREATED' },
+      actionType: 'synthesize_graph',
+      actionConfig: {},
+      status: 'active'
+    });
+
+    this.createAutomation({
+      workspaceId,
+      name: 'Daily Research Digest',
+      description: 'Every morning, search for new papers and updates on AI deployment and summarize key insights.',
+      triggerType: 'schedule',
+      triggerConfig: { frequency: 'daily', timeOfDay: '09:00' },
+      actionType: 'agent_task',
+      actionConfig: { prompt: 'Perform a research search on latest AI operating system breakthroughs and summarize key developments.' },
+      status: 'paused'
+    });
+  }
+
 
   // ── User Management (Auth Hardening) ──
 

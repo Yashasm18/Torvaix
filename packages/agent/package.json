@@ -2,7 +2,8 @@
   "name": "@torvaix/agent",
   "version": "0.1.0",
   "scripts": {
-    "dev": "npx tsx --watch src/server.ts"
+    "dev": "npx tsx --watch src/server.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -10,7 +11,9 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "ws": "^8.21.0",
-    "@torvaix/intelligence": "*"
+    "@torvaix/intelligence": "*",
+    "@torvaix/events": "*",
+    "express-rate-limit": "^8.5.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

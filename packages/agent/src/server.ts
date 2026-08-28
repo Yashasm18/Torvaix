@@ -20,6 +20,10 @@ import { AgentOrchestrator } from './orchestrator';
 import { MemoryStore } from '@torvaix/memory';
 import { LLMClient } from '@torvaix/providers';
 import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
+import { torvaixEvents, AutomationEngine, AutomationWorkflow } from '@torvaix/events';
+import rateLimit from 'express-rate-limit';
+
+
 
 // ── Environment & Config ──
 
@@ -54,6 +58,108 @@ const memoryDbPath = path.join(DATA_DIR, 'torvaix.db');
 const memoryStore = new MemoryStore(memoryDbPath);
 const llmClient = new LLMClient();
 
+// ── Background Automation Engine ──
+
+const automationEngine = new AutomationEngine({
+  listAutomations: (workspaceId?: string) => {
+    const rows = memoryStore.listAutomations(workspaceId);
+    return rows.map(r => ({
+      id: r.id,
+      workspaceId: r.workspaceId,
+      name: r.name,
+      description: r.description,
+      triggerType: r.triggerType,
+      triggerConfig: JSON.parse(r.triggerConfig || '{}'),
+      actionType: r.actionType as any,
+      actionConfig: JSON.parse(r.actionConfig || '{}'),
+      status: r.status,
+      lastRunAt: r.lastRunAt,
+      runCount: r.runCount,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }));
+  },
+  getAutomation: (id: string) => {
+    const r = memoryStore.getAutomation(id);
+    if (!r) return null;
+    return {
+      id: r.id,
+      workspaceId: r.workspaceId,
+      name: r.name,
+      description: r.description,
+      triggerType: r.triggerType,
+      triggerConfig: JSON.parse(r.triggerConfig || '{}'),
+      actionType: r.actionType as any,
+      actionConfig: JSON.parse(r.actionConfig || '{}'),
+      status: r.status,
+      lastRunAt: r.lastRunAt,
+      runCount: r.runCount,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  },
+  updateAutomation: (id: string, updates: any) => {
+    return memoryStore.updateAutomation(id, updates);
+  },
+  logAutomationRun: (log: any) => {
+    memoryStore.logAutomationRun(log);
+  }
+});
+
+automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
+  const { actionType, actionConfig, workspaceId } = workflow;
+
+  if (actionType === 'consolidate_memory') {
+    const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
+    const synthesizer = new WorkspaceKnowledgeSynthesizer();
+    const report = synthesizer.consolidateWorkspace(workspaceId, memories);
+    return {
+      success: true,
+      output: `Autonomous Memory Consolidation completed: ${report.processedCount} memories analyzed, ${report.clustersCount} clusters created, ${report.reinforcedEdgesCount} graph edges reinforced.`
+    };
+  }
+
+  if (actionType === 'synthesize_graph') {
+    const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
+    const synthesizer = new WorkspaceKnowledgeSynthesizer();
+    const report = synthesizer.consolidateWorkspace(workspaceId, memories);
+    return {
+      success: true,
+      output: `Knowledge Graph Indexer completed: ${report.synthesizedInsights.length} insights synthesized, ${report.reinforcedEdgesCount} graph edges generated.`
+    };
+  }
+
+  if (actionType === 'clean_stale_memories') {
+    const stats = memoryStore.getMemoryStats(workspaceId);
+    return {
+      success: true,
+      output: `Stale Memory Cleaner evaluated: ${stats.total} total memories retained, average retrieval frequency: ${stats.avgRetrieval}.`
+    };
+  }
+
+  if (actionType === 'agent_task') {
+    const prompt = actionConfig?.prompt || `Execute background automation: ${workflow.name}`;
+    const agent = new AgentOrchestrator(memoryStore, { llm: llmClient });
+    const finalState = await agent.run({
+      workspaceId,
+      instructions: prompt,
+    });
+    return {
+      success: true,
+      output: finalState.output || `Agent task finished with status completed`
+    };
+  }
+
+  return {
+    success: true,
+    output: `Executed automation ${workflow.name} [${actionType}]`
+  };
+});
+
+// Start background automation loop
+automationEngine.start(30_000);
+
+
 app.use(express.json({ limit: '50mb' }));
 
 // CORS for local dev (Next.js on 3000, agent server on 3001)
@@ -73,36 +179,24 @@ interface AuthRequest extends Request {
 
 // ── Rate Limiting ──
 
-interface RateLimitEntry {
-  requests: number[]; // timestamps
-}
+const apiLimiter = rateLimit({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  limit: RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded. Please slow down.' }
+});
 
-const rateLimits = new Map<string, RateLimitEntry>();
+const agentLimiter = rateLimit({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  limit: AGENT_RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded. Please slow down.' }
+});
 
-function rateLimit(maxRequests: number = RATE_LIMIT_MAX) {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
-    const key = req.user?.userId ?? req.ip ?? 'anonymous';
-    const now = Date.now();
-    const windowStart = now - RATE_LIMIT_WINDOW_MS;
+app.use('/api/', apiLimiter);
 
-    let entry = rateLimits.get(key);
-    if (!entry) {
-      entry = { requests: [] };
-      rateLimits.set(key, entry);
-    }
-
-    // Clean old requests
-    entry.requests = entry.requests.filter(t => t > windowStart);
-
-    if (entry.requests.length >= maxRequests) {
-      res.status(429).json({ error: 'Rate limit exceeded. Please slow down.' });
-      return;
-    }
-
-    entry.requests.push(now);
-    next();
-  };
-}
 
 // ── Auth Middleware ──
 
@@ -206,7 +300,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
+app.get('/api/auth/me', requireAuth, apiLimiter, (req: AuthRequest, res) => {
   const user = memoryStore.getUserById(req.user!.userId);
   if (!user) {
     res.status(404).json({ error: 'User not found' });
@@ -217,7 +311,7 @@ app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
 
 // ── Protected Routes ──
 
-app.post('/api/workspaces', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+app.post('/api/workspaces', requireAuth, apiLimiter, (req: AuthRequest, res) => {
   try {
     const { id, name = 'New Workspace', settings = {} } = req.body;
     
@@ -226,11 +320,6 @@ app.post('/api/workspaces', requireAuth, rateLimit(), (req: AuthRequest, res) =>
       return res.json({ success: true, id });
     }
 
-    // Call memory store to provision workspace
-    // We modify MemoryStore to accept id in a moment, or we can just use the provided ID manually here.
-    // Wait, MemoryStore.createWorkspace generates a UUID.
-    // Let's just insert it manually or modify MemoryStore.
-    // For now, let's just let MemoryStore handle it and we'll change MemoryStore to accept ID.
     const createdId = memoryStore.createWorkspace(name, settings, id);
     res.status(201).json({ success: true, id: createdId });
   } catch (error: any) {
@@ -238,7 +327,7 @@ app.post('/api/workspaces', requireAuth, rateLimit(), (req: AuthRequest, res) =>
   }
 });
 
-app.post('/api/conversations', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+app.post('/api/conversations', requireAuth, apiLimiter, (req: AuthRequest, res) => {
   try {
     const { workspaceId, title = 'New Conversation' } = req.body;
     const conversationId = memoryStore.createConversation(workspaceId ?? 'default', title);
@@ -249,7 +338,7 @@ app.post('/api/conversations', requireAuth, rateLimit(), (req: AuthRequest, res)
 });
 
 // Agent loop — stricter rate limit
-app.post('/api/agent/run', requireAuth, rateLimit(AGENT_RATE_LIMIT_MAX), async (req: AuthRequest, res) => {
+app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, res) => {
   try {
     const { instructions, workspaceId, messages = [], pendingActionId } = req.body;
     const isStream = req.query.stream === 'true';
@@ -311,7 +400,7 @@ app.post('/api/agent/run', requireAuth, rateLimit(AGENT_RATE_LIMIT_MAX), async (
 });
 
 // Approve Pending Action
-app.post('/api/agent/approve', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+app.post('/api/agent/approve', requireAuth, apiLimiter, (req: AuthRequest, res) => {
   try {
     const { pendingActionId, status } = req.body as { pendingActionId: string; status: 'approved' | 'rejected' };
     if (!pendingActionId || !status) {
@@ -326,7 +415,7 @@ app.post('/api/agent/approve', requireAuth, rateLimit(), (req: AuthRequest, res)
 });
 
 // List Execution Logs
-app.get('/api/agent/executions', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+app.get('/api/agent/executions', requireAuth, apiLimiter, (req: AuthRequest, res) => {
   try {
     const workspaceId = (req.query.workspaceId as string) || 'default';
     const limit = parseInt((req.query.limit as string) || '50', 10);
@@ -338,7 +427,7 @@ app.get('/api/agent/executions', requireAuth, rateLimit(), (req: AuthRequest, re
 });
 
 // List Pending Actions
-app.get('/api/agent/pending-actions', requireAuth, rateLimit(), (req: AuthRequest, res) => {
+app.get('/api/agent/pending-actions', requireAuth, apiLimiter, (req: AuthRequest, res) => {
   try {
     const workspaceId = (req.query.workspaceId as string) || 'default';
     const status = (req.query.status as any) || 'pending';
@@ -350,7 +439,8 @@ app.get('/api/agent/pending-actions', requireAuth, rateLimit(), (req: AuthReques
 });
 
 // Dispatch Agent Task Directly
-app.post('/api/agent/tasks', requireAuth, rateLimit(AGENT_RATE_LIMIT_MAX), async (req: AuthRequest, res) => {
+app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest, res) => {
+
   try {
     const { instructions, workspaceId = 'default', priority = 'medium' } = req.body;
     if (!instructions || typeof instructions !== 'string') {
@@ -387,7 +477,7 @@ app.post('/api/agent/tasks', requireAuth, rateLimit(AGENT_RATE_LIMIT_MAX), async
 });
 
 // Direct memory endpoints
-app.get('/api/memory/list', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+app.get('/api/memory/list', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
   try {
     const workspaceId = (req.query.workspaceId as string) || 'default';
     const memories = await memoryStore.getAllMemories(workspaceId);
@@ -397,17 +487,18 @@ app.get('/api/memory/list', requireAuth, rateLimit(), async (req: AuthRequest, r
   }
 });
 
-app.post('/api/memory/store', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+app.post('/api/memory/store', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
   try {
-    const { workspaceId, content, source } = req.body;
-    const id = await memoryStore.storeMemory(workspaceId ?? 'default', content, source ?? 'API');
+    const { workspaceId = 'default', content, source = 'API' } = req.body;
+    const id = await memoryStore.storeMemory(workspaceId, content, source);
+    torvaixEvents.emitMemoryCreated({ id, workspaceId, source, content });
     res.json({ success: true, id });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to store memory', details: error.message });
   }
 });
 
-app.post('/api/memory/query', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+app.post('/api/memory/query', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
   try {
     const { workspaceId, query, topK } = req.body;
     const results = await memoryStore.queryMemory(workspaceId ?? 'default', query, topK ?? 5);
@@ -417,9 +508,9 @@ app.post('/api/memory/query', requireAuth, rateLimit(), async (req: AuthRequest,
   }
 });
 
-app.delete('/api/memory/:id', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+app.delete('/api/memory/:id', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     await memoryStore.deleteMemory(id);
     res.json({ success: true, id });
   } catch (error: any) {
@@ -428,7 +519,7 @@ app.delete('/api/memory/:id', requireAuth, rateLimit(), async (req: AuthRequest,
 });
 
 // Autonomous Memory Consolidation & Workspace Knowledge Synthesis
-app.post('/api/memory/consolidate', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+app.post('/api/memory/consolidate', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
   try {
     const { workspaceId = 'default' } = req.body;
     const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
@@ -440,7 +531,7 @@ app.post('/api/memory/consolidate', requireAuth, rateLimit(), async (req: AuthRe
   }
 });
 
-app.get('/api/memory/insights', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+app.get('/api/memory/insights', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
   try {
     const workspaceId = (req.query.workspaceId as string) || 'default';
     const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
@@ -459,9 +550,153 @@ app.get('/api/memory/insights', requireAuth, rateLimit(), async (req: AuthReques
   }
 });
 
+// ── Automation Workflows API ──
+
+app.get('/api/automations', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
+  try {
+    const workspaceId = (req.query.workspaceId as string) || 'default';
+    memoryStore.seedDefaultAutomations(workspaceId);
+    const rows = memoryStore.listAutomations(workspaceId);
+    const automations = rows.map(r => ({
+      ...r,
+      triggerConfig: JSON.parse(r.triggerConfig || '{}'),
+      actionConfig: JSON.parse(r.actionConfig || '{}'),
+    }));
+    res.json({ success: true, automations });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to list automations', details: error.message });
+  }
+});
+
+app.post('/api/automations', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
+  try {
+    const { workspaceId = 'default', name, description, triggerType, triggerConfig, actionType, actionConfig, status } = req.body;
+    if (!name || !triggerType || !actionType) {
+      res.status(400).json({ error: 'Missing required fields: name, triggerType, actionType' });
+      return;
+    }
+    const record = memoryStore.createAutomation({
+      workspaceId,
+      name,
+      description,
+      triggerType,
+      triggerConfig,
+      actionType,
+      actionConfig,
+      status
+    });
+    res.status(201).json({
+      success: true,
+      automation: {
+        ...record,
+        triggerConfig: JSON.parse(record.triggerConfig || '{}'),
+        actionConfig: JSON.parse(record.actionConfig || '{}'),
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to create automation', details: error.message });
+  }
+});
+
+app.get('/api/automations/stats', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
+  try {
+    const workspaceId = (req.query.workspaceId as string) || 'default';
+    const stats = memoryStore.getAutomationStats(workspaceId);
+    res.json({ success: true, stats });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch automation stats', details: error.message });
+  }
+});
+
+app.get('/api/automations/:id', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const record = memoryStore.getAutomation(id);
+    if (!record) { res.status(404).json({ error: 'Automation not found' }); return; }
+    res.json({
+      success: true,
+      automation: {
+        ...record,
+        triggerConfig: JSON.parse(record.triggerConfig || '{}'),
+        actionConfig: JSON.parse(record.actionConfig || '{}'),
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to get automation', details: error.message });
+  }
+});
+
+app.put('/api/automations/:id', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const updates = req.body;
+    const updated = memoryStore.updateAutomation(id, updates);
+    if (!updated) { res.status(404).json({ error: 'Automation not found' }); return; }
+    const record = memoryStore.getAutomation(id);
+    res.json({
+      success: true,
+      automation: {
+        ...record,
+        triggerConfig: JSON.parse(record?.triggerConfig || '{}'),
+        actionConfig: JSON.parse(record?.actionConfig || '{}'),
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to update automation', details: error.message });
+  }
+});
+
+app.delete('/api/automations/:id', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const deleted = memoryStore.deleteAutomation(id);
+    res.json({ success: deleted });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete automation', details: error.message });
+  }
+});
+
+app.post('/api/automations/:id/trigger', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const record = memoryStore.getAutomation(id);
+    if (!record) { res.status(404).json({ error: 'Automation not found' }); return; }
+    const workflow: AutomationWorkflow = {
+      id: record.id,
+      workspaceId: record.workspaceId,
+      name: record.name,
+      description: record.description,
+      triggerType: record.triggerType,
+      triggerConfig: JSON.parse(record.triggerConfig || '{}'),
+      actionType: record.actionType as any,
+      actionConfig: JSON.parse(record.actionConfig || '{}'),
+      status: record.status,
+      lastRunAt: record.lastRunAt,
+      runCount: record.runCount,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
+    const log = await automationEngine.executeWorkflow(workflow, { source: 'manual_trigger' });
+    res.json({ success: true, log });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to trigger automation', details: error.message });
+  }
+});
+
+app.get('/api/automations/:id/logs', requireAuth, apiLimiter, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const limit = Number(req.query.limit) || 20;
+    const logs = memoryStore.listAutomationLogs(id, limit);
+    res.json({ success: true, logs });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch automation logs', details: error.message });
+  }
+});
+
 // ── Companion Layer (Experimental) — preserved as-is ──
 
-app.post('/api/companion/pair/create', requireAuth, async (req, res) => {
+app.post('/api/companion/pair/create', requireAuth, apiLimiter, async (req, res) => {
   try {
     const { scope = 'readonly', expiryMinutes = 10 } = req.body;
     console.log('[EXPERIMENTAL][Companion] Creating pairing token...');
@@ -478,7 +713,7 @@ app.post('/api/companion/pair/create', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/companion/pair/claim', async (req, res) => {
+app.post('/api/companion/pair/claim', apiLimiter, async (req, res) => {
   try {
     const { token, deviceName, fingerprint } = req.body;
     if (!token || !deviceName || !fingerprint) {
@@ -498,7 +733,7 @@ app.post('/api/companion/pair/claim', async (req, res) => {
   }
 });
 
-app.post('/api/companion/session', async (req, res) => {
+app.post('/api/companion/session', apiLimiter, async (req, res) => {
   try {
     const { deviceId } = req.body;
     if (!deviceId) { res.status(400).json({ error: 'Missing deviceId' }); return; }
@@ -510,7 +745,7 @@ app.post('/api/companion/session', async (req, res) => {
   }
 });
 
-app.post('/api/companion/session/validate', async (req, res) => {
+app.post('/api/companion/session/validate', apiLimiter, async (req, res) => {
   try {
     const { sessionToken } = req.body;
     if (!sessionToken) { res.status(400).json({ error: 'Missing sessionToken' }); return; }
@@ -529,7 +764,7 @@ app.post('/api/companion/session/validate', async (req, res) => {
   }
 });
 
-app.get('/api/companion/devices', requireAuth, async (_req, res) => {
+app.get('/api/companion/devices', requireAuth, apiLimiter, async (_req, res) => {
   try {
     const devices = memoryStore.listCompanionDevices();
     res.json({ success: true, devices, experimental: true });
@@ -538,7 +773,7 @@ app.get('/api/companion/devices', requireAuth, async (_req, res) => {
   }
 });
 
-app.post('/api/companion/devices/revoke', requireAuth, async (req, res) => {
+app.post('/api/companion/devices/revoke', requireAuth, apiLimiter, async (req, res) => {
   try {
     const { deviceId } = req.body;
     if (!deviceId) { res.status(400).json({ error: 'Missing deviceId' }); return; }
