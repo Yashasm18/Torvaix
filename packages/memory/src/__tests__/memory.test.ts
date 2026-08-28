@@ -341,3 +341,105 @@ describe('MemoryStore — Hybrid Retrieval & RRF', () => {
   });
 });
 
+describe('MemoryStore — Automation Workflows & Logs', () => {
+  let store: MemoryStore;
+  let testDbPath: string;
+
+  beforeEach(() => {
+    testDbPath = path.join(os.tmpdir(), `torvaix-auto-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    store = new MemoryStore(testDbPath);
+  });
+
+  afterEach(() => {
+    try { fs.unlinkSync(testDbPath); } catch { /* ignore */ }
+  });
+
+  it('creates, lists, updates, and deletes automation workflows', () => {
+    const wsId = store.createWorkspace('Auto WS');
+
+    const created = store.createAutomation({
+      workspaceId: wsId,
+      name: 'Nightly Sync',
+      description: 'Sync files every night',
+      triggerType: 'schedule',
+      triggerConfig: { frequency: 'daily', timeOfDay: '03:00' },
+      actionType: 'agent_task',
+      actionConfig: { prompt: 'Sync files' },
+      status: 'active'
+    });
+
+    expect(created.id).toBeDefined();
+    expect(created.name).toBe('Nightly Sync');
+    expect(created.status).toBe('active');
+
+    const list = store.listAutomations(wsId);
+    expect(list.length).toBe(1);
+    expect(list[0].id).toBe(created.id);
+
+    const updated = store.updateAutomation(created.id, {
+      status: 'paused',
+      name: 'Nightly Sync (Paused)'
+    });
+    expect(updated).toBe(true);
+
+    const fetched = store.getAutomation(created.id);
+    expect(fetched?.status).toBe('paused');
+    expect(fetched?.name).toBe('Nightly Sync (Paused)');
+
+    const deleted = store.deleteAutomation(created.id);
+    expect(deleted).toBe(true);
+    expect(store.listAutomations(wsId).length).toBe(0);
+  });
+
+  it('records execution logs and calculates automation stats', () => {
+    const wsId = store.createWorkspace('Stats WS');
+    const auto = store.createAutomation({
+      workspaceId: wsId,
+      name: 'Auto Runner',
+      triggerType: 'manual',
+      actionType: 'consolidate_memory',
+      status: 'active'
+    });
+
+    store.logAutomationRun({
+      automationId: auto.id,
+      workspaceId: wsId,
+      status: 'success',
+      output: 'Consolidation complete: 3 insights',
+      durationMs: 245,
+      startedAt: new Date().toISOString()
+    });
+
+    store.logAutomationRun({
+      automationId: auto.id,
+      workspaceId: wsId,
+      status: 'error',
+      output: 'Network timeout',
+      durationMs: 500,
+      startedAt: new Date().toISOString()
+    });
+
+    const logs = store.listAutomationLogs(auto.id);
+    expect(logs.length).toBe(2);
+    expect(logs[0].output).toBeDefined();
+
+    const stats = store.getAutomationStats(wsId);
+    expect(stats.totalAutomations).toBe(1);
+    expect(stats.activeCount).toBe(1);
+    expect(stats.successfulRuns).toBe(1);
+    expect(stats.failedRuns).toBe(1);
+  });
+
+  it('seeds default automations when workspace is empty', () => {
+    const wsId = store.createWorkspace('Seed WS');
+    expect(store.listAutomations(wsId).length).toBe(0);
+
+    store.seedDefaultAutomations(wsId);
+    const seeded = store.listAutomations(wsId);
+    expect(seeded.length).toBe(3);
+    expect(seeded.some(s => s.name.includes('Consolidation'))).toBe(true);
+    expect(seeded.some(s => s.name.includes('Graph Indexer'))).toBe(true);
+  });
+});
+
+

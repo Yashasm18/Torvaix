@@ -20,6 +20,7 @@ import { AgentOrchestrator } from './orchestrator';
 import { MemoryStore } from '@torvaix/memory';
 import { LLMClient } from '@torvaix/providers';
 import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
+import { torvaixEvents, AutomationEngine, AutomationWorkflow } from '@torvaix/events';
 
 // ── Environment & Config ──
 
@@ -53,6 +54,108 @@ const wss = new WebSocketServer({ server });
 const memoryDbPath = path.join(DATA_DIR, 'torvaix.db');
 const memoryStore = new MemoryStore(memoryDbPath);
 const llmClient = new LLMClient();
+
+// ── Background Automation Engine ──
+
+const automationEngine = new AutomationEngine({
+  listAutomations: (workspaceId?: string) => {
+    const rows = memoryStore.listAutomations(workspaceId);
+    return rows.map(r => ({
+      id: r.id,
+      workspaceId: r.workspaceId,
+      name: r.name,
+      description: r.description,
+      triggerType: r.triggerType,
+      triggerConfig: JSON.parse(r.triggerConfig || '{}'),
+      actionType: r.actionType as any,
+      actionConfig: JSON.parse(r.actionConfig || '{}'),
+      status: r.status,
+      lastRunAt: r.lastRunAt,
+      runCount: r.runCount,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }));
+  },
+  getAutomation: (id: string) => {
+    const r = memoryStore.getAutomation(id);
+    if (!r) return null;
+    return {
+      id: r.id,
+      workspaceId: r.workspaceId,
+      name: r.name,
+      description: r.description,
+      triggerType: r.triggerType,
+      triggerConfig: JSON.parse(r.triggerConfig || '{}'),
+      actionType: r.actionType as any,
+      actionConfig: JSON.parse(r.actionConfig || '{}'),
+      status: r.status,
+      lastRunAt: r.lastRunAt,
+      runCount: r.runCount,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  },
+  updateAutomation: (id: string, updates: any) => {
+    return memoryStore.updateAutomation(id, updates);
+  },
+  logAutomationRun: (log: any) => {
+    memoryStore.logAutomationRun(log);
+  }
+});
+
+automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
+  const { actionType, actionConfig, workspaceId } = workflow;
+
+  if (actionType === 'consolidate_memory') {
+    const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
+    const synthesizer = new WorkspaceKnowledgeSynthesizer();
+    const report = synthesizer.consolidateWorkspace(workspaceId, memories);
+    return {
+      success: true,
+      output: `Autonomous Memory Consolidation completed: ${report.processedCount} memories analyzed, ${report.clustersCount} clusters created, ${report.reinforcedEdgesCount} graph edges reinforced.`
+    };
+  }
+
+  if (actionType === 'synthesize_graph') {
+    const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
+    const synthesizer = new WorkspaceKnowledgeSynthesizer();
+    const report = synthesizer.consolidateWorkspace(workspaceId, memories);
+    return {
+      success: true,
+      output: `Knowledge Graph Indexer completed: ${report.synthesizedInsights.length} insights synthesized, ${report.reinforcedEdgesCount} graph edges generated.`
+    };
+  }
+
+  if (actionType === 'clean_stale_memories') {
+    const stats = memoryStore.getMemoryStats(workspaceId);
+    return {
+      success: true,
+      output: `Stale Memory Cleaner evaluated: ${stats.total} total memories retained, average retrieval frequency: ${stats.avgRetrieval}.`
+    };
+  }
+
+  if (actionType === 'agent_task') {
+    const prompt = actionConfig?.prompt || `Execute background automation: ${workflow.name}`;
+    const agent = new AgentOrchestrator(memoryStore, { llm: llmClient });
+    const finalState = await agent.run({
+      workspaceId,
+      instructions: prompt,
+    });
+    return {
+      success: true,
+      output: finalState.output || `Agent task finished with status completed`
+    };
+  }
+
+  return {
+    success: true,
+    output: `Executed automation ${workflow.name} [${actionType}]`
+  };
+});
+
+// Start background automation loop
+automationEngine.start(30_000);
+
 
 app.use(express.json({ limit: '50mb' }));
 
@@ -399,8 +502,9 @@ app.get('/api/memory/list', requireAuth, rateLimit(), async (req: AuthRequest, r
 
 app.post('/api/memory/store', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
   try {
-    const { workspaceId, content, source } = req.body;
-    const id = await memoryStore.storeMemory(workspaceId ?? 'default', content, source ?? 'API');
+    const { workspaceId = 'default', content, source = 'API' } = req.body;
+    const id = await memoryStore.storeMemory(workspaceId, content, source);
+    torvaixEvents.emitMemoryCreated({ id, workspaceId, source, content });
     res.json({ success: true, id });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to store memory', details: error.message });
@@ -419,7 +523,7 @@ app.post('/api/memory/query', requireAuth, rateLimit(), async (req: AuthRequest,
 
 app.delete('/api/memory/:id', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     await memoryStore.deleteMemory(id);
     res.json({ success: true, id });
   } catch (error: any) {
@@ -459,7 +563,152 @@ app.get('/api/memory/insights', requireAuth, rateLimit(), async (req: AuthReques
   }
 });
 
+// ── Automation Workflows API ──
+
+app.get('/api/automations', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const workspaceId = (req.query.workspaceId as string) || 'default';
+    memoryStore.seedDefaultAutomations(workspaceId);
+    const rows = memoryStore.listAutomations(workspaceId);
+    const automations = rows.map(r => ({
+      ...r,
+      triggerConfig: JSON.parse(r.triggerConfig || '{}'),
+      actionConfig: JSON.parse(r.actionConfig || '{}'),
+    }));
+    res.json({ success: true, automations });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to list automations', details: error.message });
+  }
+});
+
+app.post('/api/automations', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const { workspaceId = 'default', name, description, triggerType, triggerConfig, actionType, actionConfig, status } = req.body;
+    if (!name || !triggerType || !actionType) {
+      res.status(400).json({ error: 'Missing required fields: name, triggerType, actionType' });
+      return;
+    }
+    const record = memoryStore.createAutomation({
+      workspaceId,
+      name,
+      description,
+      triggerType,
+      triggerConfig,
+      actionType,
+      actionConfig,
+      status
+    });
+    res.status(201).json({
+      success: true,
+      automation: {
+        ...record,
+        triggerConfig: JSON.parse(record.triggerConfig || '{}'),
+        actionConfig: JSON.parse(record.actionConfig || '{}'),
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to create automation', details: error.message });
+  }
+});
+
+app.get('/api/automations/stats', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const workspaceId = (req.query.workspaceId as string) || 'default';
+    const stats = memoryStore.getAutomationStats(workspaceId);
+    res.json({ success: true, stats });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch automation stats', details: error.message });
+  }
+});
+
+app.get('/api/automations/:id', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const record = memoryStore.getAutomation(id);
+    if (!record) { res.status(404).json({ error: 'Automation not found' }); return; }
+    res.json({
+      success: true,
+      automation: {
+        ...record,
+        triggerConfig: JSON.parse(record.triggerConfig || '{}'),
+        actionConfig: JSON.parse(record.actionConfig || '{}'),
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to get automation', details: error.message });
+  }
+});
+
+app.put('/api/automations/:id', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const updates = req.body;
+    const updated = memoryStore.updateAutomation(id, updates);
+    if (!updated) { res.status(404).json({ error: 'Automation not found' }); return; }
+    const record = memoryStore.getAutomation(id);
+    res.json({
+      success: true,
+      automation: {
+        ...record,
+        triggerConfig: JSON.parse(record?.triggerConfig || '{}'),
+        actionConfig: JSON.parse(record?.actionConfig || '{}'),
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to update automation', details: error.message });
+  }
+});
+
+app.delete('/api/automations/:id', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const deleted = memoryStore.deleteAutomation(id);
+    res.json({ success: deleted });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete automation', details: error.message });
+  }
+});
+
+app.post('/api/automations/:id/trigger', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const record = memoryStore.getAutomation(id);
+    if (!record) { res.status(404).json({ error: 'Automation not found' }); return; }
+    const workflow: AutomationWorkflow = {
+      id: record.id,
+      workspaceId: record.workspaceId,
+      name: record.name,
+      description: record.description,
+      triggerType: record.triggerType,
+      triggerConfig: JSON.parse(record.triggerConfig || '{}'),
+      actionType: record.actionType as any,
+      actionConfig: JSON.parse(record.actionConfig || '{}'),
+      status: record.status,
+      lastRunAt: record.lastRunAt,
+      runCount: record.runCount,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
+    const log = await automationEngine.executeWorkflow(workflow, { source: 'manual_trigger' });
+    res.json({ success: true, log });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to trigger automation', details: error.message });
+  }
+});
+
+app.get('/api/automations/:id/logs', requireAuth, rateLimit(), async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const limit = Number(req.query.limit) || 20;
+    const logs = memoryStore.listAutomationLogs(id, limit);
+    res.json({ success: true, logs });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch automation logs', details: error.message });
+  }
+});
+
 // ── Companion Layer (Experimental) — preserved as-is ──
+
 
 app.post('/api/companion/pair/create', requireAuth, async (req, res) => {
   try {
