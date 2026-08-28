@@ -12,7 +12,8 @@
     "jsonwebtoken": "^9.0.3",
     "ws": "^8.21.0",
     "@torvaix/intelligence": "*",
-    "@torvaix/events": "*"
+    "@torvaix/events": "*",
+    "express-rate-limit": "^8.5.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

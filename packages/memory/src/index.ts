@@ -387,12 +387,15 @@ export class MemoryStore {
   private localKeywordEmbedding(text: string): number[] {
     const dims = this.vectorSize;
     const vec = new Float32Array(dims);
-    const words = text.toLowerCase().split(/\W+/).filter(w => w.length > 2);
+    const safeText = typeof text === 'string' ? text.slice(0, 10000) : '';
+    const rawWords = safeText.toLowerCase().split(/\W+/);
+    const words = rawWords.filter(w => typeof w === 'string' && w.length > 2 && w.length <= 64).slice(0, 500);
 
     for (const word of words) {
       // Distribute word hashes across dimensions
       let hash = 0;
-      for (let i = 0; i < word.length; i++) {
+      const wordLen = Math.min(typeof word === 'string' ? word.length : 0, 64);
+      for (let i = 0; i < wordLen; i++) {
         hash = ((hash << 5) - hash) + word.charCodeAt(i);
         hash |= 0;
       }
