@@ -363,12 +363,14 @@ export default function AutomationPage() {
             </Button>
 
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg shadow-sm">
-                  <Plus className="w-4 h-4" />
-                  New Automation
-                </Button>
-              </DialogTrigger>
+              <DialogTrigger
+                render={
+                  <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg shadow-sm">
+                    <Plus className="w-4 h-4" />
+                    New Automation
+                  </Button>
+                }
+              />
               <DialogContent className="max-w-xl bg-surface border-border">
                 <DialogHeader>
                   <DialogTitle className="text-xl font-bold">Create Autonomous Workflow</DialogTitle>
