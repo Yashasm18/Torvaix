@@ -2,7 +2,7 @@
   
 <h1>
   <img src="https://raw.githubusercontent.com/Yashasm18/Torvaix/main/apps/web/public/torvaix-icon.png" width="42" align="center" alt="Torvaix Favicon" />
-  &nbsp;Torvaix
+  &nbsp;Torvaix.
 </h1>
 
 **A workspace-first AI operating system for memory, agents, knowledge, and executioಲ.**
