@@ -41,56 +41,59 @@ export default function GraphPage() {
   const isDark = theme === 'dark' || !theme; // Default to dark
 
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     fetch('/api/graph')
       .then(res => res.json())
       .then(data => {
         if (!data.nodes) return;
-        
+
         const nodes: Node[] = data.nodes.map((n: any) => ({
           ...n,
           val: n.importance * 2, // Scale size based on importance
           color: TYPE_COLORS[n.type] || TYPE_COLORS.UNKNOWN
         }));
-        
-        const links: Link[] = data.edges.map((e: any) => ({
+
+        const links: Link[] = (data.edges ?? []).map((e: any) => ({
           ...e,
           source: e.source_id,
           target: e.target_id,
         }));
-        
+
         setGraphData({ nodes, links });
       })
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => setLoaded(true));
   }, []);
 
   useEffect(() => {
-    const handleResize = () => {
-      if (containerRef.current) {
-        setDimensions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight
-        });
-      }
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateSize = () => {
+      setDimensions({ width: container.clientWidth, height: container.clientHeight });
     };
-    
-    window.addEventListener('resize', handleResize);
-    handleResize(); // Init
-    
-    return () => window.removeEventListener('resize', handleResize);
+
+    // Observe the container, not the window: the resizable side panel and the
+    // collapsible sidebar change its size without firing a window resize.
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(container);
+    updateSize();
+
+    return () => observer.disconnect();
   }, []);
 
   return (
     <div className="flex-1 flex flex-col h-screen overflow-hidden bg-background p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-[14rem]">
           <h1 className="text-2xl font-bold tracking-tight mb-1">Knowledge Graph</h1>
           <p className="text-sm text-muted-foreground">Interactive visualization of all interconnected memories and entities.</p>
         </div>
-        
+
         {/* Legend */}
-        <div className="flex items-center gap-4 text-xs font-mono">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-mono">
           {Object.entries(TYPE_COLORS).map(([type, color]) => (
             <div key={type} className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
@@ -99,12 +102,20 @@ export default function GraphPage() {
           ))}
         </div>
       </div>
-      
+
       <div className="flex flex-1 gap-6 overflow-hidden">
-        <div 
-          ref={containerRef} 
+        <div
+          ref={containerRef}
           className="flex-1 rounded-xl border border-border bg-[#0a0a0a] shadow-inner overflow-hidden relative"
         >
+          {loaded && graphData.nodes.length === 0 && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 p-6 text-center pointer-events-none">
+              <p className="text-sm font-medium text-foreground">Your knowledge graph is empty</p>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                Save a fact in chat (for example, &ldquo;Remember that I prefer PostgreSQL&rdquo;). With the Intelligence Layer running, entities and relationships appear here.
+              </p>
+            </div>
+          )}
           <ForceGraph2D
             ref={fgRef}
             width={dimensions.width}

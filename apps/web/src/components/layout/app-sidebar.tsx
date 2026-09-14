@@ -61,8 +61,14 @@ export function AppSidebar() {
 
   React.useEffect(() => {
     const fetchStatus = async () => {
-      const status = await getSystemStatusAction();
-      setSystemStatus({ ...status, loading: false });
+      try {
+        const status = await getSystemStatusAction();
+        setSystemStatus({ ...status, loading: false });
+      } catch {
+        // Server restarts and redeploys invalidate Server Action ids; show offline instead of
+        // throwing an unhandled rejection on every poll.
+        setSystemStatus({ ollama: false, qdrant: false, sqlite: false, loading: false });
+      }
     };
     fetchStatus();
     // Poll every 10 seconds

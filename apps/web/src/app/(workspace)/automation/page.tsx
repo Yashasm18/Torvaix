@@ -324,7 +324,7 @@ export default function AutomationPage() {
   const successRate =
     stats && stats.totalRuns > 0
       ? Math.round((stats.successfulRuns / stats.totalRuns) * 100)
-      : 100;
+      : null;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-background overflow-y-auto">
@@ -578,7 +578,7 @@ export default function AutomationPage() {
           <div className="bg-surface border border-border/60 rounded-xl p-3.5 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-muted-foreground">Success Rate</p>
-              <p className="text-xl font-bold text-emerald-400 mt-0.5">{successRate}%</p>
+              <p className="text-xl font-bold text-emerald-400 mt-0.5">{successRate === null ? "—" : `${successRate}%`}</p>
             </div>
             <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
               <CheckCircle2 className="w-4 h-4" />

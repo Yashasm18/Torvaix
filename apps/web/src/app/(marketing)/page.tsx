@@ -829,8 +829,25 @@ export default function LandingPage() {
               <div><span className="text-[#fca5a5]">$</span> npm run dev</div>
             </div>
             <button 
-              onClick={() => {
-                navigator.clipboard.writeText("git clone https://github.com/Yashasm18/Torvaix.git\ncd Torvaix\nnpm install\ndocker compose up -d\nollama serve\nnpm run dev");
+              onClick={async () => {
+                const commands = "git clone https://github.com/Yashasm18/Torvaix.git\ncd Torvaix\nnpm install\ndocker compose up -d\nollama serve\nnpm run dev";
+                let copied = false;
+                try {
+                  await navigator.clipboard.writeText(commands);
+                  copied = true;
+                } catch {
+                  // Clipboard API is blocked in insecure contexts, iframes and some browsers.
+                  const textarea = document.createElement("textarea");
+                  textarea.value = commands;
+                  textarea.setAttribute("readonly", "");
+                  textarea.style.position = "fixed";
+                  textarea.style.opacity = "0";
+                  document.body.appendChild(textarea);
+                  textarea.select();
+                  copied = document.execCommand("copy");
+                  document.body.removeChild(textarea);
+                }
+                if (!copied) return;
                 setIsCopied(true);
                 setTimeout(() => setIsCopied(false), 2000);
               }}

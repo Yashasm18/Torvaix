@@ -1,8 +1,8 @@
 import path from "path";
-import { fileURLToPath } from "url";
 import type { NextConfig } from "next";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// next.config.ts is loaded as CommonJS: `import.meta` makes Next evaluate the compiled
+// config as ESM, which then fails with "exports is not defined". Use __dirname instead.
 
 const securityHeaders = [
   {
