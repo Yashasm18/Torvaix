@@ -259,10 +259,21 @@ export class MemoryStore {
       END;
     `);
     
-    // Populate FTS5 table for any pre-existing rows
+    // FTS5 tables have no unique constraint, so re-sync only when the index has drifted.
     try {
-      this.db.exec(`INSERT OR IGNORE INTO memories_fts(id, workspaceId, content) SELECT id, workspaceId, content FROM memories;`);
-    } catch (e) { /* Ignore if already populated or FTS error */ }
+      const memCount = (this.db.prepare('SELECT COUNT(*) as c FROM memories').get() as { c: number }).c;
+      const ftsCount = (this.db.prepare('SELECT COUNT(*) as c FROM memories_fts').get() as { c: number }).c;
+      const indexedCount = (this.db.prepare(
+        'SELECT COUNT(DISTINCT id) as c FROM memories_fts WHERE id IN (SELECT id FROM memories)'
+      ).get() as { c: number }).c;
+
+      if (ftsCount !== memCount || indexedCount !== memCount) {
+        this.db.transaction(() => {
+          this.db.exec('DELETE FROM memories_fts');
+          this.db.exec('INSERT INTO memories_fts(id, workspaceId, content) SELECT id, workspaceId, content FROM memories');
+        })();
+      }
+    } catch { /* FTS5 unavailable — keyword search falls back to LIKE */ }
     
     // Attempt to alter table if the columns don't exist (for existing dev databases)
     try {

@@ -329,6 +329,40 @@ describe('MemoryStore — Hybrid Retrieval & RRF', () => {
     expect(doc3?.retrievalType).toBe('keyword');
   });
 
+  it('keeps exactly one FTS row per memory across store re-initialisation', async () => {
+    const wsId = store.createWorkspace('FTS Dedupe');
+    await store.storeMemory(wsId, 'PostgreSQL is my favorite database', 'test');
+    await store.storeMemory(wsId, 'Redis is a fast cache', 'test');
+
+    // Every server, agent loop, and web action constructs its own MemoryStore on the same DB.
+    for (let i = 0; i < 3; i++) {
+      new MemoryStore(dbPath, { ollamaUrl: 'http://127.0.0.1:59999', qdrantUrl: 'http://127.0.0.1:59999' });
+    }
+
+    const db = (store as any).db;
+    const ftsRows = (db.prepare('SELECT COUNT(*) as c FROM memories_fts').get() as { c: number }).c;
+    const memRows = (db.prepare('SELECT COUNT(*) as c FROM memories').get() as { c: number }).c;
+    expect(ftsRows).toBe(memRows);
+
+    const results = store.performKeywordSearch(wsId, 'PostgreSQL database', 10);
+    const ids = results.map(r => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('repairs an FTS index that already contains duplicate rows', async () => {
+    const wsId = store.createWorkspace('FTS Repair');
+    await store.storeMemory(wsId, 'Qdrant stores vectors', 'test');
+
+    const db = (store as any).db;
+    db.exec(`INSERT INTO memories_fts(id, workspaceId, content) SELECT id, workspaceId, content FROM memories`);
+    db.exec(`INSERT INTO memories_fts(id, workspaceId, content) SELECT id, workspaceId, content FROM memories`);
+
+    new MemoryStore(dbPath, { ollamaUrl: 'http://127.0.0.1:59999', qdrantUrl: 'http://127.0.0.1:59999' });
+
+    const ftsRows = (db.prepare('SELECT COUNT(*) as c FROM memories_fts').get() as { c: number }).c;
+    expect(ftsRows).toBe(1);
+  });
+
   it('queries memories with keyword search and tagging', async () => {
     const wsId = store.createWorkspace('RRF Test');
     await store.storeMemory(wsId, 'Qdrant vector embeddings database', 'test');

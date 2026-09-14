@@ -186,6 +186,43 @@ describe('@torvaix/events - Event Bus & Automation Engine', () => {
     );
   });
 
+  it('does not start a second run of a scheduled workflow while one is still in flight', async () => {
+    const workflow: AutomationWorkflow = {
+      id: 'slow-scheduled',
+      workspaceId: 'default',
+      name: 'Slow agent task',
+      description: '',
+      triggerType: 'schedule',
+      triggerConfig: { frequency: 'interval', intervalMinutes: 60 },
+      actionType: 'agent_task',
+      actionConfig: {},
+      status: 'active',
+      lastRunAt: null,
+      runCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    storage.workflows.push(workflow);
+
+    let releaseRun!: () => void;
+    const handler = vi.fn(() => new Promise<{ success: boolean; output: string }>(resolve => {
+      releaseRun = () => resolve({ success: true, output: 'done' });
+    }));
+    const slowEngine = new AutomationEngine(storage, handler);
+
+    slowEngine.checkScheduledWorkflows();
+    slowEngine.checkScheduledWorkflows();
+    slowEngine.checkScheduledWorkflows();
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    releaseRun();
+    await vi.waitFor(() => expect(storage.logs.length).toBe(1));
+
+    // Finished run recorded lastRunAt, so the next tick inside the interval is not due.
+    slowEngine.checkScheduledWorkflows();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('does not trigger paused or draft workflows', async () => {
     const pausedWorkflow: AutomationWorkflow = {
       id: 'wf-paused',
