@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { get, set, del } from 'idb-keyval';
 import { nanoid } from 'nanoid';
-import { Workspace, Chat, Note, Message, WorkspaceTemplate } from '@torvaix/types';
+import { Workspace, Chat, Note, Message, WorkspaceTemplate, Project } from '@torvaix/types';
 import {
   DEFAULT_WORKSPACE_ID,
   WORKSPACE_STATE_VERSION,
@@ -14,6 +14,7 @@ interface DBState {
   chats: Chat[];
   notes: Note[];
   messages: Message[];
+  projects: Project[];
 
   activeWorkspaceId: string | null;
   setActiveWorkspaceId: (id: string | null) => void;
@@ -30,6 +31,10 @@ interface DBState {
   deleteNote: (id: string) => void;
 
   addMessage: (message: Omit<Message, 'id' | 'createdAt'>) => Message;
+
+  createProject: (workspaceId: string, input: Pick<Project, 'name' | 'description' | 'tags'>) => Project;
+  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'description' | 'tags' | 'status' | 'starred'>>) => void;
+  deleteProject: (id: string) => void;
 }
 
 // Custom storage engine using IndexedDB
@@ -68,6 +73,7 @@ export const useDBStore = create<DBState>()(
       chats: [],
       notes: [],
       messages: [],
+      projects: [],
       activeWorkspaceId: null,
 
       setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
@@ -112,6 +118,7 @@ export const useDBStore = create<DBState>()(
           workspaces: state.workspaces.filter((w) => w.id !== id),
           chats: state.chats.filter((c) => c.workspaceId !== id),
           notes: state.notes.filter((n) => n.workspaceId !== id),
+          projects: state.projects.filter((p) => p.workspaceId !== id),
           messages: state.messages.filter(
             (m) => !state.chats.find((c) => c.id === m.chatId && c.workspaceId === id)
           ),
@@ -191,6 +198,35 @@ export const useDBStore = create<DBState>()(
         }));
         return newMsg;
       },
+
+      createProject: (workspaceId, input) => {
+        const now = new Date();
+        const project: Project = {
+          id: nanoid(),
+          workspaceId,
+          name: input.name,
+          description: input.description,
+          tags: input.tags,
+          status: 'active',
+          starred: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((state) => ({ projects: [...state.projects, project] }));
+        return project;
+      },
+
+      updateProject: (id, patch) => {
+        set((state) => ({
+          projects: state.projects.map((p) =>
+            p.id === id ? { ...p, ...patch, updatedAt: new Date() } : p
+          ),
+        }));
+      },
+
+      deleteProject: (id) => {
+        set((state) => ({ projects: state.projects.filter((p) => p.id !== id) }));
+      },
     }),
     {
       name: 'torvaix-db',
@@ -203,6 +239,7 @@ export const useDBStore = create<DBState>()(
         chats: state.chats,
         notes: state.notes,
         messages: state.messages,
+        projects: state.projects,
         activeWorkspaceId: state.activeWorkspaceId,
       }),
       onRehydrateStorage: () => (state) => {

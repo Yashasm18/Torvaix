@@ -2,28 +2,48 @@
 
 import * as React from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { BrainCircuit, X, Trash2 } from "lucide-react"
-import { getMemories, removeMemory, MemoryItem } from "@/lib/local-vector-db"
+import { BrainCircuit, X, Trash2, Loader2 } from "lucide-react"
 import { Button } from "../ui/button"
+import { useActiveWorkspace } from "@/hooks/use-active-workspace"
+
+interface MemoryItem {
+  id: string
+  content: string
+  source?: string
+}
 
 export function MemoryModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { workspace, workspaceId } = useActiveWorkspace()
   const [memories, setMemories] = React.useState<MemoryItem[]>([])
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
 
   const loadMemories = React.useCallback(async () => {
-    const data = await getMemories()
-    setMemories(data)
-  }, [])
+    if (!workspaceId) return
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/memory?workspaceId=${encodeURIComponent(workspaceId)}`, { cache: "no-store" })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setMemories(Array.isArray(data.memories) ? data.memories : [])
+      setError(null)
+    } catch {
+      setError("Couldn't reach the agent server.")
+    } finally {
+      setLoading(false)
+    }
+  }, [workspaceId])
 
   React.useEffect(() => {
     if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       loadMemories()
     }
   }, [open, loadMemories])
 
   const handleDelete = async (id: string) => {
-    await removeMemory(id)
-    await loadMemories()
+    const res = await fetch(`/api/memory/${encodeURIComponent(id)}`, { method: "DELETE" })
+    if (res.ok) setMemories((prev) => prev.filter((m) => m.id !== id))
+    else setError("Failed to delete memory.")
   }
 
   return (
@@ -52,26 +72,31 @@ export function MemoryModal({ open, onOpenChange }: { open: boolean; onOpenChang
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-              {memories.length === 0 ? (
+              {error && <div className="text-xs text-red-400">{error}</div>}
+              {loading && memories.length === 0 ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : memories.length === 0 ? (
                 <div className="text-center text-sm text-muted-foreground py-8">
-                  <div className="text-xs font-mono opacity-50 mb-2">{"< EMPTY_BUFFER />"}</div>
-                  No core memories established yet.
+                  No memories in this workspace yet. Tell Torvaix something to remember in chat.
                 </div>
               ) : (
                 memories.map((m) => (
-                  <motion.div 
+                  <motion.div
                     layout
-                    key={m.id} 
+                    key={m.id}
                     className="group flex gap-3 rounded-lg border border-border/50 bg-background/40 p-3 text-sm hover:border-[var(--brand-color)]/50 transition-colors"
                   >
                     <div className="flex-1 text-foreground/90 leading-relaxed font-mono text-xs">
                       {m.content}
                     </div>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Delete memory"
                       className="h-6 w-6 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive"
                       onClick={() => handleDelete(m.id)}
                     >
@@ -81,10 +106,10 @@ export function MemoryModal({ open, onOpenChange }: { open: boolean; onOpenChang
                 ))
               )}
             </div>
-            
+
             <div className="border-t border-border/50 p-3 bg-background/40 text-xs text-muted-foreground flex justify-between items-center font-mono">
-              <span>LOCAL_STORE: IDB_KEYVAL</span>
-              <span className="text-[var(--brand-color)]">OFFLINE_READY</span>
+              <span className="truncate">{workspace?.name}</span>
+              <span className="text-[var(--brand-color)]">{memories.length} stored</span>
             </div>
           </motion.div>
         </div>

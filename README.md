@@ -146,7 +146,7 @@ Torvaix is designed for a seamless local developer experience.
 
 ### 1. Prerequisites
 - **Node.js** 18+ & **npm** 9+
-- **[Ollama](https://ollama.ai)** (Ensure `llama3.2` and `nomic-embed-text` are pulled)
+- **[Ollama](https://ollama.ai)** with a chat model and `nomic-embed-text` pulled (`ollama pull llama3.2 && ollama pull nomic-embed-text`). Any installed tag works: if `llama3.2` itself isn't installed, the agent server picks an installed variant such as `llama3.2:3b`. Set `TORVAIX_MODEL` to choose a model explicitly. The **Intelligence** page shows what's installed and flags anything missing.
 - **Docker** *(Optional, for running Qdrant independently if preferred. Local SQLite works out of the box).*
 
 ### 2. Installation

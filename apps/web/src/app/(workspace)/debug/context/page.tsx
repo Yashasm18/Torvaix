@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { AppLogo } from "@/components/ui/app-logo";
 import { Button } from "@/components/ui/button";
-import { queryMemoryAction } from "@/actions/memory-actions";
 import { Loader2, Zap, MessageSquare, Terminal } from "lucide-react";
 
 export default function ContextDebugPage() {
@@ -17,11 +16,17 @@ export default function ContextDebugPage() {
   const simulateAutoInjection = async () => {
     if (!testQuery) return;
     setLoading(true);
-    const res = await queryMemoryAction(workspaceId, testQuery, 3);
-    if (res.success && res.results) {
-      setRetrieved(res.results.filter((m: any) => m.score > 0.5));
+    try {
+      const res = await fetch("/api/memory/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, query: testQuery, topK: 3 }),
+      });
+      const data = res.ok ? await res.json() : null;
+      setRetrieved((data?.results ?? []).filter((m: any) => m.score > 0.5));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const getSystemPrompt = () => {

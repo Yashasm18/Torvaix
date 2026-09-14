@@ -85,6 +85,38 @@ export const getProviderById = (providerId: string) => PROVIDERS.find(p => p.id 
 export const getModelsByProvider = (providerId: string) => MODELS.filter(m => m.provider === providerId);
 export const getModelById = (modelId: string) => MODELS.find(m => m.id === modelId);
 
+/**
+ * Resolve a model id to its metadata. Ids outside the built-in registry are treated as
+ * Ollama tags (e.g. `llama3.2:3b`, `qwen2.5-coder`), since local models are whatever the
+ * user has pulled rather than a fixed list.
+ */
+export function resolveModel(modelId: string): ModelInfo {
+  return getModelById(modelId) ?? {
+    id: modelId,
+    name: modelId,
+    provider: 'ollama',
+    contextWindow: 0,
+    description: 'Local Ollama model',
+  };
+}
+
+/**
+ * Choose a chat model that is actually installed in Ollama. Keeps `preferred` when it is
+ * installed (Ollama treats `name` and `name:latest` as the same), otherwise falls back to
+ * another tag of the same model (`llama3.2` → `llama3.2:3b`), then to any non-embedding model.
+ */
+export function pickInstalledModel(preferred: string, installed: string[]): string {
+  if (installed.length === 0) return preferred;
+  const normalize = (name: string) => (name.includes(':') ? name : `${name}:latest`);
+  if (installed.some(name => normalize(name) === normalize(preferred))) return preferred;
+  const base = preferred.split(':')[0];
+  return (
+    installed.find(name => name.split(':')[0] === base) ??
+    installed.find(name => !/embed/i.test(name)) ??
+    preferred
+  );
+}
+
 // ── Provider Configuration ──
 export interface LLMClientConfig {
   apiKeys?: Partial<Record<ProviderId, string>>;
@@ -116,8 +148,9 @@ export class LLMClient {
 
   /** Complete a chat conversation with the specified model. */
   async complete(modelId: string, messages: LLMMessage[], opts: LLMOptions = {}): Promise<LLMResponse> {
-    const model = getModelById(modelId) ?? getModelById(this.defaultModel);
-    if (!model) throw new Error(`Unknown model: ${modelId}`);
+    const id = modelId || this.defaultModel;
+    if (!id) throw new Error('No model specified');
+    const model = resolveModel(id);
 
     const provider = model.provider;
 
@@ -146,6 +179,11 @@ export class LLMClient {
   /** Get the default model ID. */
   getDefaultModel(): string {
     return this.defaultModel;
+  }
+
+  /** Get the configured Ollama base URL. */
+  getOllamaUrl(): string {
+    return this.ollamaUrl;
   }
 
   // ── Private: Provider Adapters ──
