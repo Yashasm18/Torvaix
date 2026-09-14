@@ -63,6 +63,10 @@ export class AutomationEngine {
     this.isRunning = false;
   }
 
+  // lastRunAt is only written when a run finishes, so without this a slow run
+  // still looks "due" on every tick and gets launched again concurrently.
+  private inFlightScheduled = new Set<string>();
+
   /**
    * Evaluate scheduled workflows and trigger those that are due.
    */
@@ -74,11 +78,16 @@ export class AutomationEngine {
       );
 
       for (const workflow of activeScheduled) {
+        if (this.inFlightScheduled.has(workflow.id)) continue;
         if (this.isWorkflowDue(workflow, now)) {
-          // Execute asynchronously in background
-          this.executeWorkflow(workflow, { source: 'schedule', timestamp: now.toISOString() }).catch(err => {
-            console.error(`[AutomationEngine] Execution error for ${workflow.id}:`, err);
-          });
+          this.inFlightScheduled.add(workflow.id);
+          this.executeWorkflow(workflow, { source: 'schedule', timestamp: now.toISOString() })
+            .catch(err => {
+              console.error(`[AutomationEngine] Execution error for ${workflow.id}:`, err);
+            })
+            .finally(() => {
+              this.inFlightScheduled.delete(workflow.id);
+            });
         }
       }
     } catch (error) {
