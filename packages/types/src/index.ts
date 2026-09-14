@@ -27,6 +27,20 @@ export interface Chat {
   updatedAt: Date;
 }
 
+export type ProjectStatus = 'active' | 'paused' | 'archived';
+
+export interface Project {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  status: ProjectStatus;
+  tags: string[];
+  starred: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Note {
   id: string;
   workspaceId: string;

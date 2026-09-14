@@ -13,6 +13,8 @@ import {
   getModelById,
   getModelsByProvider,
   getProviderById,
+  resolveModel,
+  pickInstalledModel,
 } from '../index';
 
 describe('Provider Metadata', () => {
@@ -32,6 +34,19 @@ describe('Provider Metadata', () => {
     expect(getModelById('llama3.2')?.provider).toBe('ollama');
     expect(getModelById('gpt-4o')?.provider).toBe('openai');
     expect(getModelById('nonexistent')).toBeUndefined();
+  });
+
+  it('pickInstalledModel prefers the configured model, then a same-model tag, then any chat model', () => {
+    expect(pickInstalledModel('llama3.2', ['llama3.2:latest', 'qwen2.5:3b'])).toBe('llama3.2');
+    expect(pickInstalledModel('llama3.2', ['qwen2.5:3b', 'llama3.2:3b'])).toBe('llama3.2:3b');
+    expect(pickInstalledModel('llama3.2', ['nomic-embed-text:latest', 'qwen2.5:3b'])).toBe('qwen2.5:3b');
+    expect(pickInstalledModel('llama3.2', ['nomic-embed-text:latest'])).toBe('llama3.2');
+    expect(pickInstalledModel('llama3.2', [])).toBe('llama3.2');
+  });
+
+  it('resolveModel keeps registry metadata and treats unknown ids as Ollama tags', () => {
+    expect(resolveModel('gpt-4o').provider).toBe('openai');
+    expect(resolveModel('llama3.2:3b')).toMatchObject({ id: 'llama3.2:3b', provider: 'ollama' });
   });
 
   it('getModelsByProvider filters correctly', () => {
@@ -134,6 +149,21 @@ describe('LLMClient with mocked fetch', () => {
 
     const call = mockFetch.mock.calls[0];
     expect(call[0]).toBe('http://localhost:11434/api/chat');
+  });
+
+  it('routes unregistered model ids to Ollama as tags', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ message: { content: 'Hi from a pulled tag' } }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const res = await client.complete('llama3.2:3b', [{ role: 'user', content: 'Hello' }]);
+
+    expect(res.text).toBe('Hi from a pulled tag');
+    expect(res.model).toBe('llama3.2:3b');
+    expect(mockFetch.mock.calls[0][0]).toBe('http://localhost:11434/api/chat');
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).model).toBe('llama3.2:3b');
   });
 
   it('handles API errors gracefully', async () => {

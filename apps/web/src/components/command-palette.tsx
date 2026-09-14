@@ -44,7 +44,7 @@ export function CommandPalette() {
             <Search className="mr-2 h-4 w-4" />
             <span>Search Knowledge</span>
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push('/projects/new'))}>
+          <CommandItem onSelect={() => runCommand(() => router.push('/projects'))}>
             <Plus className="mr-2 h-4 w-4" />
             <span>Create Project</span>
           </CommandItem>
@@ -52,9 +52,9 @@ export function CommandPalette() {
             <Bot className="mr-2 h-4 w-4" />
             <span>Run Agent</span>
           </CommandItem>
-          <CommandItem onSelect={() => runCommand(() => router.push('/models'))}>
+          <CommandItem onSelect={() => runCommand(() => router.push('/intelligence'))}>
             <Cpu className="mr-2 h-4 w-4" />
-            <span>Switch Model</span>
+            <span>View Models</span>
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push('/tasks'))}>
             <CheckSquare className="mr-2 h-4 w-4" />

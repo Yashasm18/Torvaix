@@ -37,7 +37,7 @@ import { useDBStore } from "@/store/db-store"
 import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { SettingsDialog } from "../settings/settings-dialog"
 import { MemoryModal } from "../chat/memory-modal"
-import { getSystemStatusAction } from "@/actions/memory-actions"
+import { useSystemStatus } from "@/hooks/use-system-status"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,27 +63,8 @@ export function AppSidebar() {
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [memoryOpen, setMemoryOpen] = React.useState(false)
 
-  const [systemStatus, setSystemStatus] = React.useState({
-    ollama: false, qdrant: false, sqlite: false, loading: true
-  });
+  const systemStatus = useSystemStatus()
   const [activity, setActivity] = React.useState<WorkspaceActivity | null>(null)
-
-  React.useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const status = await getSystemStatusAction();
-        setSystemStatus({ ...status, loading: false });
-      } catch {
-        // Server restarts and redeploys invalidate Server Action ids; show offline instead of
-        // throwing an unhandled rejection on every poll.
-        setSystemStatus({ ollama: false, qdrant: false, sqlite: false, loading: false });
-      }
-    };
-    fetchStatus();
-    // Poll every 10 seconds
-    const interval = setInterval(fetchStatus, 10000);
-    return () => clearInterval(interval);
-  }, []);
 
   React.useEffect(() => {
     if (!workspaceId) return
@@ -239,33 +220,10 @@ export function AppSidebar() {
           <div className="px-4 py-4 mt-auto">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">System Status</h3>
             <div className="space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Memory (SQLite)</span>
-                {systemStatus.loading ? <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" /> : (
-                  <span className={`flex items-center gap-1 ${systemStatus.sqlite ? 'text-green-500' : 'text-red-500'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${systemStatus.sqlite ? 'bg-green-500' : 'bg-red-500'}`} />
-                    {systemStatus.sqlite ? 'Connected' : 'Offline'}
-                  </span>
-                )}
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Vector (Qdrant)</span>
-                {systemStatus.loading ? <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" /> : (
-                  <span className={`flex items-center gap-1 ${systemStatus.qdrant ? 'text-green-500' : 'text-red-500'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${systemStatus.qdrant ? 'bg-green-500' : 'bg-red-500'}`} />
-                    {systemStatus.qdrant ? 'Connected' : 'Offline'}
-                  </span>
-                )}
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Embed (Ollama)</span>
-                {systemStatus.loading ? <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" /> : (
-                  <span className={`flex items-center gap-1 ${systemStatus.ollama ? 'text-green-500' : 'text-red-500'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${systemStatus.ollama ? 'bg-green-500' : 'bg-red-500'}`} />
-                    {systemStatus.ollama ? 'Connected' : 'Offline'}
-                  </span>
-                )}
-              </div>
+              <StatusRow label="Agent server" ok={systemStatus?.agent} />
+              <StatusRow label="Memory (SQLite)" ok={systemStatus?.sqlite} />
+              <StatusRow label="Vector (Qdrant)" ok={systemStatus?.qdrant} />
+              <StatusRow label="LLM (Ollama)" ok={systemStatus?.ollama} />
             </div>
           </div>
       </SidebarContent>
@@ -307,5 +265,22 @@ export function AppSidebar() {
         <MemoryModal open={memoryOpen} onOpenChange={setMemoryOpen} />
       </SidebarFooter>
     </Sidebar>
+  )
+}
+
+
+function StatusRow({ label, ok }: { label: string; ok: boolean | undefined }) {
+  return (
+    <div className="flex justify-between items-center">
+      <span className="text-muted-foreground">{label}</span>
+      {ok === undefined ? (
+        <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+      ) : (
+        <span className={`flex items-center gap-1 ${ok ? "text-green-500" : "text-red-500"}`}>
+          <div className={`w-1.5 h-1.5 rounded-full ${ok ? "bg-green-500" : "bg-red-500"}`} />
+          {ok ? "Connected" : "Offline"}
+        </span>
+      )}
+    </div>
   )
 }

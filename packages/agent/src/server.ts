@@ -18,7 +18,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { AgentOrchestrator } from './orchestrator';
 import { MemoryStore } from '@torvaix/memory';
-import { LLMClient } from '@torvaix/providers';
+import { LLMClient, PROVIDERS, pickInstalledModel, resolveModel } from '@torvaix/providers';
 import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
 import { AutomationEngine, AutomationWorkflow } from '@torvaix/events';
 import rateLimit from 'express-rate-limit';
@@ -223,13 +223,75 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
 
 // Health check (no auth required)
 app.get('/api/health', async (_req, res) => {
-  const qdrantOk = await memoryStore.initQdrant();
+  const [qdrantOk, ollamaOk] = await Promise.all([memoryStore.initQdrant(), probeOllama()]);
+  const model = chatModel;
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    services: { sqlite: true, qdrant: qdrantOk },
+    services: { sqlite: true, qdrant: qdrantOk, ollama: ollamaOk },
+    model: { id: model, provider: resolveModel(model).provider },
+    embeddings: memoryStore.getEmbedSource(),
+    ollamaUrl: llmClient.getOllamaUrl(),
+    // Only readiness booleans; keys never leave the server.
+    providers: PROVIDERS.map(p => ({ id: p.id, name: p.name, ready: llmClient.isProviderReady(p.id) })),
     version: '0.1.0',
   });
+});
+
+// Chat model used by the orchestrator. TORVAIX_MODEL always wins; without it we match the
+// default against what's installed, so a machine that pulled `llama3.2:3b` works out of the box.
+let chatModel = process.env.TORVAIX_MODEL ?? llmClient.getDefaultModel();
+
+/** Check Ollama is up and refresh the auto-selected chat model from its installed tags. */
+async function probeOllama(): Promise<boolean> {
+  try {
+    const r = await fetch(`${llmClient.getOllamaUrl()}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return false;
+    if (!process.env.TORVAIX_MODEL) {
+      const { models = [] } = (await r.json()) as { models?: { name: string }[] };
+      const picked = pickInstalledModel(llmClient.getDefaultModel(), models.map(m => m.name));
+      if (picked !== chatModel) {
+        console.log(`[Model] Using installed Ollama model "${picked}" (set TORVAIX_MODEL to override)`);
+        chatModel = picked;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+void probeOllama();
+
+// Local models as reported by Ollama: everything pulled (/api/tags) and what's in memory (/api/ps).
+app.get('/api/system/models', requireAuth, async (_req, res) => {
+  const base = llmClient.getOllamaUrl();
+  try {
+    const [tagsRes, psRes] = await Promise.all([
+      fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) }),
+      fetch(`${base}/api/ps`, { signal: AbortSignal.timeout(3000) }),
+    ]);
+    if (!tagsRes.ok) throw new Error(`Ollama responded ${tagsRes.status}`);
+    const tags = (await tagsRes.json()) as { models?: any[] };
+    const ps = psRes.ok ? ((await psRes.json()) as { models?: any[] }) : { models: [] };
+    const loaded = new Map((ps.models ?? []).map(m => [m.name, m]));
+    const models = (tags.models ?? []).map(m => {
+      const running = loaded.get(m.name);
+      return {
+        name: m.name,
+        size: m.size ?? 0,
+        modifiedAt: m.modified_at ?? null,
+        family: m.details?.family ?? null,
+        parameterSize: m.details?.parameter_size ?? null,
+        quantization: m.details?.quantization_level ?? null,
+        loaded: !!running,
+        sizeVram: running?.size_vram ?? 0,
+        expiresAt: running?.expires_at ?? null,
+      };
+    });
+    res.json({ success: true, reachable: true, ollamaUrl: base, models });
+  } catch (error: any) {
+    res.json({ success: false, reachable: false, ollamaUrl: base, models: [], error: error.message });
+  }
 });
 
 // ── Auth Routes ──
@@ -350,7 +412,7 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
 
     const orchestrator = new AgentOrchestrator(memoryStore, {
       llm: llmClient,
-      model: process.env.TORVAIX_MODEL,
+      model: chatModel,
     });
 
     // If resuming from approval, the orchestrator needs to know
@@ -450,7 +512,7 @@ app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest,
 
     const orchestrator = new AgentOrchestrator(memoryStore, {
       llm: llmClient,
-      model: process.env.TORVAIX_MODEL,
+      model: chatModel,
     });
 
     const finalState = await orchestrator.run({
@@ -504,6 +566,25 @@ app.post('/api/memory/query', requireAuth, async (req: AuthRequest, res) => {
     res.json({ success: true, results });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to query memory', details: error.message });
+  }
+});
+
+app.put('/api/memory/:id', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const { content } = req.body ?? {};
+    if (!content || typeof content !== 'string') {
+      res.status(400).json({ error: 'content is required' });
+      return;
+    }
+    if (!(await memoryStore.getMemoryById(id))) {
+      res.status(404).json({ error: 'Memory not found' });
+      return;
+    }
+    await memoryStore.updateMemory(id, content);
+    res.json({ success: true, id });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to update memory', details: error.message });
   }
 });
 

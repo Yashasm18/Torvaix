@@ -274,7 +274,7 @@ export async function runAgentLoop(instructions: string, modelUrl: string = 'htt
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama3.2',
+          model: process.env.TORVAIX_MODEL ?? 'llama3.2',
           prompt: currentInstructions,
           stream: false,
           options: {

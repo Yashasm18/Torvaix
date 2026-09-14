@@ -7,14 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Bot, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal, XCircle, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck } from "lucide-react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
+import { useSystemStatus } from "@/hooks/use-system-status";
 import { useMemoryContextStore, type RetrievedMemory } from "@/store/memory-context-store";
 import { AppLogo } from "@/components/ui/app-logo";
 import { MemoryModal } from "@/components/chat/memory-modal";
 
 
 export default function ChatPage() {
-  const [currentModel] = useState('llama3.2');
-  const [provider] = useState('ollama');
+  const systemStatus = useSystemStatus();
+  const currentModel = systemStatus?.model?.id ?? (systemStatus ? 'unavailable' : '…');
+  const provider = systemStatus?.model?.provider ?? 'ollama';
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processedPulseId = useRef<string | null>(null);
@@ -153,7 +155,7 @@ export default function ChatPage() {
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-full">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="text-xs text-green-400">Local</span>
+            <span className="text-xs text-green-400">{provider === 'ollama' ? 'Local' : 'Cloud'}</span>
           </div>
           <div className="flex items-center gap-1 px-2 py-1 bg-primary/10 border border-primary/20 rounded-full">
             <Shield className="w-3 h-3 text-primary" />
