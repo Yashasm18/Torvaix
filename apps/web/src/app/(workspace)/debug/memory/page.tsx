@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useDBStore } from "@/store/db-store";
+import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { storeMemoryAction, queryMemoryAction, getAllMemoriesAction, deleteMemoryAction, updateMemoryAction } from "@/actions/memory-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,8 +10,7 @@ import { Loader2, Search, Plus, Trash2, Edit2, Database, BrainCircuit, Activity 
 import { AppLogo } from "@/components/ui/app-logo";
 
 export default function MemoryDebugPage() {
-  const { activeWorkspaceId } = useDBStore();
-  const workspaceId = activeWorkspaceId || 'test';
+  const workspaceId = useActiveWorkspace().workspaceId ?? "";
 
   const [memories, setMemories] = useState<any[]>([]);
   const [searchResults, setSearchResults] = useState<any[]>([]);

@@ -3,18 +3,24 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { get, set, del } from 'idb-keyval';
 import { nanoid } from 'nanoid';
 import { Workspace, Chat, Note, Message, WorkspaceTemplate } from '@torvaix/types';
+import {
+  DEFAULT_WORKSPACE_ID,
+  WORKSPACE_STATE_VERSION,
+  migrateWorkspaceState,
+} from './workspace-migration';
 
 interface DBState {
   workspaces: Workspace[];
   chats: Chat[];
   notes: Note[];
   messages: Message[];
-  
+
   activeWorkspaceId: string | null;
   setActiveWorkspaceId: (id: string | null) => void;
 
   createWorkspace: (name: string, template: WorkspaceTemplate) => Promise<Workspace>;
   deleteWorkspace: (id: string) => void;
+  syncWorkspacesToServer: () => Promise<void>;
 
   createChat: (workspaceId: string, title: string) => Chat;
   deleteChat: (id: string) => void;
@@ -39,6 +45,22 @@ const idbStorage = {
   },
 };
 
+/** Ensure the agent server has a row for this workspace (idempotent on the server). */
+async function provisionWorkspace(workspace: Pick<Workspace, 'id' | 'name'>): Promise<void> {
+  const token = localStorage.getItem('torvaix_token');
+  const res = await fetch('/api/workspaces', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ id: workspace.id, name: workspace.name }),
+  });
+  if (!res.ok) {
+    throw new Error(`Workspace provisioning failed with HTTP ${res.status}`);
+  }
+}
+
 export const useDBStore = create<DBState>()(
   persist(
     (set, get) => ({
@@ -52,27 +74,16 @@ export const useDBStore = create<DBState>()(
 
       createWorkspace: async (name, template) => {
         const newWorkspace: Workspace = {
-          id: nanoid(),
+          // The first workspace is the primary one, backed by the server's "default" workspace.
+          id: get().workspaces.length === 0 ? DEFAULT_WORKSPACE_ID : nanoid(),
           name,
           template,
           createdAt: new Date(),
         };
 
-        // Notify backend to provision filesystem resources
         try {
-          const token = localStorage.getItem('torvaix_token');
-          await fetch('http://localhost:3001/api/workspaces', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            },
-            body: JSON.stringify({
-              id: newWorkspace.id,
-              name: newWorkspace.name
-            })
-          });
-        } catch(e) {
+          await provisionWorkspace(newWorkspace);
+        } catch (e) {
           console.error("Failed to provision workspace on backend:", e);
         }
 
@@ -106,6 +117,18 @@ export const useDBStore = create<DBState>()(
           ),
           activeWorkspaceId: state.activeWorkspaceId === id ? null : state.activeWorkspaceId,
         }));
+      },
+
+      syncWorkspacesToServer: async () => {
+        // Automations, pending actions and execution logs reference the workspaces table,
+        // so a workspace that was never provisioned (backend down at creation, fresh
+        // server data dir) would make those writes fail.
+        const results = await Promise.allSettled(get().workspaces.map(provisionWorkspace));
+        results.forEach((result, i) => {
+          if (result.status === 'rejected') {
+            console.error(`Failed to sync workspace "${get().workspaces[i]?.name}" to backend:`, result.reason);
+          }
+        });
       },
 
       createChat: (workspaceId, title) => {
@@ -172,12 +195,19 @@ export const useDBStore = create<DBState>()(
     {
       name: 'torvaix-db',
       storage: createJSONStorage(() => idbStorage),
+      version: WORKSPACE_STATE_VERSION,
+      migrate: (persisted, fromVersion) =>
+        migrateWorkspaceState(persisted as Partial<DBState>, fromVersion) as DBState,
       partialize: (state) => ({
         workspaces: state.workspaces,
         chats: state.chats,
         notes: state.notes,
         messages: state.messages,
-      }), // Persist data, but not activeWorkspaceId
+        activeWorkspaceId: state.activeWorkspaceId,
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.syncWorkspacesToServer();
+      },
     }
   )
 );

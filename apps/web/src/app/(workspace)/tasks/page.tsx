@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2,
@@ -77,12 +78,16 @@ export default function TasksPage() {
   const [dispatching, setDispatching] = useState(false);
   const [lastDispatchedOutput, setLastDispatchedOutput] = useState<string | null>(null);
 
+  const { workspaceId } = useActiveWorkspace();
+
   const fetchData = async () => {
+    if (!workspaceId) return;
+    const ws = encodeURIComponent(workspaceId);
     try {
       setLoading(true);
       const [execRes, pendingRes] = await Promise.all([
-        fetch("/api/agent/executions?workspaceId=default&limit=60"),
-        fetch("/api/agent/pending-actions?workspaceId=default&status=pending"),
+        fetch(`/api/agent/executions?workspaceId=${ws}&limit=60`),
+        fetch(`/api/agent/pending-actions?workspaceId=${ws}&status=pending`),
       ]);
 
       if (execRes.ok) {
@@ -106,10 +111,12 @@ export default function TasksPage() {
   };
 
   useEffect(() => {
+    setExecutions([]);
+    setPendingActions([]);
     fetchData();
     const interval = setInterval(fetchData, 8000); // 8-second auto polling
     return () => clearInterval(interval);
-  }, []);
+  }, [workspaceId]);
 
   const handleActionApproval = async (id: string, status: "approved" | "rejected") => {
     try {
@@ -141,7 +148,7 @@ export default function TasksPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           instructions: instructions.trim(),
-          workspaceId: "default",
+          workspaceId,
           priority,
         }),
       });

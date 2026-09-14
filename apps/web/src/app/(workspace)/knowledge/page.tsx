@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen,
@@ -87,12 +88,16 @@ export default function KnowledgePage() {
   const [newSource, setNewSource] = useState("Manual Entry");
   const [submitting, setSubmitting] = useState(false);
 
+  const { workspaceId } = useActiveWorkspace();
+
   const fetchKnowledge = async () => {
+    if (!workspaceId) return;
+    const ws = encodeURIComponent(workspaceId);
     try {
       setLoading(true);
       const [memRes, insightRes] = await Promise.all([
-        fetch("/api/memory?workspaceId=default"),
-        fetch("/api/memory/insights?workspaceId=default"),
+        fetch(`/api/memory?workspaceId=${ws}`),
+        fetch(`/api/memory/insights?workspaceId=${ws}`),
       ]);
 
       if (memRes.ok) {
@@ -120,7 +125,7 @@ export default function KnowledgePage() {
 
   useEffect(() => {
     fetchKnowledge();
-  }, []);
+  }, [workspaceId]);
 
   const handleConsolidate = async () => {
     try {
@@ -129,7 +134,7 @@ export default function KnowledgePage() {
       const res = await fetch("/api/memory/consolidate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId: "default" }),
+        body: JSON.stringify({ workspaceId }),
       });
 
       if (res.ok) {
@@ -157,7 +162,7 @@ export default function KnowledgePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workspaceId: "default",
+          workspaceId,
           content: newContent.trim(),
           source: newSource.trim() || "Manual Entry",
         }),

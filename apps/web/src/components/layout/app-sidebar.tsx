@@ -1,24 +1,24 @@
 "use client"
 
 import * as React from "react"
-import { motion } from "framer-motion"
-import { 
-  Folder, 
-  Home, 
-  BookOpen, 
-  Bot, 
-  CheckSquare, 
-  Cpu, 
-  Zap, 
+import {
+  Folder,
+  Home,
+  BookOpen,
+  Bot,
+  CheckSquare,
+  Cpu,
+  Zap,
   Settings,
   ChevronDown,
   Search,
   Plus,
   Database,
-  Terminal,
   MessageSquare,
   Loader2,
-  Activity
+  Activity,
+  Check,
+  ShieldAlert
 } from "lucide-react"
 
 import {
@@ -34,7 +34,7 @@ import {
   SidebarGroupLabel
 } from "@/components/ui/sidebar"
 import { useDBStore } from "@/store/db-store"
-import { Button } from "../ui/button"
+import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { SettingsDialog } from "../settings/settings-dialog"
 import { MemoryModal } from "../chat/memory-modal"
 import { getSystemStatusAction } from "@/actions/memory-actions"
@@ -50,14 +50,23 @@ import {
 import Link from "next/link"
 import { AppLogo } from "@/components/ui/app-logo"
 
+const ACTIVITY_REFRESH_MS = 30_000
+
+interface WorkspaceActivity {
+  activeAutomations: number
+  pendingApprovals: number
+}
+
 export function AppSidebar() {
-  const { workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace } = useDBStore()
+  const { workspaces, setActiveWorkspaceId, createWorkspace } = useDBStore()
+  const { workspace: activeWorkspace, workspaceId } = useActiveWorkspace()
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [memoryOpen, setMemoryOpen] = React.useState(false)
-  
+
   const [systemStatus, setSystemStatus] = React.useState({
     ollama: false, qdrant: false, sqlite: false, loading: true
   });
+  const [activity, setActivity] = React.useState<WorkspaceActivity | null>(null)
 
   React.useEffect(() => {
     const fetchStatus = async () => {
@@ -76,7 +85,37 @@ export function AppSidebar() {
     return () => clearInterval(interval);
   }, []);
 
-  const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0]
+  React.useEffect(() => {
+    if (!workspaceId) return
+    const ws = encodeURIComponent(workspaceId)
+    let cancelled = false
+
+    const loadActivity = async () => {
+      try {
+        const [statsRes, pendingRes] = await Promise.all([
+          fetch(`/api/automations/stats?workspaceId=${ws}`, { cache: "no-store" }),
+          fetch(`/api/agent/pending-actions?workspaceId=${ws}&status=pending`, { cache: "no-store" }),
+        ])
+        const stats = statsRes.ok ? await statsRes.json() : null
+        const pending = pendingRes.ok ? await pendingRes.json() : null
+        if (cancelled) return
+        setActivity(
+          stats || pending
+            ? { activeAutomations: stats?.stats?.activeCount ?? 0, pendingApprovals: pending?.actions?.length ?? 0 }
+            : null
+        )
+      } catch {
+        if (!cancelled) setActivity(null)
+      }
+    }
+
+    loadActivity()
+    const interval = setInterval(loadActivity, ACTIVITY_REFRESH_MS)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [workspaceId])
 
   const handleCreateWorkspace = () => {
     const name = window.prompt("Workspace Name:")
@@ -112,7 +151,7 @@ export function AppSidebar() {
               <AppLogo size={32} animated={true} />
               <div className="flex flex-col items-start">
                 <span className="font-semibold text-sm tracking-tight text-foreground">Torvaix</span>
-                <span className="text-xs text-muted-foreground">{activeWorkspace?.name || "Personal"}</span>
+                <span className="text-xs text-muted-foreground">{activeWorkspace?.name}</span>
               </div>
             </div>
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -121,12 +160,13 @@ export function AppSidebar() {
             <DropdownMenuGroup>
               <DropdownMenuLabel>Switch Workspace</DropdownMenuLabel>
               {workspaces.map((workspace) => (
-                <DropdownMenuItem 
-                  key={workspace.id} 
+                <DropdownMenuItem
+                  key={workspace.id}
                   onClick={() => setActiveWorkspaceId(workspace.id)}
-                  className="cursor-pointer hover:bg-accent hover:text-accent-foreground"
+                  className="cursor-pointer hover:bg-accent hover:text-accent-foreground flex items-center justify-between"
                 >
-                  {workspace.name}
+                  <span className="truncate">{workspace.name}</span>
+                  {workspace.id === workspaceId && <Check className="h-4 w-4 text-primary shrink-0" />}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuGroup>
@@ -138,7 +178,7 @@ export function AppSidebar() {
         </DropdownMenu>
 
         {/* Universal Search Bar */}
-        <button 
+        <button
           onClick={openCommandPalette}
           className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground bg-sidebar-accent/50 hover:bg-sidebar-accent border border-sidebar-border rounded-md transition-colors"
         >
@@ -149,7 +189,7 @@ export function AppSidebar() {
           </kbd>
         </button>
       </SidebarHeader>
-      
+
       <SidebarContent className="px-2">
         <SidebarGroup>
           <SidebarGroupContent>
@@ -203,7 +243,7 @@ export function AppSidebar() {
                 <span className="text-muted-foreground">Memory (SQLite)</span>
                 {systemStatus.loading ? <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" /> : (
                   <span className={`flex items-center gap-1 ${systemStatus.sqlite ? 'text-green-500' : 'text-red-500'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${systemStatus.sqlite ? 'bg-green-500' : 'bg-red-500'}`} /> 
+                    <div className={`w-1.5 h-1.5 rounded-full ${systemStatus.sqlite ? 'bg-green-500' : 'bg-red-500'}`} />
                     {systemStatus.sqlite ? 'Connected' : 'Offline'}
                   </span>
                 )}
@@ -212,7 +252,7 @@ export function AppSidebar() {
                 <span className="text-muted-foreground">Vector (Qdrant)</span>
                 {systemStatus.loading ? <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" /> : (
                   <span className={`flex items-center gap-1 ${systemStatus.qdrant ? 'text-green-500' : 'text-red-500'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${systemStatus.qdrant ? 'bg-green-500' : 'bg-red-500'}`} /> 
+                    <div className={`w-1.5 h-1.5 rounded-full ${systemStatus.qdrant ? 'bg-green-500' : 'bg-red-500'}`} />
                     {systemStatus.qdrant ? 'Connected' : 'Offline'}
                   </span>
                 )}
@@ -221,7 +261,7 @@ export function AppSidebar() {
                 <span className="text-muted-foreground">Embed (Ollama)</span>
                 {systemStatus.loading ? <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" /> : (
                   <span className={`flex items-center gap-1 ${systemStatus.ollama ? 'text-green-500' : 'text-red-500'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${systemStatus.ollama ? 'bg-green-500' : 'bg-red-500'}`} /> 
+                    <div className={`w-1.5 h-1.5 rounded-full ${systemStatus.ollama ? 'bg-green-500' : 'bg-red-500'}`} />
                     {systemStatus.ollama ? 'Connected' : 'Offline'}
                   </span>
                 )}
@@ -231,24 +271,26 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border flex flex-col gap-4">
-        {/* Agent Dock */}
+        {/* Workspace Activity */}
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Active Agents</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Workspace Activity</span>
           <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-sidebar-accent cursor-pointer group">
+            <Link href="/automation" className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-sidebar-accent group">
               <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                <span className="text-sm text-foreground group-hover:text-sidebar-accent-foreground">Research Agent</span>
+                <Zap className="w-3.5 h-3.5 text-primary" />
+                <span className="text-sm text-foreground group-hover:text-sidebar-accent-foreground">Active automations</span>
               </div>
-              <span className="text-[10px] text-primary font-mono">Running</span>
-            </div>
-            <div className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-sidebar-accent cursor-pointer group">
+              <span className="text-[11px] text-muted-foreground font-mono">{activity ? activity.activeAutomations : "—"}</span>
+            </Link>
+            <Link href="/tasks" className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-sidebar-accent group">
               <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                <span className="text-sm text-muted-foreground group-hover:text-sidebar-accent-foreground">Coding Agent</span>
+                <ShieldAlert className={`w-3.5 h-3.5 ${activity?.pendingApprovals ? "text-amber-400" : "text-muted-foreground"}`} />
+                <span className="text-sm text-foreground group-hover:text-sidebar-accent-foreground">Pending approvals</span>
               </div>
-              <span className="text-[10px] text-muted-foreground font-mono">Idle</span>
-            </div>
+              <span className={`text-[11px] font-mono ${activity?.pendingApprovals ? "text-amber-400" : "text-muted-foreground"}`}>
+                {activity ? activity.pendingApprovals : "—"}
+              </span>
+            </Link>
           </div>
         </div>
 
