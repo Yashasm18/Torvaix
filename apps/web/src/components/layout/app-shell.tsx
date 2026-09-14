@@ -11,12 +11,30 @@ import {
 } from "@/components/ui/resizable"
 import { BrainCircuit } from "lucide-react"
 import { useDBStore } from "@/store/db-store"
+import { useMemoryContextStore } from "@/store/memory-context-store"
+import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { KnowledgePulse } from "../knowledge-pulse"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { workspaces, createWorkspace } = useDBStore();
+  const { workspaceId } = useActiveWorkspace();
   const [isCreating, setIsCreating] = React.useState(false);
   const [workspaceName, setWorkspaceName] = React.useState("");
+
+  // Workspaces load asynchronously from IndexedDB. Rendering before that finishes would
+  // flash onboarding for existing users and could create a workspace hydration overwrites.
+  const hasHydrated = React.useSyncExternalStore(
+    (onChange) => useDBStore.persist.onFinishHydration(onChange),
+    () => useDBStore.persist.hasHydrated(),
+    () => false
+  );
+
+  // The Knowledge Pulse panel describes the last agent turn, which belongs to one workspace.
+  React.useEffect(() => {
+    useMemoryContextStore.getState().resetKnowledgePulse();
+  }, [workspaceId]);
+
+  if (!hasHydrated) return null;
 
   if (workspaces.length === 0) {
     return (

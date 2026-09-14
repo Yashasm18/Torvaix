@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Zap,
@@ -147,12 +148,16 @@ export default function AutomationPage() {
   const [newPrompt, setNewPrompt] = useState("");
   const [creating, setCreating] = useState(false);
 
+  const { workspaceId } = useActiveWorkspace();
+
   const fetchAutomations = async () => {
+    if (!workspaceId) return;
+    const ws = encodeURIComponent(workspaceId);
     try {
       setLoading(true);
       const [autoRes, statsRes] = await Promise.all([
-        fetch("/api/automations?workspaceId=default"),
-        fetch("/api/automations/stats?workspaceId=default"),
+        fetch(`/api/automations?workspaceId=${ws}`),
+        fetch(`/api/automations/stats?workspaceId=${ws}`),
       ]);
 
       if (autoRes.ok) {
@@ -177,7 +182,7 @@ export default function AutomationPage() {
 
   useEffect(() => {
     fetchAutomations();
-  }, []);
+  }, [workspaceId]);
 
   const handleToggleStatus = async (automation: Automation) => {
     const nextStatus = automation.status === "active" ? "paused" : "active";
@@ -275,7 +280,7 @@ export default function AutomationPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workspaceId: "default",
+          workspaceId,
           name: newName.trim(),
           description: newDescription.trim(),
           triggerType: newTriggerType,

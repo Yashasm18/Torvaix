@@ -6,7 +6,7 @@ import { useChat } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Bot, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal, XCircle, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck } from "lucide-react";
-import { useDBStore } from "@/store/db-store";
+import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { useMemoryContextStore, type RetrievedMemory } from "@/store/memory-context-store";
 import { AppLogo } from "@/components/ui/app-logo";
 import { MemoryModal } from "@/components/chat/memory-modal";
@@ -19,14 +19,14 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processedPulseId = useRef<string | null>(null);
   const [memoryOpen, setMemoryOpen] = useState(false);
-  const { activeWorkspaceId } = useDBStore();
+  const { workspace, workspaceId } = useActiveWorkspace();
 
   const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append, data: streamData } = useChat({
     api: '/api/chat',
     body: {
       model: currentModel,
       provider: provider,
-      workspaceId: activeWorkspaceId,
+      workspaceId,
     },
     onError: (err) => {
       console.error('[Torvaix Chat] Stream error:', err);
@@ -515,7 +515,7 @@ export default function ChatPage() {
           <div className="flex items-center justify-between px-2 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-3">
               <span>Model: <span className="text-foreground">{currentModel}</span></span>
-              <span>Workspace: <span className="text-foreground">Personal</span></span>
+              <span>Workspace: <span className="text-foreground">{workspace?.name}</span></span>
             </div>
             <span>Press Enter to send, Shift+Enter for new line</span>
           </div>

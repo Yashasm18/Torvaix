@@ -1,15 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useDBStore } from "@/store/db-store";
+import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { AppLogo } from "@/components/ui/app-logo";
 import { Button } from "@/components/ui/button";
 import { queryMemoryAction } from "@/actions/memory-actions";
 import { Loader2, Zap, MessageSquare, Terminal } from "lucide-react";
 
 export default function ContextDebugPage() {
-  const { activeWorkspaceId } = useDBStore();
-  const workspaceId = activeWorkspaceId || 'test';
+  const workspaceId = useActiveWorkspace().workspaceId ?? "";
 
   const [testQuery, setTestQuery] = useState("");
   const [retrieved, setRetrieved] = useState<any[]>([]);
