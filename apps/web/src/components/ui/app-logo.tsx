@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -10,7 +11,13 @@ interface AppLogoProps {
 }
 
 export function AppLogo({ className, size = 24, animated = true }: AppLogoProps) {
-  // We use Framer Motion for the interactive tap animation
+  // SVG gradient ids are document-global; hardcoded ids collide when the logo renders
+  // more than once, and url(#id) then resolves to whichever copy appears first.
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const orbit1 = `${uid}-orbit1`;
+  const orbit2 = `${uid}-orbit2`;
+  const orbit3 = `${uid}-orbit3`;
+
   return (
     <motion.div
       whileTap={animated ? { scale: 0.9, rotate: 15 } : {}}
@@ -27,15 +34,15 @@ export function AppLogo({ className, size = 24, animated = true }: AppLogoProps)
         className="w-full h-full drop-shadow-lg"
       >
         <defs>
-          <linearGradient id="orbit1" x1="0%" y1="0%" x2="100%" y2="100%">
+          <linearGradient id={orbit1} x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#00D4AA" />
             <stop offset="100%" stopColor="#3b82f6" />
           </linearGradient>
-          <linearGradient id="orbit2" x1="100%" y1="0%" x2="0%" y2="100%">
+          <linearGradient id={orbit2} x1="100%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor="#3b82f6" />
             <stop offset="100%" stopColor="#a855f7" />
           </linearGradient>
-          <linearGradient id="orbit3" x1="0%" y1="100%" x2="100%" y2="0%">
+          <linearGradient id={orbit3} x1="0%" y1="100%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#a855f7" />
             <stop offset="100%" stopColor="#00D4AA" />
           </linearGradient>
@@ -48,14 +55,14 @@ export function AppLogo({ className, size = 24, animated = true }: AppLogoProps)
           rx="40"
           ry="15"
           fill="none"
-          stroke="url(#orbit1)"
+          stroke={`url(#${orbit1})`}
           strokeWidth="6"
           strokeLinecap="round"
           transform="rotate(30 50 50)"
           animate={animated ? { rotate: [30, 390] } : {}}
           transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
         />
-        
+
         {/* Orbit 2 */}
         <motion.ellipse
           cx="50"
@@ -63,7 +70,7 @@ export function AppLogo({ className, size = 24, animated = true }: AppLogoProps)
           rx="40"
           ry="15"
           fill="none"
-          stroke="url(#orbit2)"
+          stroke={`url(#${orbit2})`}
           strokeWidth="6"
           strokeLinecap="round"
           transform="rotate(150 50 50)"
@@ -77,7 +84,7 @@ export function AppLogo({ className, size = 24, animated = true }: AppLogoProps)
           cy="50"
           r="25"
           fill="none"
-          stroke="url(#orbit3)"
+          stroke={`url(#${orbit3})`}
           strokeWidth="6"
           strokeLinecap="round"
         />

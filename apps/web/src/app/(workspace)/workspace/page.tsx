@@ -21,25 +21,25 @@ export default function OSWorkspace() {
   ]
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-background overflow-y-auto">
+    <div className="flex-1 flex flex-col h-full bg-background overflow-y-auto @container">
       <div className="max-w-5xl w-full mx-auto p-8 md:p-12">
         {/* Greeting */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
           className="mb-12"
         >
-          <h1 className="text-4xl font-bold tracking-tight text-foreground mb-2">Good {timeOfDay()}, Yashas</h1>
+          <h1 className="text-4xl font-bold tracking-tight text-foreground mb-2">Good {timeOfDay()}</h1>
           <p className="text-muted-foreground text-lg">Here is what&apos;s happening in your workspace today.</p>
         </motion.div>
 
-        {/* Quick Stats Grid */}
-        <motion.div 
+        {/* Quick Stats Grid — container queries, since this page lives in a resizable panel */}
+        <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16"
+          className="grid grid-cols-1 @2xl:grid-cols-3 gap-6 mb-16"
         >
           <div className="bg-surface border border-border p-6 rounded-2xl flex flex-col items-start shadow-sm">
             <div className="flex items-center gap-3 mb-4 text-foreground font-medium">
@@ -62,25 +62,25 @@ export default function OSWorkspace() {
           </div>
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+        <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-12">
           {/* Today Command Feed */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}
-            className="flex flex-col"
+            className="flex flex-col @container"
           >
             <div className="flex items-center gap-2 mb-6 text-foreground font-semibold">
               <Activity className="w-5 h-5 text-muted-foreground" />
               Today
             </div>
-            <div className="flex flex-col relative before:absolute before:inset-0 before:ml-[1.4rem] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border before:to-transparent">
+            <div className="flex flex-col relative before:absolute before:inset-0 before:ml-[1.4rem] before:-translate-x-px @lg:before:mx-auto @lg:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border before:to-transparent">
               {activities.map((item, i) => (
-                <div key={i} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active mb-6 last:mb-0">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-background bg-surface text-muted-foreground shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
+                <div key={i} className="relative flex items-center justify-between @lg:justify-normal @lg:odd:flex-row-reverse group is-active mb-6 last:mb-0">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-background bg-surface text-muted-foreground shadow shrink-0 @lg:order-1 @lg:group-odd:-translate-x-1/2 @lg:group-even:translate-x-1/2 z-10">
                     <item.icon className={`w-4 h-4 ${item.color}`} />
                   </div>
-                  <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-xl border border-border bg-surface shadow-sm">
+                  <div className="w-[calc(100%-4rem)] @lg:w-[calc(50%-2.5rem)] p-4 rounded-xl border border-border bg-surface shadow-sm">
                     <div className="flex items-center justify-between mb-1">
                       <time className="text-xs font-mono text-muted-foreground">{item.time}</time>
                     </div>
