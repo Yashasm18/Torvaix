@@ -203,10 +203,17 @@ describe('MemoryStore — Pending Actions', () => {
       expect(JSON.parse(store.getWorkspace('default')!.settings).path).toBe(p);
       expect(store.ensureWorkspacePath('default')).toBe(p);
 
-      // A saved path outside the workspaces root is never used as the tool directory.
-      const hostile = store.createWorkspace('Hostile', { path: '/etc' });
+      const root = path.join(home, 'workspaces') + path.sep;
+
+      // Client-supplied paths and traversal ids can't move the folder out of the root.
+      const hostile = store.createWorkspace('Hostile', { path: '/etc' }, '../../zz');
+      const created = JSON.parse(store.getWorkspace(hostile)!.settings).path;
+      expect(created.startsWith(root)).toBe(true);
+
+      // A bad path already saved in the DB (older versions) is replaced, not used.
+      (store as any).db.prepare('UPDATE workspaces SET settings = ? WHERE id = ?').run(JSON.stringify({ path: '/etc' }), hostile);
       const safe = store.ensureWorkspacePath(hostile);
-      expect(safe.startsWith(path.join(home, 'workspaces') + path.sep)).toBe(true);
+      expect(safe.startsWith(root)).toBe(true);
       expect(JSON.parse(store.getWorkspace(hostile)!.settings).path).toBe(safe);
     } finally {
       if (prev === undefined) delete process.env.TORVAIX_HOME;
