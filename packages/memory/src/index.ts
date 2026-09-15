@@ -51,7 +51,7 @@ export interface PendingAction {
   workspaceId: string;
   action: string;
   params: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'executed';
   createdAt: string;
 }
 
@@ -737,6 +737,43 @@ export class MemoryStore {
     return id;
   }
 
+  /**
+   * Folder where tools run for a workspace. Rows without one (the seeded "default" workspace,
+   * or rows from older versions) get a folder provisioned and saved, so shell and file tools
+   * never fall back to the server's own working directory, i.e. the Torvaix source tree.
+   */
+  ensureWorkspacePath(id: string): string {
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+
+    const workspace = this.getWorkspace(id);
+    let settings: any = {};
+    try {
+      settings = workspace?.settings ? JSON.parse(workspace.settings) : {};
+    } catch {
+      settings = {};
+    }
+    if (typeof settings.path === 'string' && settings.path) {
+      fs.mkdirSync(settings.path, { recursive: true });
+      return settings.path;
+    }
+
+    const TORVAIX_HOME = process.env.TORVAIX_HOME || path.join(os.homedir(), '.torvaix');
+    const slug = (workspace?.name ?? 'workspace').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'workspace';
+    const safeId = id.replace(/[^A-Za-z0-9_-]/g, '').substring(0, 8) || 'ws';
+    const workspacePath = path.join(TORVAIX_HOME, 'workspaces', `${slug}-${safeId}`);
+    for (const sub of ['projects', 'knowledge', 'tasks']) {
+      fs.mkdirSync(path.join(workspacePath, sub), { recursive: true });
+    }
+
+    if (workspace) {
+      settings.path = workspacePath;
+      this.db.prepare('UPDATE workspaces SET settings = ? WHERE id = ?').run(JSON.stringify(settings), id);
+    }
+    return workspacePath;
+  }
+
   getWorkspace(id: string): Workspace | undefined {
     const stmt = this.db.prepare('SELECT * FROM workspaces WHERE id = ?');
     return stmt.get(id) as Workspace | undefined;
@@ -775,12 +812,22 @@ export class MemoryStore {
     return stmt.get(id) as PendingAction | undefined;
   }
 
-  updatePendingActionStatus(id: string, status: 'approved' | 'rejected') {
-    const stmt = this.db.prepare('UPDATE pending_actions SET status = ? WHERE id = ?');
-    stmt.run(status, id);
+  /** Record the user's decision. Only actions still awaiting one can change; returns false otherwise. */
+  updatePendingActionStatus(id: string, status: 'approved' | 'rejected'): boolean {
+    const stmt = this.db.prepare("UPDATE pending_actions SET status = ? WHERE id = ? AND status = 'pending'");
+    return stmt.run(status, id).changes === 1;
   }
 
-  listPendingActions(workspaceId: string, status?: 'pending' | 'approved' | 'rejected'): PendingAction[] {
+  /**
+   * Atomically claim an approved action for execution. It must belong to `workspaceId` and
+   * can be claimed once, so an approval can't be replayed to run the command again.
+   */
+  consumeApprovedAction(id: string, workspaceId: string): PendingAction | undefined {
+    const stmt = this.db.prepare("UPDATE pending_actions SET status = 'executed' WHERE id = ? AND workspaceId = ? AND status = 'approved'");
+    return stmt.run(id, workspaceId).changes === 1 ? this.getPendingAction(id) : undefined;
+  }
+
+  listPendingActions(workspaceId: string, status?: PendingAction['status']): PendingAction[] {
     if (status) {
       const stmt = this.db.prepare('SELECT * FROM pending_actions WHERE workspaceId = ? AND status = ? ORDER BY createdAt DESC');
       return stmt.all(workspaceId, status) as PendingAction[];

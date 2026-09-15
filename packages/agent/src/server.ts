@@ -405,6 +405,11 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
     const { instructions, workspaceId, messages = [], pendingActionId } = req.body;
     const isStream = req.query.stream === 'true';
 
+    if ((typeof instructions !== 'string' || !instructions.trim()) && typeof pendingActionId !== 'string') {
+      res.status(400).json({ error: 'instructions are required' });
+      return;
+    }
+
     if (isStream) {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Transfer-Encoding', 'chunked');
@@ -415,13 +420,8 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
       model: chatModel,
     });
 
-    // If resuming from approval, the orchestrator needs to know
-    if (pendingActionId) {
-      const pending = memoryStore.getPendingAction(pendingActionId);
-      if (pending) {
-        orchestrator.approveTool(pending.action, pending.workspaceId);
-      }
-    }
+    // Resuming an approved action is handled inside the orchestrator, which verifies the
+    // approval and claims it once. Never grant tool approval here from a bare id.
 
     const finalState = await orchestrator.run(
       {
@@ -456,7 +456,8 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
     if (!res.headersSent) {
       res.status(500).json({ error: 'Agent loop failed', details: error.message });
     } else {
-      res.end(`\n\nError: Agent loop failed - ${error.message}`);
+      // Error part of the AI SDK data stream protocol, so the chat UI surfaces it instead of failing to parse.
+      res.end(`3:${JSON.stringify(`Agent loop failed: ${error.message}`)}\n`);
     }
   }
 });
@@ -464,12 +465,20 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
 // Approve Pending Action
 app.post('/api/agent/approve', requireAuth, (req: AuthRequest, res) => {
   try {
-    const { pendingActionId, status } = req.body as { pendingActionId: string; status: 'approved' | 'rejected' };
-    if (!pendingActionId || !status) {
-      res.status(400).json({ error: 'Missing pendingActionId or status' });
+    const { pendingActionId, status } = req.body ?? {};
+    if (typeof pendingActionId !== 'string' || (status !== 'approved' && status !== 'rejected')) {
+      res.status(400).json({ error: 'pendingActionId and a status of "approved" or "rejected" are required' });
       return;
     }
-    memoryStore.updatePendingActionStatus(pendingActionId, status);
+    const existing = memoryStore.getPendingAction(pendingActionId);
+    if (!existing) {
+      res.status(404).json({ error: 'Pending action not found' });
+      return;
+    }
+    if (!memoryStore.updatePendingActionStatus(pendingActionId, status)) {
+      res.status(409).json({ error: `Action was already ${existing.status}` });
+      return;
+    }
     res.json({ success: true, status });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to update pending action' });
@@ -480,7 +489,7 @@ app.post('/api/agent/approve', requireAuth, (req: AuthRequest, res) => {
 app.get('/api/agent/executions', requireAuth, (req: AuthRequest, res) => {
   try {
     const workspaceId = (req.query.workspaceId as string) || 'default';
-    const limit = parseInt((req.query.limit as string) || '50', 10);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50'), 10) || 50, 1), 500);
     const logs = memoryStore.listExecutionLogs(workspaceId, limit);
     res.json({ success: true, logs });
   } catch (error: any) {
@@ -492,7 +501,8 @@ app.get('/api/agent/executions', requireAuth, (req: AuthRequest, res) => {
 app.get('/api/agent/pending-actions', requireAuth, (req: AuthRequest, res) => {
   try {
     const workspaceId = (req.query.workspaceId as string) || 'default';
-    const status = (req.query.status as any) || 'pending';
+    const requested = String(req.query.status ?? 'pending');
+    const status = (['pending', 'approved', 'rejected', 'executed'].includes(requested) ? requested : 'pending') as any;
     const actions = memoryStore.listPendingActions(workspaceId, status);
     res.json({ success: true, actions });
   } catch (error: any) {
@@ -504,8 +514,9 @@ app.get('/api/agent/pending-actions', requireAuth, (req: AuthRequest, res) => {
 app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest, res) => {
 
   try {
-    const { instructions, workspaceId = 'default', priority = 'medium' } = req.body;
-    if (!instructions || typeof instructions !== 'string') {
+    const { instructions, workspaceId = 'default', priority = 'medium', pendingActionId } = req.body;
+    // pendingActionId resumes a task whose dangerous action the user just approved.
+    if ((!instructions || typeof instructions !== 'string') && typeof pendingActionId !== 'string') {
       res.status(400).json({ error: 'Instructions are required' });
       return;
     }
@@ -517,8 +528,9 @@ app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest,
 
     const finalState = await orchestrator.run({
       workspaceId,
-      instructions,
+      instructions: typeof instructions === 'string' ? instructions : '',
       messages: [],
+      pendingActionId,
     });
 
     res.json({
@@ -552,6 +564,10 @@ app.get('/api/memory/list', requireAuth, async (req: AuthRequest, res) => {
 app.post('/api/memory/store', requireAuth, async (req: AuthRequest, res) => {
   try {
     const { workspaceId = 'default', content, source = 'API' } = req.body;
+    if (!content || typeof content !== 'string') {
+      res.status(400).json({ error: 'content is required' });
+      return;
+    }
     const id = await memoryStore.storeMemory(workspaceId, content, source);
     res.json({ success: true, id });
   } catch (error: any) {
@@ -890,9 +906,12 @@ wss.on('connection', (ws: any) => {
 
 // ── Startup ──
 
-const PORT = process.env.AGENT_PORT || 3001;
-server.listen(PORT, () => {
-  console.log(`Torvaix Agent Server running on port ${PORT}`);
+const PORT = Number(process.env.AGENT_PORT) || 3001;
+// Loopback only by default: the agent can run shell commands and skips auth when no token is
+// sent, so it must not be reachable from other machines unless explicitly configured.
+const HOST = process.env.AGENT_HOST || '127.0.0.1';
+server.listen(PORT, HOST, () => {
+  console.log(`Torvaix Agent Server running on http://${HOST}:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
   console.log(`Auth:         http://localhost:${PORT}/api/auth/register | /api/auth/login`);
   console.log(`Agent API:    http://localhost:${PORT}/api/agent/run`);

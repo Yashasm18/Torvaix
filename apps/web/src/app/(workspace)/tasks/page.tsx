@@ -118,20 +118,42 @@ export default function TasksPage() {
     return () => clearInterval(interval);
   }, [workspaceId]);
 
+  const [approvalOutput, setApprovalOutput] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
   const handleActionApproval = async (id: string, status: "approved" | "rejected") => {
+    setResolvingId(id);
     try {
       const res = await fetch("/api/agent/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pendingActionId: id, status }),
       });
-
-      if (res.ok) {
-        setPendingActions((prev) => prev.filter((a) => a.id !== id));
-        fetchData();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setApprovalOutput(`Could not ${status === "approved" ? "approve" : "reject"} the action: ${data.error || `HTTP ${res.status}`}`);
+        return;
       }
+      setPendingActions((prev) => prev.filter((a) => a.id !== id));
+
+      if (status === "approved") {
+        // Approving only records the decision; resume the agent so the action actually runs.
+        const runRes = await fetch("/api/agent/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workspaceId, pendingActionId: id }),
+        });
+        const runData = await runRes.json().catch(() => ({}));
+        setApprovalOutput(runRes.ok ? runData.task?.output || "Action executed." : `Execution failed: ${runData.error || `HTTP ${runRes.status}`}`);
+      } else {
+        setApprovalOutput("Action rejected. It will not run.");
+      }
+      fetchData();
     } catch (e) {
       console.error("Approval error:", e);
+      setApprovalOutput("Couldn't reach the agent server.");
+    } finally {
+      setResolvingId(null);
     }
   };
 
@@ -292,6 +314,14 @@ export default function TasksPage() {
 
       {/* Gated Security Approvals Banner */}
       <div className="px-6 pt-4 pb-2">
+        {approvalOutput && (
+          <div className="mb-3 p-3 rounded-lg border border-border bg-surface text-xs font-mono text-foreground whitespace-pre-wrap max-h-40 overflow-y-auto flex justify-between gap-3">
+            <span>{approvalOutput}</span>
+            <button type="button" aria-label="Dismiss" onClick={() => setApprovalOutput(null)} className="text-muted-foreground hover:text-foreground shrink-0">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
         <AnimatePresence>
           {pendingActions.length > 0 ? (
             <motion.div
@@ -337,6 +367,7 @@ export default function TasksPage() {
                       <div className="flex items-center gap-2 shrink-0">
                         <Button
                           size="sm"
+                          disabled={resolvingId !== null}
                           onClick={() => handleActionApproval(action.id, "approved")}
                           className="bg-green-600 hover:bg-green-500 text-white gap-1.5 rounded-lg text-xs"
                         >
@@ -346,6 +377,7 @@ export default function TasksPage() {
                         <Button
                           size="sm"
                           variant="destructive"
+                          disabled={resolvingId !== null}
                           onClick={() => handleActionApproval(action.id, "rejected")}
                           className="gap-1.5 rounded-lg text-xs"
                         >

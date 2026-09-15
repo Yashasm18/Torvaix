@@ -147,13 +147,35 @@ describe('MemoryStore — Pending Actions', () => {
     const wsId = store.createWorkspace('Status Test');
     const id = store.createPendingAction(wsId, 'python', { code: 'print(1)' });
 
-    store.updatePendingActionStatus(id, 'approved');
-    const approved = store.getPendingAction(id);
-    expect(approved!.status).toBe('approved');
+    expect(store.updatePendingActionStatus(id, 'approved')).toBe(true);
+    expect(store.getPendingAction(id)!.status).toBe('approved');
 
+    // A decision is final: an approved action can't be flipped (or re-approved) later.
+    expect(store.updatePendingActionStatus(id, 'rejected')).toBe(false);
+    expect(store.getPendingAction(id)!.status).toBe('approved');
+  });
+
+  it('claims an approved action exactly once, only in its own workspace', () => {
+    const wsId = store.createWorkspace('Consume Test');
+    const otherWs = store.createWorkspace('Other Workspace');
+    const id = store.createPendingAction(wsId, 'bash', { command: 'ls' });
+
+    expect(store.consumeApprovedAction(id, wsId)).toBeUndefined(); // still pending
+
+    store.updatePendingActionStatus(id, 'approved');
+    expect(store.consumeApprovedAction(id, otherWs)).toBeUndefined(); // wrong workspace
+
+    const claimed = store.consumeApprovedAction(id, wsId);
+    expect(claimed?.status).toBe('executed');
+    expect(store.consumeApprovedAction(id, wsId)).toBeUndefined(); // no replay
+  });
+
+  it('never lets a rejected action be claimed', () => {
+    const wsId = store.createWorkspace('Reject Test');
+    const id = store.createPendingAction(wsId, 'python', { code: 'print(1)' });
     store.updatePendingActionStatus(id, 'rejected');
-    const rejected = store.getPendingAction(id);
-    expect(rejected!.status).toBe('rejected');
+    expect(store.updatePendingActionStatus(id, 'approved')).toBe(false);
+    expect(store.consumeApprovedAction(id, wsId)).toBeUndefined();
   });
 
   it('lists pending actions filtered by workspace and status', () => {
@@ -168,6 +190,23 @@ describe('MemoryStore — Pending Actions', () => {
     const pendingOnly = store.listPendingActions(wsId, 'pending');
     expect(pendingOnly.length).toBe(1);
     expect(pendingOnly[0].id).toBe(id2);
+  });
+
+  it('provisions and saves a folder for workspaces created without one', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'torvaix-home-'));
+    const prev = process.env.TORVAIX_HOME;
+    process.env.TORVAIX_HOME = home;
+    try {
+      const p = store.ensureWorkspacePath('default');
+      expect(p.startsWith(path.join(home, 'workspaces'))).toBe(true);
+      expect(fs.existsSync(path.join(p, 'tasks'))).toBe(true);
+      expect(JSON.parse(store.getWorkspace('default')!.settings).path).toBe(p);
+      expect(store.ensureWorkspacePath('default')).toBe(p);
+    } finally {
+      if (prev === undefined) delete process.env.TORVAIX_HOME;
+      else process.env.TORVAIX_HOME = prev;
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it('logs and lists execution logs', () => {
