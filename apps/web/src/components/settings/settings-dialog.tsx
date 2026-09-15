@@ -17,6 +17,7 @@ import { THEMES } from "@/lib/themes"
 import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { refreshSystemStatus, useSystemStatus } from "@/hooks/use-system-status"
 import { exportWorkspaceAsJSON } from "@/lib/export"
+import { WorkspaceManager } from "./workspace-manager"
 
 const PROVIDER_ENV: Record<string, string> = {
   openai: "OPENAI_API_KEY",
@@ -115,6 +116,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
                   <Download className="h-4 w-4" /> Export {workspace?.name ?? "workspace"}
                 </Button>
               </div>
+              <WorkspaceManager key={workspace?.id} />
             </TabsContent>
 
             <TabsContent value="appearance" className="m-0 space-y-4">

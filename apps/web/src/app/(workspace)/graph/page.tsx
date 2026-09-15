@@ -5,6 +5,7 @@ import type { ForceGraphMethods } from 'react-force-graph-2d';
 import dynamic from 'next/dynamic';
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 import { useTheme } from 'next-themes';
+import { countConnections } from '@/lib/graph';
 
 interface Node {
   id: string;
@@ -38,14 +39,18 @@ export default function GraphPage() {
   const fgRef = useRef<any>(null);
   const { theme } = useTheme();
   
-  const isDark = theme === 'dark' || !theme; // Default to dark
+  const isDark = theme !== 'light'; // every theme except "light" has a dark background
 
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     fetch('/api/graph')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`Graph request failed with HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (!data.nodes) return;
 
@@ -63,7 +68,10 @@ export default function GraphPage() {
 
         setGraphData({ nodes, links });
       })
-      .catch(console.error)
+      .catch((err) => {
+        console.error(err);
+        setLoadError(true);
+      })
       .finally(() => setLoaded(true));
   }, []);
 
@@ -85,7 +93,7 @@ export default function GraphPage() {
   }, []);
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-background p-6">
+    <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-background p-4 sm:p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[14rem]">
           <h1 className="text-2xl font-bold tracking-tight mb-1">Knowledge Graph</h1>
@@ -103,17 +111,26 @@ export default function GraphPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 gap-6 overflow-hidden">
+      <div className="relative flex flex-1 min-h-0 gap-6 overflow-hidden">
         <div
           ref={containerRef}
           className="flex-1 rounded-xl border border-border bg-[#0a0a0a] shadow-inner overflow-hidden relative"
         >
           {loaded && graphData.nodes.length === 0 && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 p-6 text-center pointer-events-none">
-              <p className="text-sm font-medium text-foreground">Your knowledge graph is empty</p>
-              <p className="max-w-sm text-xs text-muted-foreground">
-                Save a fact in chat (for example, &ldquo;Remember that I prefer PostgreSQL&rdquo;). With the Intelligence Layer running, entities and relationships appear here.
-              </p>
+              {loadError ? (
+                <>
+                  <p className="text-sm font-medium text-foreground">Couldn&apos;t load the knowledge graph</p>
+                  <p className="max-w-sm text-xs text-muted-foreground">Refresh the page to try again.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-foreground">Your knowledge graph is empty</p>
+                  <p className="max-w-sm text-xs text-muted-foreground">
+                    Save a fact in chat (for example, &ldquo;Remember that I prefer PostgreSQL&rdquo;). With the Intelligence Layer running, entities and relationships appear here.
+                  </p>
+                </>
+              )}
             </div>
           )}
           <ForceGraph2D
@@ -163,7 +180,7 @@ export default function GraphPage() {
 
         {/* Selected Node Details Panel */}
         {selectedNode && (
-          <div className="w-80 flex flex-col rounded-xl border border-border bg-card p-6 shadow-sm overflow-y-auto">
+          <div className="absolute inset-x-3 bottom-3 z-20 max-h-[60%] md:static md:inset-auto md:max-h-none md:w-80 flex flex-col rounded-xl border border-border bg-card p-6 shadow-sm overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">{selectedNode.name}</h2>
               <button 
@@ -199,7 +216,7 @@ export default function GraphPage() {
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Connections</h3>
                 <p className="text-sm text-muted-foreground">
-                  {graphData.links.filter(l => l.source === selectedNode.id || l.target === selectedNode.id).length} edges
+                  {countConnections(graphData.links, selectedNode.id)} edges
                 </p>
               </div>
             </div>
