@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Monitor, Key, Shield, HardDrive, Moon, CheckCircle2, XCircle, Loader2, RefreshCw } from "lucide-react"
+import { Monitor, Key, Shield, HardDrive, Moon, CheckCircle2, XCircle, Loader2, RefreshCw, Download } from "lucide-react"
 import { useTheme } from "next-themes"
 
 import {
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { THEMES } from "@/lib/themes"
 import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { refreshSystemStatus, useSystemStatus } from "@/hooks/use-system-status"
+import { exportWorkspaceAsJSON } from "@/lib/export"
 
 const PROVIDER_ENV: Record<string, string> = {
   openai: "OPENAI_API_KEY",
@@ -98,6 +99,22 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
                 The chat model is set on the agent server with the <code className="font-mono">TORVAIX_MODEL</code> environment
                 variable, e.g. <code className="font-mono">TORVAIX_MODEL=llama3.2:3b</code>.
               </p>
+              <div className="rounded-xl border border-border p-4 space-y-2">
+                <div className="text-sm">Backup</div>
+                <p className="text-xs text-muted-foreground">
+                  Chats, notes and projects are stored in this browser, so clearing site data deletes them.
+                  Export a copy to keep one.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={!workspace}
+                  onClick={() => workspace && exportWorkspaceAsJSON(workspace.id)}
+                  className="gap-2"
+                >
+                  <Download className="h-4 w-4" /> Export {workspace?.name ?? "workspace"}
+                </Button>
+              </div>
             </TabsContent>
 
             <TabsContent value="appearance" className="m-0 space-y-4">

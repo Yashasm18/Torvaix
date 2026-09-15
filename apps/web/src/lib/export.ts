@@ -1,29 +1,35 @@
-import { useDBStore } from "@/store/db-store";
+import { useDBStore } from '@/store/db-store';
 
+/**
+ * Download a JSON backup of a workspace's browser-stored data (chats, messages, notes,
+ * projects). These live in IndexedDB, so clearing site data would otherwise lose them.
+ */
 export function exportWorkspaceAsJSON(workspaceId: string) {
   const state = useDBStore.getState();
-  
+
   const workspace = state.workspaces.find(w => w.id === workspaceId);
   if (!workspace) return;
 
   const chats = state.chats.filter(c => c.workspaceId === workspaceId);
-  const notes = state.notes.filter(n => n.workspaceId === workspaceId);
-  const messages = state.messages.filter(m => chats.some(c => c.id === m.chatId));
-
+  const chatIds = new Set(chats.map(c => c.id));
   const exportData = {
     workspace,
     chats,
-    notes,
-    messages,
+    messages: state.messages.filter(m => chatIds.has(m.chatId)),
+    notes: state.notes.filter(n => n.workspaceId === workspaceId),
+    projects: state.projects.filter(p => p.workspaceId === workspaceId),
     exportedAt: new Date().toISOString(),
-    version: '1.0'
+    version: '1.1',
   };
 
-  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
-  const downloadAnchorNode = document.createElement('a');
-  downloadAnchorNode.setAttribute("href",     dataStr);
-  downloadAnchorNode.setAttribute("download", `workspace-${workspace.name.toLowerCase().replace(/\s+/g, '-')}.json`);
-  document.body.appendChild(downloadAnchorNode); // required for firefox
-  downloadAnchorNode.click();
-  downloadAnchorNode.remove();
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const slug = workspace.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace';
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `torvaix-${slug}-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(anchor); // required for Firefox
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

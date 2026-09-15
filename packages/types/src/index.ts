@@ -16,6 +16,8 @@ export interface Message {
   content: string;
   model?: string;
   provider?: string;
+  /** Tool calls shown with an assistant reply (AI SDK ToolInvocation objects). */
+  toolInvocations?: unknown[];
   createdAt: Date;
 }
 
