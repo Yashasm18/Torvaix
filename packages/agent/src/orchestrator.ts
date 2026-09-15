@@ -615,8 +615,10 @@ ${structure}
 
     // If there is a pending action, it means it was just approved
     if (state.pendingActionId) {
-      const pending = this.memoryStore.getPendingAction(state.pendingActionId);
-      if (pending && pending.status === 'approved') {
+      // Claim atomically: the action must be approved, belong to this workspace, and not have run yet.
+      const claimed = this.memoryStore.consumeApprovedAction(state.pendingActionId, state.workspaceId);
+      const pending = claimed ?? this.memoryStore.getPendingAction(state.pendingActionId);
+      if (claimed && pending) {
         console.log(`[Execution Agent] Resuming approved action: ${pending.action}`);
         this.approveTool(pending.action, state.workspaceId);
         state.trace!.recordApproval(pending.action, true, { resumed: true });
@@ -653,6 +655,15 @@ ${structure}
         }
 
         state.pendingActionId = undefined;
+        if (!state.instructions.trim()) {
+          // Resumed on its own (approved from the Tasks page): nothing further was asked,
+          // so report the tool's result instead of planning new steps.
+          const last = state.messages[state.messages.length - 1];
+          state.output = last ? last.content.replace(/^Tool Result: /, '') : 'Action executed.';
+          state.final = true;
+          state.nextNode = 'end';
+          return state;
+        }
         state.nextNode = 'execution';
         return state;
       } else if (pending && pending.status === 'rejected') {
@@ -660,7 +671,17 @@ ${structure}
         state.messages.push({ role: 'system', content: `User rejected the execution of ${pending.action}.` });
         state.pendingActionId = undefined;
         state.trace!.recordApproval(pending.action, false, { rejected: true });
+      } else {
+        console.warn(`[Execution Agent] Ignoring pending action ${state.pendingActionId}: not approved for this workspace, or already executed`);
+        state.pendingActionId = undefined;
       }
+    }
+
+    if (!state.instructions.trim()) {
+      state.output = 'The action was not run: it was rejected, already executed, or not approved for this workspace.';
+      state.final = true;
+      state.nextNode = 'end';
+      return state;
     }
 
     // Build execution prompt
@@ -912,14 +933,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
     };
 
     // Fetch workspace path for isolated MCP execution
-    const workspace = this.memoryStore.getWorkspace(state.workspaceId);
-    let workspaceSettings: any = {};
-    try {
-      if (workspace && workspace.settings) {
-        workspaceSettings = JSON.parse(workspace.settings);
-      }
-    } catch(e) {}
-    const workspacePath = workspaceSettings.path || process.cwd();
+    const workspacePath = this.memoryStore.ensureWorkspacePath(state.workspaceId);
 
     try {
       while (state.nextNode !== 'end' && !state.final && state.iteration < this.maxIterations) {

@@ -7,16 +7,16 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { instructions, workspaceId = 'default', priority = 'medium' } = body;
+    const { instructions, workspaceId = 'default', priority = 'medium', pendingActionId } = body;
 
-    if (!instructions) {
+    if (!instructions && !pendingActionId) {
       return NextResponse.json({ error: 'Instructions are required' }, { status: 400 });
     }
 
     const res = await fetch(`${AGENT_SERVER_URL}/api/agent/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instructions, workspaceId, priority }),
+      body: JSON.stringify({ instructions, workspaceId, priority, pendingActionId }),
     });
 
     if (!res.ok) {
