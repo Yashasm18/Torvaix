@@ -172,7 +172,6 @@ automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
 automationEngine.start(30_000);
 
 
-app.use(express.json({ limit: '50mb' }));
 
 // Browser protection. `Access-Control-Allow-Origin: *` plus tokenless auth let any website the
 // user visited drive this server from their browser: queue a task, approve it, and run shell
@@ -200,6 +199,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Parse bodies only after the origin/host guard, so rejected requests never get buffered.
+app.use(express.json({ limit: '50mb' }));
+
 // ── Auth Types ──
 
 interface AuthRequest extends Request {
@@ -211,6 +213,10 @@ interface AuthRequest extends Request {
 const apiLimiter = rateLimit({
   windowMs: RATE_LIMIT_WINDOW_MS,
   limit: RATE_LIMIT_MAX,
+  // Every web request reaches us from the Next proxy's single IP, so all tabs share one bucket.
+  // The UI's read-only polling (status, stats, pending approvals, logs) exhausted 60/min and
+  // surfaced as "agent offline". Reads are cheap; limit writes, and agent runs separately.
+  skip: (req) => req.method === 'GET' || req.method === 'HEAD',
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Rate limit exceeded. Please slow down.' }
@@ -826,7 +832,12 @@ app.get('/api/automations/:id/logs', requireAuth, async (req: AuthRequest, res) 
 
 app.post('/api/companion/pair/create', requireAuth, async (req, res) => {
   try {
-    const { scope = 'readonly', expiryMinutes = 10 } = req.body;
+    const { scope = 'readonly', expiryMinutes: rawExpiry = 10 } = req.body ?? {};
+    if (scope !== 'readonly' && scope !== 'admin') {
+      res.status(400).json({ error: 'scope must be "readonly" or "admin"' });
+      return;
+    }
+    const expiryMinutes = Math.min(Math.max(Number(rawExpiry) || 10, 1), 60);
     console.log('[EXPERIMENTAL][Companion] Creating pairing token...');
     const result = memoryStore.createPairingToken(scope, expiryMinutes);
     res.status(201).json({
@@ -863,8 +874,18 @@ app.post('/api/companion/pair/claim', async (req, res) => {
 
 app.post('/api/companion/session', async (req, res) => {
   try {
-    const { deviceId } = req.body;
-    if (!deviceId) { res.status(400).json({ error: 'Missing deviceId' }); return; }
+    // Refreshing requires the device's current session token. A bare deviceId (visible in the
+    // device list) used to be enough to mint a new session and lock the real device out.
+    const { deviceId, sessionToken: currentToken } = req.body ?? {};
+    if (typeof deviceId !== 'string' || typeof currentToken !== 'string') {
+      res.status(400).json({ error: 'Missing deviceId or sessionToken' });
+      return;
+    }
+    const current = memoryStore.validateSession(currentToken);
+    if (!current || current.deviceId !== deviceId) {
+      res.status(401).json({ error: 'Invalid or expired session; pair the device again' });
+      return;
+    }
     const sessionToken = memoryStore.createDeviceSession(deviceId);
     if (!sessionToken) { res.status(401).json({ error: 'Device not found or revoked' }); return; }
     res.json({ success: true, sessionToken, experimental: true });

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
+import { parseServerTimestamp } from "@/lib/server-time";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen,
@@ -471,7 +472,7 @@ export default function KnowledgePage() {
                             </span>
                             <span className="flex items-center gap-1">
                               <Clock className="w-3 h-3" />
-                              {new Date(item.createdAt).toLocaleDateString()}
+                              {parseServerTimestamp(item.createdAt)?.toLocaleDateString() ?? "—"}
                             </span>
                             {item.retrievalCount !== undefined && item.retrievalCount > 0 && (
                               <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-mono text-[10px]">

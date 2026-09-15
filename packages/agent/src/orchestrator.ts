@@ -271,7 +271,13 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
 
     try {
       await this.memoryStore.initQdrant();
-      const results = await this.memoryStore.queryMemory(state.workspaceId, state.instructions, 5);
+      let results = await this.memoryStore.queryMemory(state.workspaceId, state.instructions, 5);
+      if (results.length === 0) {
+        // Broad recall ("what do you know about me?") has no specific keywords; answer from the
+        // most recent memories instead of saying nothing is stored.
+        const recent = (await this.memoryStore.getAllMemories(state.workspaceId)) as { id: string; content: string; source: string }[];
+        results = recent.slice(0, 5).map(m => ({ id: m.id, content: m.content, source: m.source, score: 0, retrievalType: 'keyword' as const }));
+      }
 
       // Surface retrieved memories to the Knowledge Pulse panel.
       state.pulse.retrievedMemories = results.map(r => ({
