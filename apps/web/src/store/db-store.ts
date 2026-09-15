@@ -8,6 +8,7 @@ import {
   WORKSPACE_STATE_VERSION,
   migrateWorkspaceState,
 } from './workspace-migration';
+import { DEFAULT_CHAT_TITLE, deriveChatTitle, toStoredMessages, type UiMessage } from './chat-history';
 
 interface DBState {
   workspaces: Workspace[];
@@ -18,6 +19,12 @@ interface DBState {
 
   activeWorkspaceId: string | null;
   setActiveWorkspaceId: (id: string | null) => void;
+
+  /** Chat currently open in each workspace (workspaceId -> chatId). */
+  activeChatIds: Record<string, string>;
+  setActiveChat: (workspaceId: string, chatId: string) => void;
+  /** Replace a chat's stored messages with the live conversation and refresh its title/updatedAt. */
+  saveChatMessages: (chatId: string, messages: UiMessage[]) => void;
 
   createWorkspace: (name: string, template: WorkspaceTemplate) => Promise<Workspace>;
   deleteWorkspace: (id: string) => void;
@@ -75,8 +82,24 @@ export const useDBStore = create<DBState>()(
       messages: [],
       projects: [],
       activeWorkspaceId: null,
+      activeChatIds: {},
 
       setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
+
+      setActiveChat: (workspaceId, chatId) =>
+        set((state) => ({ activeChatIds: { ...state.activeChatIds, [workspaceId]: chatId } })),
+
+      saveChatMessages: (chatId, uiMessages) => {
+        set((state) => {
+          const chat = state.chats.find((c) => c.id === chatId);
+          if (!chat) return {};
+          const title = chat.title === DEFAULT_CHAT_TITLE ? deriveChatTitle(uiMessages) ?? chat.title : chat.title;
+          return {
+            messages: [...state.messages.filter((m) => m.chatId !== chatId), ...toStoredMessages(chatId, uiMessages)],
+            chats: state.chats.map((c) => (c.id === chatId ? { ...c, title, updatedAt: new Date() } : c)),
+          };
+        });
+      },
 
       createWorkspace: async (name, template) => {
         const newWorkspace: Workspace = {
@@ -107,7 +130,7 @@ export const useDBStore = create<DBState>()(
           get().createChat(newWorkspace.id, 'Code Assistant');
           get().createNote(newWorkspace.id, 'Snippets');
         } else {
-          get().createChat(newWorkspace.id, 'New Chat');
+          get().createChat(newWorkspace.id, DEFAULT_CHAT_TITLE);
         }
 
         return newWorkspace;
@@ -119,6 +142,7 @@ export const useDBStore = create<DBState>()(
           chats: state.chats.filter((c) => c.workspaceId !== id),
           notes: state.notes.filter((n) => n.workspaceId !== id),
           projects: state.projects.filter((p) => p.workspaceId !== id),
+          activeChatIds: Object.fromEntries(Object.entries(state.activeChatIds).filter(([workspaceId]) => workspaceId !== id)),
           messages: state.messages.filter(
             (m) => !state.chats.find((c) => c.id === m.chatId && c.workspaceId === id)
           ),
@@ -154,6 +178,7 @@ export const useDBStore = create<DBState>()(
         set((state) => ({
           chats: state.chats.filter((c) => c.id !== id),
           messages: state.messages.filter((m) => m.chatId !== id),
+          activeChatIds: Object.fromEntries(Object.entries(state.activeChatIds).filter(([, chatId]) => chatId !== id)),
         }));
       },
 
@@ -240,6 +265,7 @@ export const useDBStore = create<DBState>()(
         notes: state.notes,
         messages: state.messages,
         projects: state.projects,
+        activeChatIds: state.activeChatIds,
         activeWorkspaceId: state.activeWorkspaceId,
       }),
       onRehydrateStorage: () => (state) => {

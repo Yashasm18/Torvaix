@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
+import { parseServerTimestamp } from "@/lib/server-time";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2,
@@ -550,7 +551,7 @@ export default function TasksPage() {
                     <div className="flex items-center gap-3 shrink-0 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1 font-mono text-[11px]">
                         <Clock className="w-3 h-3" />
-                        {new Date(log.createdAt).toLocaleTimeString()}
+                        {parseServerTimestamp(log.createdAt)?.toLocaleTimeString() ?? "—"}
                       </span>
                       {isExpanded ? (
                         <ChevronUp className="w-4 h-4" />
