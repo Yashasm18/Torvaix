@@ -6,6 +6,42 @@ import type {
   ActionExecutor
 } from './types';
 
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+const WEEK_MS = 7 * DAY_MS;
+const MAX_FILTER_INPUT = 10_000;
+
+/** Parse ISO or SQLite "YYYY-MM-DD HH:MM:SS" (UTC, no zone) timestamps. */
+export function parseTimestamp(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const iso = value.includes('T') ? value : value.replace(' ', 'T');
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const date = new Date(hasZone ? iso : `${iso}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseTimeOfDay(value: unknown): { hours: number; minutes: number } | null {
+  const match = typeof value === 'string' ? /^(\d{1,2}):(\d{2})$/.exec(value.trim()) : null;
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours < 24 && minutes < 60 ? { hours, minutes } : null;
+}
+
+/** Latest local date/time at or before `now` matching the time (and weekday, when given). */
+function mostRecentOccurrence(now: Date, time: { hours: number; minutes: number }, weekday: number | null): Date {
+  const occurrence = new Date(now);
+  occurrence.setHours(time.hours, time.minutes, 0, 0);
+  if (weekday === null) {
+    if (occurrence > now) occurrence.setDate(occurrence.getDate() - 1);
+  } else {
+    occurrence.setDate(occurrence.getDate() - ((occurrence.getDay() - weekday + 7) % 7));
+    if (occurrence > now) occurrence.setDate(occurrence.getDate() - 7);
+  }
+  return occurrence;
+}
+
 export type ActionHandler = (workflow: AutomationWorkflow, triggerPayload?: any) => Promise<{ success: boolean; output: string }>;
 
 export interface AutomationStorage {
@@ -63,9 +99,11 @@ export class AutomationEngine {
     this.isRunning = false;
   }
 
-  // lastRunAt is only written when a run finishes, so without this a slow run
-  // still looks "due" on every tick and gets launched again concurrently.
-  private inFlightScheduled = new Set<string>();
+  // Workflows currently running, from any trigger. lastRunAt is only written when a run
+  // finishes, so without this a slow scheduled run looks "due" again on the next tick, and an
+  // event workflow whose action emits its own trigger event (e.g. an agent task that stores a
+  // memory on MEMORY_CREATED) would re-trigger itself endlessly.
+  private inFlight = new Set<string>();
 
   /**
    * Evaluate scheduled workflows and trigger those that are due.
@@ -78,15 +116,15 @@ export class AutomationEngine {
       );
 
       for (const workflow of activeScheduled) {
-        if (this.inFlightScheduled.has(workflow.id)) continue;
+        if (this.inFlight.has(workflow.id)) continue;
         if (this.isWorkflowDue(workflow, now)) {
-          this.inFlightScheduled.add(workflow.id);
+          this.inFlight.add(workflow.id);
           this.executeWorkflow(workflow, { source: 'schedule', timestamp: now.toISOString() })
             .catch(err => {
               console.error(`[AutomationEngine] Execution error for ${workflow.id}:`, err);
             })
             .finally(() => {
-              this.inFlightScheduled.delete(workflow.id);
+              this.inFlight.delete(workflow.id);
             });
         }
       }
@@ -97,52 +135,41 @@ export class AutomationEngine {
 
   /**
    * Check if a scheduled workflow is due for execution.
+   *
+   * - interval / hourly: due when the period has elapsed since the last run (first run immediately).
+   * - daily / weekly with timeOfDay: due once the most recent scheduled occurrence is later than the
+   *   last run, or than the creation time for a workflow that never ran. So "daily at 09:00" waits
+   *   for 09:00 instead of firing on creation, and a missed occurrence (server off) runs once on
+   *   the next tick. Weekly without dayOfWeek repeats on the weekday it was created / last ran.
    */
   public isWorkflowDue(workflow: AutomationWorkflow, now = new Date()): boolean {
-    const { frequency = 'interval', intervalMinutes = 60, timeOfDay, dayOfWeek } = workflow.triggerConfig;
-    const lastRun = workflow.lastRunAt ? new Date(workflow.lastRunAt) : null;
-
-    if (!lastRun) {
-      // First run is immediately due
-      return true;
-    }
-
-    const elapsedMs = now.getTime() - lastRun.getTime();
+    const { frequency = 'interval', intervalMinutes = 60, timeOfDay, dayOfWeek } = workflow.triggerConfig ?? {};
+    const lastRun = parseTimestamp(workflow.lastRunAt);
+    const elapsedMs = lastRun ? now.getTime() - lastRun.getTime() : Infinity;
 
     if (frequency === 'interval') {
-      const requiredMs = Math.max(1, intervalMinutes) * 60 * 1000;
-      return elapsedMs >= requiredMs;
+      return elapsedMs >= Math.max(1, Number(intervalMinutes) || 60) * MINUTE_MS;
     }
-
     if (frequency === 'hourly') {
-      return elapsedMs >= 60 * 60 * 1000;
+      return elapsedMs >= HOUR_MS;
     }
 
-    if (frequency === 'daily') {
-      // Check if at least 20 hours passed and time matches or 24h passed
-      if (elapsedMs >= 24 * 60 * 60 * 1000) return true;
-      if (timeOfDay) {
-        const [targetHour, targetMinute] = timeOfDay.split(':').map(Number);
-        const currentHour = now.getHours();
-        const currentMinute = now.getMinutes();
-        const isTargetTime = currentHour === targetHour && Math.abs(currentMinute - (targetMinute || 0)) <= 5;
-        const isDifferentDay = now.toDateString() !== lastRun.toDateString();
-        return isTargetTime && isDifferentDay;
-      }
-      return elapsedMs >= 24 * 60 * 60 * 1000;
+    if (frequency === 'daily' || frequency === 'weekly') {
+      const time = parseTimeOfDay(timeOfDay);
+      const periodMs = frequency === 'daily' ? DAY_MS : WEEK_MS;
+      if (!time) return elapsedMs >= periodMs;
+
+      const baseline = lastRun ?? parseTimestamp(workflow.createdAt);
+      if (!baseline) return true;
+
+      const weekday = frequency === 'weekly'
+        ? (typeof dayOfWeek === 'number' && dayOfWeek >= 0 && dayOfWeek <= 6 ? dayOfWeek : baseline.getDay())
+        : null;
+      const occurrence = mostRecentOccurrence(now, time, weekday);
+      return occurrence.getTime() > baseline.getTime();
     }
 
-    if (frequency === 'weekly') {
-      if (elapsedMs >= 7 * 24 * 60 * 60 * 1000) return true;
-      if (dayOfWeek !== undefined) {
-        const isTargetDay = now.getDay() === dayOfWeek;
-        const isDifferentWeek = elapsedMs >= 6 * 24 * 60 * 60 * 1000;
-        return isTargetDay && isDifferentWeek;
-      }
-      return elapsedMs >= 7 * 24 * 60 * 60 * 1000;
-    }
-
-    return elapsedMs >= 60 * 60 * 1000;
+    return elapsedMs >= HOUR_MS;
   }
 
   /**
@@ -184,7 +211,8 @@ export class AutomationEngine {
       for (const workflow of matchingWorkflows) {
         // Check filterPattern if specified
         if (workflow.triggerConfig.filterPattern && payload) {
-          const content = typeof payload === 'string' ? payload : JSON.stringify(payload);
+          // User-supplied pattern: bound the input so a pathological regex can't stall the server.
+          const content = (typeof payload === 'string' ? payload : JSON.stringify(payload)).slice(0, MAX_FILTER_INPUT);
           try {
             const regex = new RegExp(workflow.triggerConfig.filterPattern, 'i');
             if (!regex.test(content)) continue;
@@ -195,7 +223,13 @@ export class AutomationEngine {
           }
         }
 
-        await this.executeWorkflow(workflow, { source: 'event', eventName, payload });
+        if (this.inFlight.has(workflow.id)) continue;
+        this.inFlight.add(workflow.id);
+        try {
+          await this.executeWorkflow(workflow, { source: 'event', eventName, payload });
+        } finally {
+          this.inFlight.delete(workflow.id);
+        }
       }
     } catch (error) {
       console.error(`[AutomationEngine] Error handling event ${eventName}:`, error);

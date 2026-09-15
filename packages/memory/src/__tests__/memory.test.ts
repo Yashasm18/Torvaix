@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryStore } from '../index';
+import { MemoryStore, extractKeywords } from '../index';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -529,3 +529,55 @@ describe('MemoryStore — Automation Workflows & Logs', () => {
 });
 
 
+
+describe('MemoryStore — Search relevance & companion pairing', () => {
+  let dbPath: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `torvaix-test-relevance-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    store = new MemoryStore(dbPath, { ollamaUrl: 'http://127.0.0.1:59999', qdrantUrl: 'http://127.0.0.1:59999' });
+  });
+
+  afterEach(() => {
+    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
+  });
+
+  it('extracts Unicode keywords and drops filler words', () => {
+    expect(extractKeywords('What is my favorite database?')).toEqual(['favorite', 'database']);
+    expect(extractKeywords('Café crème, café!')).toEqual(['café', 'crème']);
+    expect(extractKeywords('ನನ್ನ ನೆಚ್ಚಿನ ಭಾಷೆ')).toHaveLength(3);
+    expect(extractKeywords('?? 🙂 hi')).toEqual([]);
+  });
+
+  it('finds memories written in non-Latin scripts', async () => {
+    const ws = store.createWorkspace('Unicode');
+    await store.storeMemory(ws, 'ನನ್ನ ನೆಚ್ಚಿನ ಭಾಷೆ ಕನ್ನಡ', 'test');
+    const results = store.performKeywordSearch(ws, 'ನೆಚ್ಚಿನ ಭಾಷೆ', 5);
+    expect(results[0]?.content).toContain('ಕನ್ನಡ');
+  });
+
+  it('returns nothing for queries without meaningful keywords instead of the latest memories', async () => {
+    const ws = store.createWorkspace('No Keywords');
+    await store.storeMemory(ws, 'PostgreSQL is my production database', 'test');
+    expect(store.performKeywordSearch(ws, 'hi there?', 5)).toEqual([]);
+    expect(store.performKeywordSearch(ws, '🙂', 5)).toEqual([]);
+  });
+
+  it('scores by keyword coverage so weak matches stay below the relevance threshold', async () => {
+    const ws = store.createWorkspace('Scores');
+    await store.storeMemory(ws, 'My favorite language is TypeScript', 'test');
+    expect(store.performKeywordSearch(ws, 'favorite language', 5)[0].score).toBe(1);
+    expect(store.performKeywordSearch(ws, 'favorite pizza topping', 5)[0].score).toBeLessThan(0.4);
+  });
+
+  it('claims pairing tokens once and never hands an existing device to a new token', () => {
+    const admin = store.createPairingToken('admin');
+    expect(store.claimPairingToken(admin.token, 'Laptop', 'fp-1')).toBeTruthy();
+    expect(store.claimPairingToken(admin.token, 'Other', 'fp-2')).toBeNull(); // already claimed
+
+    const readonly = store.createPairingToken('readonly');
+    expect(store.claimPairingToken(readonly.token, 'Attacker', 'fp-1')).toBeNull(); // no takeover of the admin device
+    expect(store.claimPairingToken(readonly.token, 'Phone', 'fp-3')).toBeTruthy(); // failed attempt didn't burn the token
+  });
+});

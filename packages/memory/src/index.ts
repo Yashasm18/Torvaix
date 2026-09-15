@@ -96,6 +96,29 @@ export interface AutomationLogRecord {
 /** Which embedding source is active. */
 export type EmbedSource = 'ollama' | 'openai' | 'local' | 'none';
 
+// Words too common to signal relevance on their own.
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'is', 'am', 'are', 'was', 'were', 'be', 'been', 'to', 'of', 'and', 'or', 'in', 'on', 'at',
+  'for', 'with', 'my', 'me', 'i', 'you', 'your', 'it', 'its', 'this', 'that', 'these', 'those', 'what', 'which',
+  'who', 'whom', 'how', 'why', 'when', 'where', 'do', 'does', 'did', 'can', 'could', 'should', 'would', 'will',
+  'about', 'tell', 'please', 'hi', 'hey', 'hello', 'we', 'our', 'us', 'as', 'by', 'from', 'so', 'if', 'then',
+  'than', 'there', 'here', 'any', 'some', 'have', 'has', 'had', 'not', 'no', 'yes', 'just', 'like', 'know',
+]);
+
+/**
+ * Lowercased, de-duplicated search keywords. Unicode-aware, so Kannada, Hindi, accented and
+ * CJK text are searchable (the old /[^a-zA-Z0-9]/ filter erased them entirely).
+ */
+export function extractKeywords(query: string): string[] {
+  const words = query
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(w => w && !STOP_WORDS.has(w) && (Array.from(w).length > 1 || /[^\x00-\x7F]/.test(w)));
+  return Array.from(new Set(words));
+}
+
 export class MemoryStore {
   private db: Database.Database;
   private qdrant: QdrantClient;
@@ -466,16 +489,22 @@ export class MemoryStore {
     return id;
   }
 
-  /** Perform sparse keyword search using SQLite FTS5 BM25 or fallback LIKE search. */
+  /**
+   * Sparse keyword search (SQLite FTS5 BM25, with a LIKE fallback).
+   *
+   * Scores are the share of the query's keywords found in the memory (0..1), so callers can
+   * apply a meaningful relevance threshold. Previously scores were min-max normalised, so a
+   * lone weak match (e.g. only the word "is") scored 1.0, and a query with no ASCII words
+   * (non-English text, emoji) returned the latest memories as if they were relevant.
+   */
   performKeywordSearch(workspaceId: string, query: string, limit: number = 10): MemoryQueryResult[] {
-    const sanitized = query.replace(/[^a-zA-Z0-9\s]/g, ' ').trim();
-    const keywords = sanitized.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+    const keywords = extractKeywords(query);
+    if (keywords.length === 0) return [];
 
-    if (keywords.length === 0) {
-      const stmt = this.db.prepare('SELECT id, content, source FROM memories WHERE workspaceId = ? ORDER BY createdAt DESC LIMIT ?');
-      const rows = stmt.all(workspaceId, limit) as { id: string; content: string; source: string }[];
-      return rows.map(r => ({ ...r, score: 0.5, retrievalType: 'keyword' as const }));
-    }
+    const coverage = (content: string) => {
+      const lower = content.toLowerCase();
+      return Number((keywords.filter(k => lower.includes(k)).length / keywords.length).toFixed(4));
+    };
 
     // Try FTS5 BM25 search
     try {
@@ -490,24 +519,17 @@ export class MemoryStore {
       `);
       const rows = stmt.all(workspaceId, ftsQuery, limit) as { id: string; content: string; source: string; bm25Score: number }[];
 
-      if (rows.length > 0) {
-        const minBm25 = Math.min(...rows.map(r => r.bm25Score));
-        const maxBm25 = Math.max(...rows.map(r => r.bm25Score));
-        const range = maxBm25 - minBm25 || 1;
-
-        return rows.map(r => ({
-          id: r.id,
-          content: r.content,
-          source: r.source,
-          score: Number((1 - (r.bm25Score - minBm25) / range).toFixed(4)),
-          retrievalType: 'keyword' as const,
-        }));
-      }
+      const scored = rows
+        .map(r => ({ id: r.id, content: r.content, source: r.source, score: coverage(r.content), retrievalType: 'keyword' as const }))
+        .filter(r => r.score > 0)
+        .sort((a, b) => b.score - a.score);
+      // Empty after scoring happens when the tokenizer splits a script differently from our keywords.
+      if (scored.length > 0) return scored;
     } catch (e) {
       // FTS5 syntax error or fallback
     }
 
-    // Fallback SQLite LIKE search
+    // Fallback SQLite LIKE search (also covers scripts the FTS tokenizer splits poorly)
     const conditions = keywords.map(() => 'LOWER(content) LIKE ?').join(' OR ');
     const params = keywords.map(k => `%${k}%`);
     const stmt = this.db.prepare(
@@ -515,17 +537,9 @@ export class MemoryStore {
     );
     const rows = stmt.all(workspaceId, ...params, limit) as { id: string; content: string; source: string }[];
 
-    return rows.map(row => {
-      const lowerContent = row.content.toLowerCase();
-      const matchCount = keywords.filter(k => lowerContent.includes(k)).length;
-      return {
-        id: row.id,
-        content: row.content,
-        source: row.source,
-        score: matchCount / keywords.length,
-        retrievalType: 'keyword' as const,
-      };
-    });
+    return rows
+      .map(row => ({ id: row.id, content: row.content, source: row.source, score: coverage(row.content), retrievalType: 'keyword' as const }))
+      .sort((a, b) => b.score - a.score);
   }
 
   /**
@@ -1116,18 +1130,23 @@ export class MemoryStore {
     if (row.claimedByDeviceId) return null;
 
     const deviceId = uuidv4();
-    const insertDevice = this.db.prepare('INSERT INTO companion_devices (id, name, fingerprint, scope) VALUES (?, ?, ?, ?)');
+    // Claim the token and register the device atomically. A fingerprint that is already paired
+    // is rejected: returning the existing device let any valid token (even readonly) take over
+    // another device, including an admin one.
+    const claim = this.db.transaction(() => {
+      const claimed = this.db
+        .prepare('UPDATE companion_tokens SET claimedByDeviceId = ? WHERE id = ? AND claimedByDeviceId IS NULL AND revoked = 0')
+        .run(deviceId, row.id).changes === 1;
+      if (!claimed) return null;
+      this.db.prepare('INSERT INTO companion_devices (id, name, fingerprint, scope) VALUES (?, ?, ?, ?)')
+        .run(deviceId, deviceName, fingerprint, row.scope);
+      return deviceId;
+    });
     try {
-      insertDevice.run(deviceId, deviceName, fingerprint, row.scope);
-    } catch (e: any) {
-      const existing = this.db.prepare('SELECT id FROM companion_devices WHERE fingerprint = ?').get(fingerprint) as any;
-      if (existing) return existing.id;
-      return null;
+      return claim();
+    } catch {
+      return null; // fingerprint already paired: transaction rolled back, token stays unclaimed
     }
-
-    const update = this.db.prepare('UPDATE companion_tokens SET claimedByDeviceId = ? WHERE id = ?');
-    update.run(deviceId, row.id);
-    return deviceId;
   }
 
   createDeviceSession(deviceId: string, expiryHours: number = 24): string | null {

@@ -3,8 +3,8 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-// Resolve to ~/.torvaix/graph.db
-const torvaixDir = path.join(os.homedir(), '.torvaix');
+// Resolve to $TORVAIX_HOME/graph.db (default ~/.torvaix), the same home the memory store uses.
+const torvaixDir = process.env.TORVAIX_HOME || path.join(os.homedir(), '.torvaix');
 if (!fs.existsSync(torvaixDir)) {
   fs.mkdirSync(torvaixDir, { recursive: true });
 }

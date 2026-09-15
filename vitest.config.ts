@@ -1,10 +1,13 @@
 import { defineConfig } from 'vitest/config';
 import path from 'path';
+import os from 'os';
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // Graph and workspace folders resolve from TORVAIX_HOME; never let tests write to the user's real home.
+    env: { TORVAIX_HOME: path.join(os.tmpdir(), 'torvaix-vitest-home') },
     include: ['packages/**/src/__tests__/**/*.test.ts', 'apps/web/src/**/__tests__/**/*.test.ts'],
   },
 

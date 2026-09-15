@@ -248,3 +248,81 @@ describe('@torvaix/events - Event Bus & Automation Engine', () => {
     expect(actionHandler).not.toHaveBeenCalled();
   });
 });
+
+describe('AutomationEngine — calendar-aware scheduling & loop safety', () => {
+  // 2026-09-14 is a Monday. Local-time constructors keep these independent of the machine's timezone.
+  const at = (day: number, hours: number, minutes = 0, seconds = 0) => new Date(2026, 8, day, hours, minutes, seconds);
+  const workflow = (triggerConfig: AutomationWorkflow['triggerConfig'], extra: Partial<AutomationWorkflow> = {}): AutomationWorkflow => ({
+    id: 'wf',
+    workspaceId: 'default',
+    name: 'Scheduled',
+    description: '',
+    triggerType: 'schedule',
+    triggerConfig,
+    actionType: 'agent_task',
+    actionConfig: {},
+    status: 'active',
+    lastRunAt: null,
+    runCount: 0,
+    createdAt: at(14, 15).toISOString(),
+    updatedAt: at(14, 15).toISOString(),
+    ...extra,
+  });
+  const engine = new AutomationEngine(new MockStorage());
+
+  it('does not fire a "daily at 09:00" workflow when it is created; waits for 09:00', () => {
+    const daily = workflow({ frequency: 'daily', timeOfDay: '09:00' });
+    expect(engine.isWorkflowDue(daily, at(14, 15, 1))).toBe(false);
+    expect(engine.isWorkflowDue(daily, at(15, 8, 59))).toBe(false);
+    expect(engine.isWorkflowDue(daily, at(15, 9, 0))).toBe(true);
+  });
+
+  it('runs once per day and catches up an occurrence missed while the server was off', () => {
+    const daily = workflow({ frequency: 'daily', timeOfDay: '09:00' }, { lastRunAt: at(15, 9, 0, 30).toISOString() });
+    expect(engine.isWorkflowDue(daily, at(15, 23, 0))).toBe(false);
+    expect(engine.isWorkflowDue(daily, at(16, 13, 0))).toBe(true);
+  });
+
+  it('handles scheduled times near the hour boundary', () => {
+    const daily = workflow({ frequency: 'daily', timeOfDay: '09:58' }, { lastRunAt: at(14, 10, 0).toISOString() });
+    expect(engine.isWorkflowDue(daily, at(15, 10, 1))).toBe(true);
+  });
+
+  it('weekly honours dayOfWeek, and otherwise repeats on the weekday it was created', () => {
+    const sundays = workflow({ frequency: 'weekly', dayOfWeek: 0, timeOfDay: '02:00' });
+    expect(engine.isWorkflowDue(sundays, at(19, 23, 0))).toBe(false); // Saturday
+    expect(engine.isWorkflowDue(sundays, at(20, 2, 0))).toBe(true); // Sunday 02:00
+
+    const creationWeekday = workflow({ frequency: 'weekly', timeOfDay: '09:00' });
+    expect(engine.isWorkflowDue(creationWeekday, at(20, 9, 0))).toBe(false); // Sunday
+    expect(engine.isWorkflowDue(creationWeekday, at(21, 9, 0))).toBe(true); // next Monday
+  });
+
+  it('accepts SQLite UTC timestamps for createdAt', () => {
+    const created = at(14, 15);
+    const sqlite = created.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+    const daily = workflow({ frequency: 'daily', timeOfDay: '09:00' }, { createdAt: sqlite });
+    expect(engine.isWorkflowDue(daily, at(14, 16, 0))).toBe(false);
+    expect(engine.isWorkflowDue(daily, at(15, 9, 0))).toBe(true);
+  });
+
+  it('does not let an event workflow re-trigger itself while it is running', async () => {
+    const storage = new MockStorage();
+    storage.workflows.push(workflow({ eventName: 'MEMORY_CREATED' }, { id: 'loop', triggerType: 'event' }));
+
+    let loopEngine!: AutomationEngine;
+    const handler = vi.fn(async () => {
+      // The action stores a memory, which emits MEMORY_CREATED again.
+      await loopEngine.handleEventTrigger('MEMORY_CREATED', { workspaceId: 'default' });
+      return { success: true, output: 'ok' };
+    });
+    loopEngine = new AutomationEngine(storage, handler);
+
+    await loopEngine.handleEventTrigger('MEMORY_CREATED', { workspaceId: 'default' });
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    // A separate, later event still runs it.
+    await loopEngine.handleEventTrigger('MEMORY_CREATED', { workspaceId: 'default' });
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+});
