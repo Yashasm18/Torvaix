@@ -15,6 +15,7 @@ import { MemoryStore } from '@torvaix/memory';
 import { getMcpClient } from '@torvaix/mcp';
 import { ingestKnowledgeGraph, queryGraph, getNeighbors, type MLIntelligencePayload } from '@torvaix/graph';
 import { TraceCollector } from './trace';
+import { keywordRoute } from './routing';
 
 // Intelligence (NLP) service — spaCy + sentence-transformers. Best-effort; never blocks a write.
 const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
@@ -195,81 +196,19 @@ export class AgentOrchestrator {
     console.log('[Router Agent] Routing task...');
     const endTrace = state.trace!.startPhase('router', 'Classifying request');
 
-    // Fast-path routing for memory writes (bypasses LLM to guarantee persistence)
-    const input = state.instructions.toLowerCase();
-    const normalized = input.trim();
-
-    // 0. Identity fast-path (Deterministic branding)
-    if (
-      normalized.includes("what is your name") ||
-      normalized.includes("who are you") ||
-      normalized.includes("whats your name") ||
-      normalized.includes("what's your name") ||
-      normalized.includes("whats ur name") ||
-      normalized.includes("your name")
-    ) {
+    // Deterministic fast paths for unambiguous requests; everything else goes to the LLM classifier.
+    const route = keywordRoute(state.instructions);
+    if (route === 'identity') {
       endTrace({ decision: 'end', bypass: true });
       console.log(`[Router Agent] Decision: identity (keyword bypass)`);
       state.output = "I am Torvaix, your workspace-first AI Operating System.";
       state.nextNode = 'end';
       return state;
     }
-
-    // 1. memory_write
-    if (
-      input.includes("remember") ||
-      input.includes("store this") ||
-      input.includes("note this") ||
-      input.includes("save this") ||
-      input.includes("memorize this") ||
-      input.includes("note to self")
-    ) {
-      endTrace({ decision: 'knowledge', bypass: true });
-      console.log(`[Router Agent] Decision: knowledge (keyword bypass)`);
-      state.nextNode = 'knowledge';
-      return state;
-    }
-
-    // 2. memory_query
-    if (
-      input.includes("recall") ||
-      input.includes("what do you know") ||
-      input.includes("what did i say")
-    ) {
-      endTrace({ decision: 'memory', bypass: true });
-      console.log(`[Router Agent] Decision: memory (keyword bypass)`);
-      state.nextNode = 'memory';
-      return state;
-    }
-
-    // 3. repo_analysis — deterministic bypass, NO execution agent
-    if (
-      input.includes("analyze repo") ||
-      input.includes("repository architecture") ||
-      input.includes("inspect code") ||
-      input.includes("check routes") ||
-      input.includes("architecture")
-    ) {
-      endTrace({ decision: 'repo_analysis', bypass: true });
-      console.log(`[Router Agent] Decision: repo_analysis (deterministic bypass)`);
-      state.nextNode = 'repo_analysis';
-      return state;
-    }
-
-    // 4. code_generation, web_research, task_execution -> execution
-    if (
-      input.includes("read file") ||
-      input.includes("latest") ||
-      input.includes("search") ||
-      input.includes("research") ||
-      input.includes("create") ||
-      input.includes("write") ||
-      input.includes("modify") ||
-      input.includes("generate file")
-    ) {
-      endTrace({ decision: 'execution', bypass: true });
-      console.log(`[Router Agent] Decision: execution (keyword bypass)`);
-      state.nextNode = 'execution';
+    if (route) {
+      endTrace({ decision: route, bypass: true });
+      console.log(`[Router Agent] Decision: ${route} (keyword bypass)`);
+      state.nextNode = route;
       return state;
     }
 
