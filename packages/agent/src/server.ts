@@ -375,7 +375,10 @@ app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
 
 app.post('/api/workspaces', requireAuth, (req: AuthRequest, res) => {
   try {
-    const { id, name = 'New Workspace', settings = {} } = req.body;
+    const { id, name = 'New Workspace', settings: rawSettings } = req.body ?? {};
+    // Agent tools run inside settings.path, so clients can't choose it; the server provisions it.
+    const settings: Record<string, unknown> = rawSettings && typeof rawSettings === 'object' ? { ...rawSettings } : {};
+    delete settings.path;
     
     // Check if it already exists
     if (id && memoryStore.getWorkspace(id)) {

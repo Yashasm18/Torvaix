@@ -754,15 +754,22 @@ export class MemoryStore {
     } catch {
       settings = {};
     }
-    if (typeof settings.path === 'string' && settings.path) {
-      fs.mkdirSync(settings.path, { recursive: true });
-      return settings.path;
-    }
-
     const TORVAIX_HOME = process.env.TORVAIX_HOME || path.join(os.homedir(), '.torvaix');
+    const workspacesRoot = path.resolve(TORVAIX_HOME, 'workspaces');
+
+    // Shell and file tools run inside this folder, so only trust a saved path that resolves
+    // inside the workspaces root. Anything else (e.g. "/" or "~/.ssh") gets a fresh folder.
+    if (typeof settings.path === 'string' && settings.path) {
+      const resolved = path.resolve(settings.path);
+      if (resolved.startsWith(workspacesRoot + path.sep)) {
+        fs.mkdirSync(resolved, { recursive: true });
+        return resolved;
+      }
+      console.warn(`[MemoryStore] Ignoring workspace path outside ${workspacesRoot} for workspace ${id}`);
+    }
     const slug = (workspace?.name ?? 'workspace').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'workspace';
     const safeId = id.replace(/[^A-Za-z0-9_-]/g, '').substring(0, 8) || 'ws';
-    const workspacePath = path.join(TORVAIX_HOME, 'workspaces', `${slug}-${safeId}`);
+    const workspacePath = path.join(workspacesRoot, `${slug}-${safeId}`);
     for (const sub of ['projects', 'knowledge', 'tasks']) {
       fs.mkdirSync(path.join(workspacePath, sub), { recursive: true });
     }

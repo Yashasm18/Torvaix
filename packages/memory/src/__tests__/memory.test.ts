@@ -202,6 +202,12 @@ describe('MemoryStore — Pending Actions', () => {
       expect(fs.existsSync(path.join(p, 'tasks'))).toBe(true);
       expect(JSON.parse(store.getWorkspace('default')!.settings).path).toBe(p);
       expect(store.ensureWorkspacePath('default')).toBe(p);
+
+      // A saved path outside the workspaces root is never used as the tool directory.
+      const hostile = store.createWorkspace('Hostile', { path: '/etc' });
+      const safe = store.ensureWorkspacePath(hostile);
+      expect(safe.startsWith(path.join(home, 'workspaces') + path.sep)).toBe(true);
+      expect(JSON.parse(store.getWorkspace(hostile)!.settings).path).toBe(safe);
     } finally {
       if (prev === undefined) delete process.env.TORVAIX_HOME;
       else process.env.TORVAIX_HOME = prev;
