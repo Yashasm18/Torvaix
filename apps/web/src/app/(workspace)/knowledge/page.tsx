@@ -79,6 +79,7 @@ export default function KnowledgePage() {
   const [loading, setLoading] = useState(true);
   const [consolidating, setConsolidating] = useState(false);
   const [consolidationReport, setConsolidationReport] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"memories" | "insights">("memories");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
@@ -132,6 +133,7 @@ export default function KnowledgePage() {
     try {
       setConsolidating(true);
       setConsolidationReport(null);
+      setActionError(null);
       const res = await fetch("/api/memory/consolidate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -145,9 +147,12 @@ export default function KnowledgePage() {
           `Consolidation complete: ${rep.processedCount} memories analyzed into ${rep.clustersCount} semantic clusters. Formed ${rep.synthesizedInsights.length} high-order insights & reinforced ${rep.reinforcedEdgesCount} graph edges!`
         );
         await fetchKnowledge();
+      } else {
+        setActionError("Consolidation failed. Is the agent server running?");
       }
     } catch (e) {
       console.error("Consolidation failed:", e);
+      setActionError("Consolidation failed. Is the agent server running?");
     } finally {
       setConsolidating(false);
     }
@@ -159,6 +164,7 @@ export default function KnowledgePage() {
 
     try {
       setSubmitting(true);
+      setActionError(null);
       const res = await fetch("/api/memory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -173,9 +179,12 @@ export default function KnowledgePage() {
         setNewContent("");
         setIsAddOpen(false);
         await fetchKnowledge();
+      } else {
+        setActionError("Couldn't save the memory. Is the agent server running?");
       }
     } catch (e) {
       console.error("Add memory failed:", e);
+      setActionError("Couldn't save the memory. Is the agent server running?");
     } finally {
       setSubmitting(false);
     }
@@ -183,6 +192,7 @@ export default function KnowledgePage() {
 
   const handleDeleteMemory = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!window.confirm("Delete this memory? This can't be undone.")) return;
     try {
       const res = await fetch(`/api/memory?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
@@ -190,9 +200,12 @@ export default function KnowledgePage() {
       if (res.ok) {
         setMemories((prev) => prev.filter((m) => m.id !== id));
         fetchKnowledge();
+      } else {
+        setActionError("Couldn't delete the memory. Is the agent server running?");
       }
     } catch (e) {
       console.error("Delete memory failed:", e);
+      setActionError("Couldn't delete the memory. Is the agent server running?");
     }
   };
 
@@ -299,6 +312,7 @@ export default function KnowledgePage() {
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
+                {actionError && <p role="alert" className="text-xs text-red-400">{actionError}</p>}
                 <div className="flex justify-end gap-2 pt-2">
                   <Button
                     type="button"
@@ -361,6 +375,15 @@ export default function KnowledgePage() {
           </div>
         </div>
       </div>
+
+      {actionError && !isAddOpen && (
+        <div role="alert" className="mx-6 my-2 p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 text-xs text-red-400 flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="font-mono text-xs ml-3 hover:text-red-300" aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Consolidation Success Banner */}
       <AnimatePresence>

@@ -2,6 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
+import { useSystemStatus } from "@/hooks/use-system-status";
+import { describeTrigger, WEEKDAYS } from "@/lib/automation-schedule";
+import { formatRelativeTime } from "@/lib/relative-time";
+import { parseServerTimestamp } from "@/lib/server-time";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Zap,
@@ -142,13 +146,16 @@ export default function AutomationPage() {
   const [newScheduleFreq, setNewScheduleFreq] = useState<"interval" | "hourly" | "daily" | "weekly">("daily");
   const [newIntervalMins, setNewIntervalMins] = useState(60);
   const [newTimeOfDay, setNewTimeOfDay] = useState("09:00");
+  const [newDayOfWeek, setNewDayOfWeek] = useState(() => new Date().getDay());
   const [newEventName, setNewEventName] = useState("MEMORY_CREATED");
   const [newFilterPattern, setNewFilterPattern] = useState("");
   const [newActionType, setNewActionType] = useState<"agent_task" | "consolidate_memory" | "synthesize_graph" | "clean_stale_memories">("agent_task");
   const [newPrompt, setNewPrompt] = useState("");
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const { workspaceId } = useActiveWorkspace();
+  const systemStatus = useSystemStatus();
 
   const fetchAutomations = async () => {
     if (!workspaceId) return;
@@ -223,7 +230,7 @@ export default function AutomationPage() {
       const res = await fetch(`/api/automations/${automation.id}/trigger`, {
         method: "POST",
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.log) {
         setLastExecutionResult({
           id: automation.id,
@@ -231,6 +238,12 @@ export default function AutomationPage() {
           status: data.log.status,
         });
         fetchAutomations();
+      } else {
+        setLastExecutionResult({
+          id: automation.id,
+          output: data.details || data.error || `The agent server returned HTTP ${res.status}.`,
+          status: "error",
+        });
       }
     } catch (err) {
       console.error("Failed to trigger automation:", err);
@@ -261,11 +274,13 @@ export default function AutomationPage() {
 
     try {
       setCreating(true);
+      setCreateError(null);
       const triggerConfig: TriggerConfig = {};
       if (newTriggerType === "schedule") {
         triggerConfig.frequency = newScheduleFreq;
         if (newScheduleFreq === "interval") triggerConfig.intervalMinutes = Number(newIntervalMins);
         if (newScheduleFreq === "daily" || newScheduleFreq === "weekly") triggerConfig.timeOfDay = newTimeOfDay;
+        if (newScheduleFreq === "weekly") triggerConfig.dayOfWeek = Number(newDayOfWeek);
       } else if (newTriggerType === "event") {
         triggerConfig.eventName = newEventName;
         if (newFilterPattern.trim()) triggerConfig.filterPattern = newFilterPattern.trim();
@@ -297,9 +312,13 @@ export default function AutomationPage() {
         setNewDescription("");
         setNewPrompt("");
         fetchAutomations();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setCreateError(typeof data.error === "string" ? data.error : `Couldn't create the automation (HTTP ${res.status}).`);
       }
     } catch (err) {
       console.error("Failed to create automation:", err);
+      setCreateError("Couldn't reach the agent server.");
     } finally {
       setCreating(false);
     }
@@ -313,18 +332,7 @@ export default function AutomationPage() {
     return matchesFilter && matchesSearch;
   });
 
-  const formatTriggerLabel = (a: Automation) => {
-    if (a.triggerType === "manual") return "Manual / On-Demand";
-    if (a.triggerType === "event") {
-      return `Event: ${a.triggerConfig?.eventName || "Event"}${a.triggerConfig?.filterPattern ? ` ("${a.triggerConfig.filterPattern}")` : ""}`;
-    }
-    const freq = a.triggerConfig?.frequency || "interval";
-    if (freq === "interval") return `Interval: Every ${a.triggerConfig?.intervalMinutes || 60}m`;
-    if (freq === "hourly") return "Hourly Trigger";
-    if (freq === "daily") return `Daily at ${a.triggerConfig?.timeOfDay || "09:00"}`;
-    if (freq === "weekly") return `Weekly at ${a.triggerConfig?.timeOfDay || "02:00"}`;
-    return "Scheduled Trigger";
-  };
+  const formatTriggerLabel = (a: Automation) => describeTrigger(a.triggerType, a.triggerConfig);
 
   const successRate =
     stats && stats.totalRuns > 0
@@ -346,9 +354,15 @@ export default function AutomationPage() {
               <h1 className="text-2xl font-bold tracking-tight text-foreground">
                 Autonomous Background Automation
               </h1>
-              <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-primary/10 border border-primary/20 text-primary">
-                Engine Active
-              </span>
+              {systemStatus && !systemStatus.agent ? (
+                <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-red-500/10 border border-red-500/20 text-red-400">
+                  Engine Offline
+                </span>
+              ) : (
+                <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-primary/10 border border-primary/20 text-primary">
+                  Engine Active
+                </span>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mt-1">
               Event-driven automations, scheduled background tasks, and agent workflow orchestration.
@@ -474,6 +488,21 @@ export default function AutomationPage() {
                         </div>
                       )}
 
+                      {newScheduleFreq === "weekly" && (
+                        <div>
+                          <label className="text-xs text-muted-foreground">Day of week</label>
+                          <select
+                            value={newDayOfWeek}
+                            onChange={e => setNewDayOfWeek(Number(e.target.value))}
+                            className="w-full mt-1 px-3 py-1.5 bg-background border border-border rounded-md text-sm text-foreground"
+                          >
+                            {WEEKDAYS.map((day, i) => (
+                              <option key={day} value={i}>{day}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
                       {(newScheduleFreq === "daily" || newScheduleFreq === "weekly") && (
                         <div>
                           <label className="text-xs text-muted-foreground">Target Time (24h format)</label>
@@ -531,6 +560,9 @@ export default function AutomationPage() {
                     </div>
                   )}
 
+                  {createError && (
+                    <p role="alert" className="text-xs text-red-400">{createError}</p>
+                  )}
                   <div className="flex justify-end gap-2 pt-2 border-t border-border/40">
                     <Button type="button" variant="ghost" onClick={() => setIsCreateOpen(false)}>
                       Cancel
@@ -599,13 +631,24 @@ export default function AutomationPage() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="mx-6 mt-4 p-4 rounded-xl border border-emerald-500/30 bg-emerald-950/20 text-emerald-200 flex items-start justify-between gap-3 shadow-lg"
+            role={lastExecutionResult.status === "success" ? "status" : "alert"}
+            className={`mx-6 mt-4 p-4 rounded-xl border flex items-start justify-between gap-3 shadow-lg ${
+              lastExecutionResult.status === "success"
+                ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-200"
+                : "border-red-500/30 bg-red-950/20 text-red-200"
+            }`}
           >
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-semibold text-sm text-emerald-300">Automation Triggered Successfully</p>
-                <p className="text-xs text-emerald-200/80 mt-1 font-mono">{lastExecutionResult.output}</p>
+            <div className="flex items-start gap-3 min-w-0">
+              {lastExecutionResult.status === "success" ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 mt-0.5 shrink-0" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
+              )}
+              <div className="min-w-0">
+                <p className={`font-semibold text-sm ${lastExecutionResult.status === "success" ? "text-emerald-300" : "text-red-300"}`}>
+                  {lastExecutionResult.status === "success" ? "Automation ran successfully" : "Automation run failed"}
+                </p>
+                <p className="text-xs opacity-80 mt-1 font-mono whitespace-pre-wrap break-words">{lastExecutionResult.output}</p>
               </div>
             </div>
             <Button
@@ -796,7 +839,11 @@ export default function AutomationPage() {
                       </span>
                       <span className="flex items-center gap-1 text-[11px]">
                         <Clock className="w-3 h-3 text-muted-foreground" />
-                        Last Run: {automation.lastRunAt ? new Date(automation.lastRunAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Never"}
+                        Last run: {automation.lastRunAt ? (
+                          <span title={parseServerTimestamp(automation.lastRunAt)?.toLocaleString()}>
+                            {formatRelativeTime(parseServerTimestamp(automation.lastRunAt))}
+                          </span>
+                        ) : "Never"}
                       </span>
                     </div>
                   </div>

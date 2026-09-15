@@ -36,6 +36,7 @@ import {
 import { useDBStore } from "@/store/db-store"
 import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { SettingsDialog } from "../settings/settings-dialog"
+import { CreateWorkspaceDialog } from "./create-workspace-dialog"
 import { MemoryModal } from "../chat/memory-modal"
 import { useSystemStatus } from "@/hooks/use-system-status"
 import {
@@ -58,7 +59,8 @@ interface WorkspaceActivity {
 }
 
 export function AppSidebar() {
-  const { workspaces, setActiveWorkspaceId, createWorkspace } = useDBStore()
+  const { workspaces, setActiveWorkspaceId } = useDBStore()
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = React.useState(false)
   const { workspace: activeWorkspace, workspaceId } = useActiveWorkspace()
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [memoryOpen, setMemoryOpen] = React.useState(false)
@@ -98,12 +100,7 @@ export function AppSidebar() {
     }
   }, [workspaceId])
 
-  const handleCreateWorkspace = () => {
-    const name = window.prompt("Workspace Name:")
-    if (name) {
-      createWorkspace(name, 'general')
-    }
-  }
+  const handleCreateWorkspace = () => setCreateWorkspaceOpen(true)
 
   // Handle Command Palette trigger (we will implement global listener later)
   const openCommandPalette = () => {
@@ -262,6 +259,7 @@ export function AppSidebar() {
         </SidebarMenu>
 
         <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+        <CreateWorkspaceDialog open={createWorkspaceOpen} onOpenChange={setCreateWorkspaceOpen} />
         <MemoryModal open={memoryOpen} onOpenChange={setMemoryOpen} />
       </SidebarFooter>
     </Sidebar>

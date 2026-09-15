@@ -28,6 +28,7 @@ interface DBState {
 
   createWorkspace: (name: string, template: WorkspaceTemplate) => Promise<Workspace>;
   deleteWorkspace: (id: string) => void;
+  renameWorkspace: (id: string, name: string) => void;
   syncWorkspacesToServer: () => Promise<void>;
 
   createChat: (workspaceId: string, title: string) => Chat;
@@ -147,6 +148,14 @@ export const useDBStore = create<DBState>()(
             (m) => !state.chats.find((c) => c.id === m.chatId && c.workspaceId === id)
           ),
           activeWorkspaceId: state.activeWorkspaceId === id ? null : state.activeWorkspaceId,
+        }));
+      },
+
+      renameWorkspace: (id, name) => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        set((state) => ({
+          workspaces: state.workspaces.map((w) => (w.id === id ? { ...w, name: trimmed } : w)),
         }));
       },
 
