@@ -5,17 +5,20 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as cheerio from "cheerio";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 function assertInsideWorkspace(targetPath: string, workspaceRoot: string) {
   const resolved = path.resolve(targetPath);
-  if (!resolved.startsWith(path.resolve(workspaceRoot))) {
+  const root = path.resolve(workspaceRoot);
+  // Compare whole path segments: a bare prefix check let "/ws/default" reach "/ws/default-other".
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     throw new Error("Workspace boundary violation: " + resolved);
   }
   return resolved;
@@ -203,7 +206,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const tempFile = path.join(WORKSPACE_ROOT, `.temp_script_${Date.now()}.py`);
         await fs.writeFile(tempFile, code);
         try {
-          const { stdout, stderr } = await execAsync(`python3 ${tempFile}`, { cwd: WORKSPACE_ROOT, timeout: 15000 });
+          // Pass the script path as an argument, not through a shell: workspace paths may contain spaces.
+          const { stdout, stderr } = await execFileAsync("python3", [tempFile], { cwd: WORKSPACE_ROOT, timeout: 15000 });
           return { content: [{ type: "text", text: stdout || stderr || "Script executed successfully with no output." }] };
         } catch (e: any) {
           return { content: [{ type: "text", text: `Script failed: ${e.message}\nStdout: ${e.stdout}\nStderr: ${e.stderr}` }], isError: true };
@@ -284,7 +288,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const items = data?.query?.search;
             if (!items || items.length === 0) return null;
             return items.map((item: any, i: number) => {
-              const snippet = item.snippet?.replace(/<[^>]+>/g, '') || 'No snippet.';
+              // Wikipedia snippets contain HTML highlight markup; extract text with a real parser.
+              const snippet = (item.snippet ? cheerio.load(item.snippet).text().trim() : '') || 'No snippet.';
               return `[${i + 1}] ${item.title}\nURL: https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}\nSnippet: ${snippet}`;
             });
           } catch { return null; }

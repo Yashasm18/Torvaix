@@ -17,6 +17,8 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { AgentOrchestrator } from './orchestrator';
+import { checkBrowserRequest, parseList, DEFAULT_ALLOWED_ORIGINS } from './http-security';
+import { isValidEmail } from './validation';
 import { MemoryStore } from '@torvaix/memory';
 import { LLMClient, PROVIDERS, pickInstalledModel, resolveModel } from '@torvaix/providers';
 import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
@@ -34,6 +36,10 @@ const JWT_SECRET = process.env.JWT_SECRET ?? (() => {
 })();
 
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+// Browser origins allowed to call the agent directly, and extra Host names (e.g. a Docker
+// service name) accepted besides loopback. See http-security.ts.
+const allowedOrigins = parseList(process.env.AGENT_ALLOWED_ORIGINS, DEFAULT_ALLOWED_ORIGINS);
+const allowedHosts = parseList(process.env.AGENT_ALLOWED_HOSTS, []);
 const RATE_LIMIT_MAX = 60; // requests per window per user
 const AGENT_RATE_LIMIT_MAX = 30; // stricter for agent runs
 
@@ -52,7 +58,12 @@ if (!fs.existsSync(WORKSPACES_DIR)) fs.mkdirSync(WORKSPACES_DIR, { recursive: tr
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+  server,
+  // Same browser protection as the HTTP routes: WebSockets aren't covered by CORS.
+  verifyClient: ({ req }: { req: http.IncomingMessage }) =>
+    checkBrowserRequest({ origin: req.headers.origin, host: req.headers.host }, { allowedOrigins, allowedHosts }).ok,
+});
 
 const memoryDbPath = path.join(DATA_DIR, 'torvaix.db');
 const memoryStore = new MemoryStore(memoryDbPath);
@@ -139,7 +150,8 @@ automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
 
   if (actionType === 'agent_task') {
     const prompt = actionConfig?.prompt || `Execute background automation: ${workflow.name}`;
-    const agent = new AgentOrchestrator(memoryStore, { llm: llmClient });
+    // Same model as chat, so background tasks use the auto-selected installed model too.
+    const agent = new AgentOrchestrator(memoryStore, { llm: llmClient, model: chatModel });
     const finalState = await agent.run({
       workspaceId,
       instructions: prompt,
@@ -162,12 +174,29 @@ automationEngine.start(30_000);
 
 app.use(express.json({ limit: '50mb' }));
 
-// CORS for local dev (Next.js on 3000, agent server on 3001)
+// Browser protection. `Access-Control-Allow-Origin: *` plus tokenless auth let any website the
+// user visited drive this server from their browser: queue a task, approve it, and run shell
+// commands. The web app only calls us server-side, so reject foreign Origins and non-loopback
+// Hosts (DNS rebinding), and grant CORS solely to the configured web app origins.
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  const verdict = checkBrowserRequest(
+    { origin: req.headers.origin, host: req.headers.host },
+    { allowedOrigins, allowedHosts }
+  );
+  if (!verdict.ok) {
+    res.status(403).json({ error: verdict.reason });
+    return;
+  }
+  if (req.headers.origin) {
+    res.header('Access-Control-Allow-Origin', req.headers.origin);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  }
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
   next();
 });
 
@@ -300,7 +329,7 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
-    if (!username || !email || !password) {
+    if (typeof username !== 'string' || typeof email !== 'string' || typeof password !== 'string' || !username.trim()) {
       res.status(400).json({ error: 'Missing required fields: username, email, password' });
       return;
     }
@@ -308,7 +337,7 @@ app.post('/api/auth/register', async (req, res) => {
       res.status(400).json({ error: 'Password must be at least 8 characters' });
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!isValidEmail(email)) {
       res.status(400).json({ error: 'Invalid email format' });
       return;
     }
