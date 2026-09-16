@@ -4,9 +4,9 @@
  */
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 
-function webHost() {
+function webHost({ quiet = false } = {}) {
   const host = (process.env.WEB_HOST || '127.0.0.1').trim();
-  if (!LOOPBACK.has(host)) {
+  if (!quiet && !LOOPBACK.has(host)) {
     console.warn(
       `\n⚠️  WEB_HOST=${host}: the Torvaix web app is reachable from other devices, and anyone who can\n` +
         '   open it can run commands on this machine. Only do this behind a firewall or an\n' +

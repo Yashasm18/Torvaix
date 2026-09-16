@@ -46,6 +46,19 @@ describe('code execution approval', () => {
     expect(JSON.parse(store.getPendingAction(state.pendingActionId!)!.params)).toEqual({ command: 'rm -rf important' });
   });
 
+  it('answers with the output when the model repeats the approved command', async () => {
+    const approvedId = store.createPendingAction('default', 'bash', { command: 'echo hi' });
+    store.updatePendingActionStatus(approvedId, 'approved');
+
+    const llm = scriptedLlm(['{"done": false, "tool": "bash", "args": {"command": "echo hi"}}']);
+    const agent = new AgentOrchestrator(store, { llm, model: 'test-model' });
+    const state = await agent.run({ workspaceId: 'default', instructions: 'run echo hi', pendingActionId: approvedId });
+
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(state.pendingActionId).toBeUndefined();
+    expect(state.output).toBe('ran bash {"command":"echo hi"}');
+  });
+
   it('never runs an approval twice', async () => {
     const approvedId = store.createPendingAction('default', 'python', { code: 'print(1)' });
     store.updatePendingActionStatus(approvedId, 'approved');

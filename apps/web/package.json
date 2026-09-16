@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node ../../scripts/check-port.js && node ../../scripts/dev-web.js",
+    "dev": "node ../../scripts/check-port.js web && node ../../scripts/dev-web.js",
     "build": "next build --experimental-next-config-strip-types",
     "start": "node ../../scripts/start-web.js",
     "lint": "eslint"

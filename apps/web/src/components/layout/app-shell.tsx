@@ -82,7 +82,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <BrainCircuit className="h-6 w-6 text-primary" />
           </div>
           <h2 className="text-2xl font-bold text-foreground mb-2">Welcome to Torvaix</h2>
-          <p className="text-muted-foreground mb-8">Torvaix is a true multi-tenant AI operating system. To begin, create your first isolated workspace.</p>
+          <p className="text-muted-foreground mb-8">Workspaces keep chats, memories and files for each project separate. Name your first one to get started.</p>
 
           <form
             className="w-full flex flex-col gap-4"

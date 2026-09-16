@@ -18,6 +18,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { AgentOrchestrator } from './orchestrator';
+import { formatApprovalRequest } from './approval-message';
 import { closeAllMcpClients } from '@torvaix/mcp';
 import { checkBrowserRequest, parseList, DEFAULT_ALLOWED_ORIGINS } from './http-security';
 import { isValidEmail } from './validation';
@@ -484,7 +485,8 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
     if (isStream) {
       let outputText = finalState.output;
       if (finalState.pendingActionId) {
-        outputText = `\n\n**SECURITY LAYER TRIGGERED**\nThe agent wants to execute a potentially dangerous action.\nPending Action ID: \`${finalState.pendingActionId}\``;
+        const pending = memoryStore.getPendingAction(finalState.pendingActionId);
+        outputText = formatApprovalRequest(finalState.pendingActionId, pending?.action);
       }
       // Emit text chunk, then finish markers per Vercel AI SDK data stream protocol
       res.write(`0:${JSON.stringify(outputText)}\n`);
