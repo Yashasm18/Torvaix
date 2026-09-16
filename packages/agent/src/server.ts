@@ -9,6 +9,7 @@
  * - All existing APIs preserved: agent, memory, companion
  */
 
+import './load-env'; // must stay first: other modules read process.env when imported
 import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
 import { WebSocketServer } from 'ws';
@@ -30,10 +31,18 @@ import rateLimit from 'express-rate-limit';
 
 // ── Environment & Config ──
 
-const JWT_SECRET = process.env.JWT_SECRET ?? (() => {
-  const secret = crypto.randomBytes(64).toString('hex');
-  console.warn('[Auth] JWT_SECRET not set — using random secret. Sessions will not persist across restarts!');
-  return secret;
+// Placeholder values shipped in old example configs are public, so anyone could forge tokens with them.
+const PLACEHOLDER_JWT_SECRETS = new Set([
+  'change-me-in-production',
+  'torvaix-local-dev-secret-change-in-production',
+]);
+const JWT_SECRET = (() => {
+  const configured = process.env.JWT_SECRET?.trim();
+  if (configured && !PLACEHOLDER_JWT_SECRETS.has(configured)) return configured;
+  console.warn(configured
+    ? '[Auth] JWT_SECRET is a published placeholder — ignoring it and using a random secret. Set your own value to keep logins across restarts.'
+    : '[Auth] JWT_SECRET not set — using random secret. Sessions will not persist across restarts!');
+  return crypto.randomBytes(64).toString('hex');
 })();
 
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute

@@ -52,8 +52,17 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 
-# Reinstall production dependencies (for native modules)
-RUN npm ci --omit=dev --ignore-scripts
+# Reinstall production dependencies. Install scripts must run: better-sqlite3 fetches or
+# compiles its native binding there, and the agent can't open its database without it.
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+ && npm ci --omit=dev \
+ && npm cache clean --force \
+ && apk del .build-deps
+
+# Databases and workspace folders live here; mount a volume to keep them across upgrades.
+ENV TORVAIX_HOME=/data
+RUN mkdir -p /data && chown torvaix:nodejs /data
+VOLUME /data
 
 USER torvaix
 
@@ -61,7 +70,9 @@ EXPOSE 3000
 EXPOSE 3001
 
 ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
+# Listen on all interfaces inside the container so the port can be published.
+# docker-compose.yml publishes it on the host's loopback interface only.
+ENV WEB_HOST=0.0.0.0
 ENV AGENT_PORT=3001
 
 # Start the built frontend and the agent server (not the dev servers)

@@ -4,7 +4,7 @@
  * Multi-agent state-graph orchestration with:
  * - Unified LLM client (multi-provider via LLMClient)
  * - MCP singleton for tool execution with auto-reconnect
- * - Per-tool approval with 5-minute expiry and workspace scoping
+ * - Every bash/python call needs its own one-time approval
  * - Enhanced trace collection with timing, tokens, and errors
  * - Message history trimming to prevent context overflow
  */
@@ -60,19 +60,10 @@ export interface AgentState {
   pulse: KnowledgePulseData;
 }
 
-/** Per-tool approval entry with expiry. */
-interface ToolApproval {
-  tool: string;
-  workspaceId: string;
-  expiresAt: number; // epoch ms
-}
-
 export class AgentOrchestrator {
   private memoryStore: MemoryStore;
   private llm: LLMClient;
   private model: string;
-  private approvedTools: Map<string, ToolApproval> = new Map();
-  private readonly approvalDurationMs = 5 * 60 * 1000; // 5 minutes
   private readonly maxIterations = 10;
   private readonly maxContextChars: number;
 
@@ -88,53 +79,6 @@ export class AgentOrchestrator {
     this.llm = options?.llm ?? new LLMClient();
     this.model = options?.model ?? process.env.TORVAIX_MODEL ?? this.llm.getDefaultModel();
     this.maxContextChars = options?.maxContextChars ?? 12000;
-  }
-
-  // ── Approval Hardening ──
-
-  /** Check if a tool is currently approved for the given workspace. */
-  private isToolApproved(tool: string, workspaceId: string): boolean {
-    if (tool !== 'bash' && tool !== 'python') return true; // Safe tools need no approval
-
-    const key = `${workspaceId}:${tool}`;
-    const approval = this.approvedTools.get(key);
-    if (!approval) return false;
-
-    // Check expiry
-    if (Date.now() > approval.expiresAt) {
-      this.approvedTools.delete(key);
-      return false;
-    }
-    return true;
-  }
-
-  /** Approve a tool for a workspace (called when user clicks Approve). */
-  approveTool(tool: string, workspaceId: string): void {
-    const key = `${workspaceId}:${tool}`;
-    this.approvedTools.set(key, {
-      tool,
-      workspaceId,
-      expiresAt: Date.now() + this.approvalDurationMs,
-    });
-  }
-
-  /** Revoke all approvals for a workspace. */
-  revokeApprovals(workspaceId: string): void {
-    for (const key of this.approvedTools.keys()) {
-      if (key.startsWith(`${workspaceId}:`)) {
-        this.approvedTools.delete(key);
-      }
-    }
-  }
-
-  /** Clean up expired approvals. */
-  private gcApprovals(): void {
-    const now = Date.now();
-    for (const [key, approval] of this.approvedTools.entries()) {
-      if (now > approval.expiresAt) {
-        this.approvedTools.delete(key);
-      }
-    }
   }
 
   // ── LLM Helper ──
@@ -566,8 +510,10 @@ ${structure}
       const pending = claimed ?? this.memoryStore.getPendingAction(state.pendingActionId);
       if (claimed && pending) {
         console.log(`[Execution Agent] Resuming approved action: ${pending.action}`);
-        this.approveTool(pending.action, state.workspaceId);
+        // The approval covers this one call only. Anything the agent wants to run next needs its
+        // own approval; it used to grant the tool for the rest of the run without asking again.
         state.trace!.recordApproval(pending.action, true, { resumed: true });
+        this.lastToolCall = { tool: pending.action, argsHash: JSON.stringify(JSON.parse(pending.params)) };
 
         const toolCallId = crypto.randomUUID();
         if (onStreamChunk) {
@@ -739,10 +685,8 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       }
       this.lastToolCall = { tool, argsHash };
 
-      // Check approval
-      this.gcApprovals(); // Clean expired approvals first
-
-      if (isDangerous && !this.isToolApproved(tool, state.workspaceId)) {
+      // Code execution always waits for the user to approve this exact call.
+      if (isDangerous) {
         console.log(`[Execution Agent] Pausing for security confirmation on ${tool}`);
         state.trace!.recordApproval(tool, false);
         const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, decision.args);
@@ -751,11 +695,6 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         endTrace({ tool, status: 'awaiting_approval' });
         state.nextNode = 'end';
         return state;
-      }
-
-      if (isDangerous) {
-        console.log(`[Execution Agent] Auto-approved ${tool} (valid workspace approval)`);
-        state.trace!.recordApproval(tool, true);
       }
 
       // Execute tool
