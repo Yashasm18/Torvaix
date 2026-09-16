@@ -1,143 +1,65 @@
 # Security Policy
 
-Torvaix is a workspace-first AI Operating System designed to run with privileged local capabilities. It can store persistent memory, execute tools, read and write files, and orchestrate workflows through Model Context Protocol (MCP).
+## Reporting a vulnerability
 
-Because of this, Torvaix should be treated as trusted local infrastructure — not as a publicly exposed application by default.
+Please don't report security problems in public issues or discussions.
 
-## Supported Versions
+Report them privately through GitHub: open the repository's **Security** tab and choose **Report a vulnerability**. Please include:
 
-Security patches and fixes are maintained on the default branch until formal release versions are established.
+- the affected version or commit
+- steps to reproduce, or a proof of concept
+- the impact you expect (for example, command execution or data exposure)
 
-## Security Philosophy
+We aim to acknowledge reports within 7 days. Once a fix is released, we'll credit you in the advisory unless you'd rather stay anonymous. Torvaix is maintained by volunteers, so we can't promise fix timelines.
 
-Torvaix follows a local-first, privacy-first model.
+## Supported versions
 
-Your conversations, memory, embeddings, execution logs, and knowledge remain under your control. The system is intentionally designed to minimize external dependencies and avoid telemetry.
+Only the latest commit on `main` receives security fixes. Torvaix is pre-1.0, and older releases aren't patched.
 
-However, local control also means local responsibility.
+## Threat model
 
-If you deploy or expose Torvaix beyond your machine, you are responsible for securing access to it.
+Torvaix is designed for **one person on their own computer**. The agent can run shell commands and Python code as your user account, so treat access to Torvaix like access to your terminal.
 
-## Deployment Recommendations
+It is **not** designed to be exposed to the internet or shared with people you don't trust. There is no user isolation: everyone who can reach the app shares the same workspaces, memories and tools.
 
-For local development, Torvaix is intended to run on localhost and isolated Docker services.
+## What protects you today
 
-For production or network-accessible deployments:
+| Protection | Details |
+| --- | --- |
+| Loopback binding | The agent server listens on `127.0.0.1` unless you set `AGENT_HOST`. |
+| Origin and Host checks | The agent rejects browser requests from other origins, and requests whose `Host` isn't localhost or listed in `AGENT_ALLOWED_HOSTS`. This blocks DNS-rebinding attacks. |
+| CSRF check | The web app's API routes reject cross-site state-changing requests. |
+| Approval for code execution | `bash` and `python` tool calls pause until you approve them in the UI. An approval covers that tool in that workspace for 5 minutes, and each pending action can be used only once. |
+| Workspace confinement for files | `read_file` and `write_file` can't reach paths outside the workspace folder. |
+| Input validation and rate limits | Request bodies are validated, and the API is rate-limited. |
+| Timeouts | Shell and Python commands are stopped after 15 seconds. |
 
-Always place Torvaix behind authentication.
+## Known limitations
 
-Always use HTTPS.
+Know these before you run Torvaix anywhere other than your own machine:
 
-Always keep internal services private.
+- **Approved commands aren't sandboxed.** An approved `bash` or `python` call runs with your full user permissions. It starts in the workspace folder but can read or change anything your account can. Read each command before approving it, and remember that an approval also covers that tool's other calls in the workspace for the next 5 minutes.
+- **Login isn't required.** Requests to the agent without a `Bearer` token run as a default local user. The login endpoints exist, but they don't protect anything yet.
+- **The web app is reachable from your network.** `npm run dev`, `npm start` and the Docker image serve the web UI on all network interfaces. Anyone who can reach port 3000 can use Torvaix, including approving commands. On shared or untrusted networks, block port 3000 with a firewall or put the app behind an authenticating reverse proxy.
+- **Companion device scopes aren't enforced.** The experimental pairing endpoints issue `readonly` and `admin` sessions, but no other endpoint checks them yet.
+- **Default `JWT_SECRET`.** `.env.example` and `docker-compose.yml` ship with placeholder secrets. Replace them with a long random value if you use login tokens.
+- **Prompt injection.** Web search results, files and stored memories go into the model's context and can try to steer it. The approval step is your defence, so don't approve commands you didn't expect.
 
-This includes:
+## Data and privacy
 
-* Ollama
-* Qdrant
-* SQLite-backed data
-* MCP servers
-* internal APIs
+Torvaix doesn't collect telemetry. Data leaves your machine only in these cases:
 
-These services should never be exposed directly to the public internet.
+- **Cloud models.** When you choose a cloud model, your prompts and relevant memories go to that provider.
+- **Web search.** The `web_search` tool sends queries to DuckDuckGo, Bing and Wikipedia.
+- **Embeddings fallback.** If `OPENAI_API_KEY` is set and Ollama can't create embeddings, memory text goes to OpenAI.
+- **Fonts.** Each page load requests a font stylesheet from Fontshare. Google Fonts are downloaded once, when the app is built.
 
-Torvaix should act as the only public entry point.
+Everything else is stored under `TORVAIX_HOME` (default `~/.torvaix`), in Qdrant if you run it, and in your browser's IndexedDB for chat history. These files aren't encrypted. Rely on disk encryption, and never commit `.env`, `*.db` files or the `~/.torvaix` folder. If a key leaks, rotate it with the provider.
 
-## Tool Execution & Privileged Actions
+## If you deploy beyond localhost
 
-Torvaix includes powerful execution capabilities such as:
-
-filesystem access, terminal commands, Python execution, and MCP tool orchestration.
-
-These are privileged actions.
-
-Any deployment should treat them accordingly.
-
-Torvaix uses approval-gated execution for dangerous actions. This means destructive commands, sensitive file mutations, and high-risk operations require explicit user approval before continuing.
-
-This layer should never be disabled in serious deployments.
-
-## Data Protection
-
-Torvaix stores important local data including:
-
-workspace history, semantic memory, uploaded files, execution logs, and vector embeddings.
-
-Protect these carefully.
-
-Never commit the following to public repositories:
-
-* `.env`
-* local databases
-* API keys
-* provider tokens
-* logs
-* uploaded documents
-* memory stores
-* backups
-
-If these are exposed, rotate credentials immediately.
-
-## MCP Security
-
-Torvaix uses Model Context Protocol (MCP) to connect tools like filesystem, terminal, and browser capabilities.
-
-MCP should be treated as privileged infrastructure.
-
-Only run MCP servers locally or inside trusted private environments.
-
-Do not expose MCP transports publicly.
-
-Restrict tool scopes whenever possible.
-
-Audit connected tools before use.
-
-## Companion Layer (Experimental) Security
-
-The Companion Layer allows trusted external devices to connect to your Torvaix instance. Because this bridges external devices into your execution environment, the security model is strictly enforced:
-
-* **Token Theft Prevention**: Pairing tokens are strictly one-time use and expire within 10 minutes of generation. Once claimed, they are permanently invalid.
-* **Replay Prevention**: A device claims a token by submitting a unique cryptographic fingerprint. Torvaix binds the session exclusively to this fingerprint. Replay attacks with an already-claimed token will fail.
-* **Scope Isolation**: Devices are granted explicit scopes (`readonly` or `admin`). A `readonly` device can view memory and read workspaces but cannot invoke tools, run terminal commands, or alter the filesystem.
-* **Session Expiry**: Sessions expire naturally and must be re-validated.
-* **Manual Revocation**: At any time, you can manually revoke a device. This instantly invalidates its session token, dropping all active access.
-
-## Model Provider Security
-
-Torvaix supports both local and external model providers.
-
-For local providers such as Ollama:
-
-keep them private and internal-only.
-
-For external providers:
-
-store API keys securely, restrict scopes where possible, and rotate them regularly.
-
-Never expose provider credentials in logs, screenshots, or shared demos.
-
-## Publishing a Public Fork
-
-Before making your fork public, verify that no sensitive files or secrets are being committed.
-
-Review:
-
-* environment files
-* logs
-* database files
-* uploaded files
-* execution history
-* tokens
-
-Torvaix is designed to be open-source — your private data is not.
-
-## Reporting Vulnerabilities
-
-If you discover a security issue, please report it responsibly.
-
-Use GitHub Security Advisories where available, or open a minimal private issue without disclosing exploit details publicly.
-
-Responsible disclosure helps keep Torvaix secure for everyone.
-
----
-
-*Your data belongs to you. Keep it that way.*
+- Put Torvaix behind HTTPS and an authenticating reverse proxy.
+- Don't publish ports 3001 (agent), 6333 (Qdrant), 11434 (Ollama) or 8000 (NLP service).
+  The bundled `docker-compose.yml` publishes these ports on every network interface, so on a shared host change each mapping to `127.0.0.1:PORT:PORT`.
+- Run it in a container or VM, as a user with access only to the data it needs.
+- Set `AGENT_ALLOWED_ORIGINS` and `AGENT_ALLOWED_HOSTS` to exactly the names you use.
