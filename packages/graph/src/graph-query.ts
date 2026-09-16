@@ -1,26 +1,29 @@
-import { db } from './graph-store';
+import { db, DEFAULT_GRAPH_WORKSPACE } from './graph-store';
 import type { GraphNode, GraphEdge, EgoGraphResult, QueryGraphOptions, GraphStats } from './types';
 
 function slugify(text: string): string {
   return text.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
-export function getNeighbors(entityName: string): { node: GraphNode; relation: string; direction: 'OUT' | 'IN' }[] {
+export function getNeighbors(
+  entityName: string,
+  workspaceId: string = DEFAULT_GRAPH_WORKSPACE
+): { node: GraphNode; relation: string; direction: 'OUT' | 'IN' }[] {
   const nodeId = slugify(entityName);
 
   const outEdges = db.prepare(`
-    SELECT e.relation, n.* 
-    FROM edges e 
-    JOIN nodes n ON e.target_id = n.id 
-    WHERE e.source_id = ?
-  `).all(nodeId) as any[];
+    SELECT e.relation, n.*
+    FROM edges e
+    JOIN nodes n ON e.target_id = n.id AND n.workspaceId = e.workspaceId
+    WHERE e.source_id = ? AND e.workspaceId = ?
+  `).all(nodeId, workspaceId) as any[];
 
   const inEdges = db.prepare(`
-    SELECT e.relation, n.* 
-    FROM edges e 
-    JOIN nodes n ON e.source_id = n.id 
-    WHERE e.target_id = ?
-  `).all(nodeId) as any[];
+    SELECT e.relation, n.*
+    FROM edges e
+    JOIN nodes n ON e.source_id = n.id AND n.workspaceId = e.workspaceId
+    WHERE e.target_id = ? AND e.workspaceId = ?
+  `).all(nodeId, workspaceId) as any[];
 
   return [
     ...outEdges.map(r => ({
@@ -36,27 +39,27 @@ export function getNeighbors(entityName: string): { node: GraphNode; relation: s
   ];
 }
 
-export function findEntitiesByType(type: string): GraphNode[] {
+export function findEntitiesByType(type: string, workspaceId: string = DEFAULT_GRAPH_WORKSPACE): GraphNode[] {
   return db.prepare(`
-    SELECT * FROM nodes WHERE type = ? ORDER BY importance DESC, degree DESC
-  `).all(type.toUpperCase()) as GraphNode[];
+    SELECT * FROM nodes WHERE workspaceId = ? AND type = ? ORDER BY importance DESC, degree DESC
+  `).all(workspaceId, type.toUpperCase()) as GraphNode[];
 }
 
-export function queryGraph(query: string): GraphNode[] {
+export function queryGraph(query: string, workspaceId: string = DEFAULT_GRAPH_WORKSPACE): GraphNode[] {
   const term = `%${query}%`;
   return db.prepare(`
-    SELECT * FROM nodes 
-    WHERE name LIKE ? OR type LIKE ? OR metadata LIKE ?
+    SELECT * FROM nodes
+    WHERE workspaceId = ? AND (name LIKE ? OR type LIKE ? OR metadata LIKE ?)
     ORDER BY importance DESC, degree DESC
     LIMIT 20
-  `).all(term, term, term) as GraphNode[];
+  `).all(workspaceId, term, term, term) as GraphNode[];
 }
 
 export function queryGraphFiltered(options: QueryGraphOptions = {}): { nodes: GraphNode[]; total: number } {
-  const { search, type, minImportance, limit = 50, offset = 0 } = options;
+  const { search, type, minImportance, limit = 50, offset = 0, workspaceId = DEFAULT_GRAPH_WORKSPACE } = options;
 
-  let whereClauses: string[] = [];
-  let params: any[] = [];
+  const whereClauses: string[] = ['workspaceId = ?'];
+  const params: any[] = [workspaceId];
 
   if (search && search.trim().length > 0) {
     whereClauses.push('(name LIKE ? OR type LIKE ? OR metadata LIKE ?)');
@@ -74,12 +77,12 @@ export function queryGraphFiltered(options: QueryGraphOptions = {}): { nodes: Gr
     params.push(minImportance);
   }
 
-  const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const whereSql = `WHERE ${whereClauses.join(' AND ')}`;
 
   const countRow = db.prepare(`SELECT COUNT(*) as total FROM nodes ${whereSql}`).get(...params) as { total: number };
-  
+
   const nodes = db.prepare(`
-    SELECT * FROM nodes 
+    SELECT * FROM nodes
     ${whereSql}
     ORDER BY importance DESC, degree DESC, created_at DESC
     LIMIT ? OFFSET ?
@@ -88,9 +91,14 @@ export function queryGraphFiltered(options: QueryGraphOptions = {}): { nodes: Gr
   return { nodes, total: countRow.total };
 }
 
-export function getEgoGraph(entityName: string, depth = 2, maxNodes = 50): EgoGraphResult | null {
+export function getEgoGraph(
+  entityName: string,
+  depth = 2,
+  maxNodes = 50,
+  workspaceId: string = DEFAULT_GRAPH_WORKSPACE
+): EgoGraphResult | null {
   const centerId = slugify(entityName);
-  const centerNode = db.prepare(`SELECT * FROM nodes WHERE id = ?`).get(centerId) as GraphNode | undefined;
+  const centerNode = db.prepare(`SELECT * FROM nodes WHERE workspaceId = ? AND id = ?`).get(workspaceId, centerId) as GraphNode | undefined;
   if (!centerNode) return null;
 
   const visitedNodeIds = new Set<string>([centerId]);
@@ -104,8 +112,8 @@ export function getEgoGraph(entityName: string, depth = 2, maxNodes = 50): EgoGr
 
     for (const nodeId of currentFrontier) {
       const edges = db.prepare(`
-        SELECT * FROM edges WHERE source_id = ? OR target_id = ?
-      `).all(nodeId, nodeId) as GraphEdge[];
+        SELECT * FROM edges WHERE workspaceId = ? AND (source_id = ? OR target_id = ?)
+      `).all(workspaceId, nodeId, nodeId) as GraphEdge[];
 
       for (const edge of edges) {
         collectedEdgeIds.add(edge.id);
@@ -125,10 +133,14 @@ export function getEgoGraph(entityName: string, depth = 2, maxNodes = 50): EgoGr
   }
 
   const placeholders = Array.from(visitedNodeIds).map(() => '?').join(',');
-  const nodes = db.prepare(`SELECT * FROM nodes WHERE id IN (${placeholders}) ORDER BY importance DESC`).all(...Array.from(visitedNodeIds)) as GraphNode[];
+  const nodes = db.prepare(
+    `SELECT * FROM nodes WHERE workspaceId = ? AND id IN (${placeholders}) ORDER BY importance DESC`
+  ).all(workspaceId, ...Array.from(visitedNodeIds)) as GraphNode[];
 
   const edgeList = collectedEdgeIds.size > 0
-    ? (db.prepare(`SELECT * FROM edges WHERE id IN (${Array.from(collectedEdgeIds).map(() => '?').join(',')})`).all(...Array.from(collectedEdgeIds)) as GraphEdge[])
+    ? (db.prepare(
+        `SELECT * FROM edges WHERE workspaceId = ? AND id IN (${Array.from(collectedEdgeIds).map(() => '?').join(',')})`
+      ).all(workspaceId, ...Array.from(collectedEdgeIds)) as GraphEdge[])
     : [];
 
   return {
@@ -139,13 +151,13 @@ export function getEgoGraph(entityName: string, depth = 2, maxNodes = 50): EgoGr
   };
 }
 
-export function getGraphStats(): GraphStats {
-  const totalNodesRow = db.prepare(`SELECT COUNT(*) as cnt FROM nodes`).get() as { cnt: number };
-  const totalEdgesRow = db.prepare(`SELECT COUNT(*) as cnt FROM edges`).get() as { cnt: number };
+export function getGraphStats(workspaceId: string = DEFAULT_GRAPH_WORKSPACE): GraphStats {
+  const totalNodesRow = db.prepare(`SELECT COUNT(*) as cnt FROM nodes WHERE workspaceId = ?`).get(workspaceId) as { cnt: number };
+  const totalEdgesRow = db.prepare(`SELECT COUNT(*) as cnt FROM edges WHERE workspaceId = ?`).get(workspaceId) as { cnt: number };
 
   const typeRows = db.prepare(`
-    SELECT type, COUNT(*) as cnt FROM nodes GROUP BY type ORDER BY cnt DESC
-  `).all() as { type: string; cnt: number }[];
+    SELECT type, COUNT(*) as cnt FROM nodes WHERE workspaceId = ? GROUP BY type ORDER BY cnt DESC
+  `).all(workspaceId) as { type: string; cnt: number }[];
 
   const entityTypeCounts: Record<string, number> = {};
   for (const r of typeRows) {
@@ -153,8 +165,8 @@ export function getGraphStats(): GraphStats {
   }
 
   const topHubs = db.prepare(`
-    SELECT name, type, degree, importance FROM nodes ORDER BY degree DESC, importance DESC LIMIT 5
-  `).all() as { name: string; type: string; degree: number; importance: number }[];
+    SELECT name, type, degree, importance FROM nodes WHERE workspaceId = ? ORDER BY degree DESC, importance DESC LIMIT 5
+  `).all(workspaceId) as { name: string; type: string; degree: number; importance: number }[];
 
   return {
     totalNodes: totalNodesRow.cnt,
@@ -164,13 +176,13 @@ export function getGraphStats(): GraphStats {
   };
 }
 
-export function getAllNodesAndEdges() {
-  const nodes = db.prepare(`SELECT * FROM nodes ORDER BY importance DESC, degree DESC`).all() as GraphNode[];
-  const edges = db.prepare(`SELECT * FROM edges ORDER BY confidence DESC`).all() as GraphEdge[];
+export function getAllNodesAndEdges(workspaceId: string = DEFAULT_GRAPH_WORKSPACE) {
+  const nodes = db.prepare(`SELECT * FROM nodes WHERE workspaceId = ? ORDER BY importance DESC, degree DESC`).all(workspaceId) as GraphNode[];
+  const edges = db.prepare(`SELECT * FROM edges WHERE workspaceId = ? ORDER BY confidence DESC`).all(workspaceId) as GraphEdge[];
   return { nodes, edges };
 }
 
-export function findPath(entityA: string, entityB: string, maxDepth = 3) {
+export function findPath(entityA: string, entityB: string, maxDepth = 3, workspaceId: string = DEFAULT_GRAPH_WORKSPACE) {
   const startId = slugify(entityA);
   const endId = slugify(entityB);
 
@@ -186,15 +198,15 @@ export function findPath(entityA: string, entityB: string, maxDepth = 3) {
     if (path.length > maxDepth) continue;
 
     const edges = db.prepare(`
-      SELECT target_id as neighbor FROM edges WHERE source_id = ?
+      SELECT target_id as neighbor FROM edges WHERE workspaceId = ? AND source_id = ?
       UNION
-      SELECT source_id as neighbor FROM edges WHERE target_id = ?
-    `).all(current, current) as { neighbor: string }[];
+      SELECT source_id as neighbor FROM edges WHERE workspaceId = ? AND target_id = ?
+    `).all(workspaceId, current, workspaceId, current) as { neighbor: string }[];
 
     for (const edge of edges) {
       if (edge.neighbor === endId) {
         const fullPath = [...path, endId];
-        return fullPath.map(id => db.prepare(`SELECT * FROM nodes WHERE id = ?`).get(id) as GraphNode);
+        return fullPath.map(id => db.prepare(`SELECT * FROM nodes WHERE workspaceId = ? AND id = ?`).get(workspaceId, id) as GraphNode);
       }
 
       if (!visited.has(edge.neighbor)) {

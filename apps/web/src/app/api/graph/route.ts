@@ -12,10 +12,12 @@ function intParam(value: string | null, fallback: number, min: number, max: numb
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    // The graph is per workspace, like memories and automations.
+    const workspaceId = searchParams.get('workspaceId') || 'default';
 
     // 1. Stats query: /api/graph?stats=true
     if (searchParams.get('stats') === 'true') {
-      const stats = getGraphStats();
+      const stats = getGraphStats(workspaceId);
       return NextResponse.json(stats, {
         headers: { 'Cache-Control': 'no-cache, no-store' },
       });
@@ -26,9 +28,9 @@ export async function GET(req: NextRequest) {
     if (center) {
       const depth = intParam(searchParams.get('depth'), 2, 1, 4);
       const limit = intParam(searchParams.get('limit'), 50, 1, 500);
-      const egoGraph = getEgoGraph(center, depth, limit);
+      const egoGraph = getEgoGraph(center, depth, limit, workspaceId);
       if (!egoGraph) {
-        return NextResponse.json({ error: `Entity '${center}' not found in knowledge graph` }, { status: 404 });
+        return NextResponse.json({ error: `Entity '${center}' not found in this workspace's knowledge graph` }, { status: 404 });
       }
       return NextResponse.json(egoGraph, {
         headers: { 'Cache-Control': 'no-cache, no-store' },
@@ -43,6 +45,7 @@ export async function GET(req: NextRequest) {
 
     if (q || type || limit !== undefined || offset !== undefined) {
       const filtered = queryGraphFiltered({
+        workspaceId,
         search: q || undefined,
         type: type || undefined,
         limit,
@@ -54,7 +57,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 4. Default fallback: return all nodes and edges
-    const data = getAllNodesAndEdges();
+    const data = getAllNodesAndEdges(workspaceId);
     return NextResponse.json(data, {
       headers: { 'Cache-Control': 'no-cache, no-store' },
     });

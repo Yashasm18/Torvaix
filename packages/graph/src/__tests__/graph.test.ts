@@ -8,6 +8,7 @@ import {
   getEgoGraph,
   getGraphStats,
   getAllNodesAndEdges,
+  findEntitiesByType,
   db,
 } from '../index';
 import type { MLIntelligencePayload } from '../types';
@@ -211,5 +212,58 @@ describe('@torvaix/graph — Production Enterprise Knowledge Graph Engine', () =
     const path = findPath('User', 'Qdrant');
     expect(path).not.toBeNull();
     expect(path!.map((n) => n.name)).toEqual(['User', 'Torvaix', 'Qdrant']);
+  });
+});
+
+describe('@torvaix/graph — workspace isolation', () => {
+  beforeEach(() => {
+    db.exec('DELETE FROM edges');
+    db.exec('DELETE FROM nodes');
+  });
+
+  const payload = (entity: string, target: string): MLIntelligencePayload => ({
+    category: 'Technical',
+    importance: 8,
+    entities: [{ text: entity, type: 'PROJECT' }, { text: target, type: 'TECHNOLOGY' }],
+    tags: [],
+    relationships: [{ source: entity, relation: 'USES', target, confidence: 0.9 }],
+  });
+
+  it('keeps each workspace\u2019s entities and relationships separate', () => {
+    ingestKnowledgeGraph(payload('Thesis', 'Postgres'), 'ws-a');
+    ingestKnowledgeGraph(payload('Side Project', 'Redis'), 'ws-b');
+
+    const a = getAllNodesAndEdges('ws-a');
+    const b = getAllNodesAndEdges('ws-b');
+    expect(a.nodes.map(n => n.name).sort()).toEqual(['Postgres', 'Thesis']);
+    expect(b.nodes.map(n => n.name).sort()).toEqual(['Redis', 'Side Project']);
+    expect(a.edges.length).toBe(1);
+    expect(b.edges.length).toBe(1);
+
+    // Reads never cross workspaces
+    expect(queryGraph('Redis', 'ws-a')).toEqual([]);
+    expect(getNeighbors('Thesis', 'ws-b')).toEqual([]);
+    expect(getNeighbors('Thesis', 'ws-a').map(n => n.node.name)).toEqual(['Postgres']);
+    expect(findEntitiesByType('TECHNOLOGY', 'ws-b').map(n => n.name)).toEqual(['Redis']);
+    expect(getEgoGraph('Thesis', 2, 50, 'ws-b')).toBeNull();
+    expect(getGraphStats('ws-a').totalNodes).toBe(2);
+    expect(queryGraphFiltered({ workspaceId: 'ws-b' }).total).toBe(2);
+    expect(findPath('Thesis', 'Postgres', 3, 'ws-b')).toBeNull();
+  });
+
+  it('lets the same entity name mean different things in two workspaces', () => {
+    ingestKnowledgeGraph(payload('Atlas', 'Postgres'), 'ws-a');
+    ingestKnowledgeGraph(payload('Atlas', 'MongoDB'), 'ws-b');
+
+    expect(getNeighbors('Atlas', 'ws-a').map(n => n.node.name)).toEqual(['Postgres']);
+    expect(getNeighbors('Atlas', 'ws-b').map(n => n.node.name)).toEqual(['MongoDB']);
+    expect(getGraphStats('ws-a').totalNodes).toBe(2);
+    expect(getGraphStats('ws-b').totalNodes).toBe(2);
+  });
+
+  it('defaults to the default workspace when none is given', () => {
+    ingestKnowledgeGraph(payload('Torvaix', 'SQLite'));
+    expect(getAllNodesAndEdges().nodes.length).toBe(2);
+    expect(getAllNodesAndEdges('ws-a').nodes.length).toBe(0);
   });
 });

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { db } from './graph-store';
+import { db, DEFAULT_GRAPH_WORKSPACE } from './graph-store';
 import type { MLIntelligencePayload } from './types';
 
 export type { MLIntelligencePayload };
@@ -12,15 +12,15 @@ function slugify(text: string): string {
   return text.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
-export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
+export function ingestKnowledgeGraph(payload: MLIntelligencePayload, workspaceId: string = DEFAULT_GRAPH_WORKSPACE) {
   const affectedNodeIds = new Set<string>();
 
   // Transaction for atomic safety
   const transaction = db.transaction(() => {
     const insertNode = db.prepare(`
-      INSERT INTO nodes (id, name, type, importance, metadata)
-      VALUES (@id, @name, @type, @importance, @metadata)
-      ON CONFLICT(id) DO UPDATE SET
+      INSERT INTO nodes (id, workspaceId, name, type, importance, metadata)
+      VALUES (@id, @workspaceId, @name, @type, @importance, @metadata)
+      ON CONFLICT(workspaceId, id) DO UPDATE SET
         importance = MAX(importance, excluded.importance),
         type = CASE
           WHEN excluded.type = 'UNKNOWN' THEN nodes.type
@@ -36,6 +36,7 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
 
       insertNode.run({
         id: nodeId,
+        workspaceId,
         name: ent.text,
         type: ent.type.toUpperCase(),
         importance: payload.importance ?? 5,
@@ -44,9 +45,9 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
     }
 
     const insertEdge = db.prepare(`
-      INSERT INTO edges (id, source_id, relation, target_id, confidence, frequency)
-      VALUES (@id, @source_id, @relation, @target_id, @confidence, 1)
-      ON CONFLICT(source_id, relation, target_id) DO UPDATE SET
+      INSERT INTO edges (id, workspaceId, source_id, relation, target_id, confidence, frequency)
+      VALUES (@id, @workspaceId, @source_id, @relation, @target_id, @confidence, 1)
+      ON CONFLICT(workspaceId, source_id, relation, target_id) DO UPDATE SET
         frequency = edges.frequency + 1,
         confidence = MIN(1.0, MAX(edges.confidence, excluded.confidence) + 0.05)
     `);
@@ -62,6 +63,7 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
 
       insertNode.run({
         id: sourceId,
+        workspaceId,
         name: rel.source,
         type: 'UNKNOWN',
         importance: payload.importance,
@@ -70,6 +72,7 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
 
       insertNode.run({
         id: targetId,
+        workspaceId,
         name: rel.target,
         type: 'UNKNOWN',
         importance: payload.importance,
@@ -79,6 +82,7 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
       const edgeId = uuidv4();
       insertEdge.run({
         id: edgeId,
+        workspaceId,
         source_id: sourceId,
         relation: rel.relation.toUpperCase().replace(/\s+/g, '_'),
         target_id: targetId,
@@ -86,17 +90,19 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload) {
       });
     }
 
-    // 3. Recalculate degree centrality for affected nodes
+    // 3. Recalculate degree centrality for affected nodes (within this workspace)
     const updateDegree = db.prepare(`
-      UPDATE nodes 
+      UPDATE nodes
       SET degree = (
-        SELECT COUNT(*) FROM edges WHERE source_id = nodes.id OR target_id = nodes.id
+        SELECT COUNT(*) FROM edges
+        WHERE edges.workspaceId = nodes.workspaceId
+          AND (edges.source_id = nodes.id OR edges.target_id = nodes.id)
       )
-      WHERE id = ?
+      WHERE workspaceId = ? AND id = ?
     `);
 
     for (const nodeId of affectedNodeIds) {
-      updateDegree.run(nodeId);
+      updateDegree.run(workspaceId, nodeId);
     }
   });
 

@@ -256,18 +256,6 @@
 }
 
 /* Premium micro-animation keyframes */
-@keyframes loader-wave {
-  0% { content: "▁▂▃"; }
-  11% { content: "▂▃▄"; }
-  22% { content: "▃▄▅"; }
-  33% { content: "▄▅▆"; }
-  44% { content: "▅▆▅"; }
-  55% { content: "▆▅▄"; }
-  66% { content: "▅▄▃"; }
-  77% { content: "▄▃▂"; }
-  88% { content: "▃▂▁"; }
-  100% { content: "▁▂▃"; }
-}
 
 @keyframes float {
   0%, 100% { transform: translateY(0px); }
