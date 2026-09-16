@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
-import { HackerLoader } from "@/components/ui/hacker-loader";
 import { GeistSans } from 'geist/font/sans';
 
 const inter = Inter({
@@ -44,7 +43,6 @@ export default function RootLayout({
           enableSystem={false}
           themes={['dark', 'light', 'cyberpunk', 'aurora', 'terminal']}
         >
-          <HackerLoader />
           {children}
         </ThemeProvider>
       </body>

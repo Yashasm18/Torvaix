@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 import { useTheme } from 'next-themes';
 import { countConnections } from '@/lib/graph';
+import { useActiveWorkspace } from '@/hooks/use-active-workspace';
 
 interface Node {
   id: string;
@@ -42,17 +43,22 @@ export default function GraphPage() {
   const isDark = theme !== 'light'; // every theme except "light" has a dark background
 
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const { workspace, workspaceId } = useActiveWorkspace();
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    fetch('/api/graph')
+    if (!workspaceId) return;
+    let cancelled = false;
+    setLoaded(false);
+    setSelectedNode(null);
+    fetch(`/api/graph?workspaceId=${encodeURIComponent(workspaceId)}`)
       .then(res => {
         if (!res.ok) throw new Error(`Graph request failed with HTTP ${res.status}`);
         return res.json();
       })
       .then(data => {
-        if (!data.nodes) return;
+        if (cancelled || !data.nodes) return;
 
         const nodes: Node[] = data.nodes.map((n: any) => ({
           ...n,
@@ -69,11 +75,18 @@ export default function GraphPage() {
         setGraphData({ nodes, links });
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error(err);
         setLoadError(true);
       })
-      .finally(() => setLoaded(true));
-  }, []);
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -97,7 +110,9 @@ export default function GraphPage() {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[14rem]">
           <h1 className="text-2xl font-bold tracking-tight mb-1">Knowledge Graph</h1>
-          <p className="text-sm text-muted-foreground">Interactive visualization of all interconnected memories and entities.</p>
+          <p className="text-sm text-muted-foreground">
+            Entities and relationships saved in {workspace?.name ?? 'this workspace'}.
+          </p>
         </div>
 
         {/* Legend */}

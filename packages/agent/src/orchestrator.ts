@@ -342,10 +342,10 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       }
 
       // Hybrid Graph Context Enrichment
-      const graphNodes = queryGraph(state.instructions);
+      const graphNodes = queryGraph(state.instructions, state.workspaceId);
       if (graphNodes.length > 0) {
         const primaryEntity = graphNodes[0];
-        const neighbors = getNeighbors(primaryEntity.name);
+        const neighbors = getNeighbors(primaryEntity.name, state.workspaceId);
         if (neighbors.length > 0) {
           const relLines = neighbors.map(n => 
             `- ${primaryEntity.name} ${n.direction === 'OUT' ? '→' : '←'} ${n.relation} ${n.direction === 'OUT' ? '→' : '←'} ${n.node.name} (${n.node.type})`
@@ -403,7 +403,7 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       // NLP enrichment (best-effort): extract entities/relationships via the Python
       // intelligence layer and fold them into the knowledge graph. This never blocks
       // or fails the write — if the service is down, we still stored the memory.
-      const intel = await this.extractIntelligence(state.instructions, state.trace);
+      const intel = await this.extractIntelligence(state.instructions, state.workspaceId, state.trace);
       if (intel) {
         const entityCount = intel.entities?.length ?? 0;
         const relCount = intel.relationships?.length ?? 0;
@@ -445,6 +445,7 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
    */
   private async extractIntelligence(
     text: string,
+    workspaceId: string,
     trace?: TraceCollector
   ): Promise<MLIntelligencePayload | null> {
     const endTrace = trace?.startPhase('knowledge', 'NLP intelligence extraction');
@@ -465,7 +466,7 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       }
 
       const intel = (await res.json()) as MLIntelligencePayload;
-      ingestKnowledgeGraph(intel);
+      ingestKnowledgeGraph(intel, workspaceId);
       endTrace?.({
         ok: true,
         entities: intel.entities?.length ?? 0,

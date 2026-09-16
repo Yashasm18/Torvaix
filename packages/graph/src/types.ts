@@ -25,6 +25,7 @@ export interface EgoGraphResult {
 }
 
 export interface QueryGraphOptions {
+  workspaceId?: string;
   search?: string;
   type?: string;
   minImportance?: number;
