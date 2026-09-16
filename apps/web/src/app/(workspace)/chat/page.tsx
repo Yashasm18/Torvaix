@@ -13,7 +13,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Send, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal, XCircle, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X } from "lucide-react";
+import { Send, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X } from "lucide-react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { useSystemStatus } from "@/hooks/use-system-status";
 import { useMemoryContextStore, type RetrievedMemory } from "@/store/memory-context-store";
@@ -27,6 +27,8 @@ import {
   toUiMessages,
 } from "@/store/chat-history";
 import { formatRelativeTime } from "@/lib/relative-time";
+import { parseApprovalId } from "@/lib/approval";
+import { ApprovalCard } from "@/components/chat/approval-card";
 import { AppLogo } from "@/components/ui/app-logo";
 import { MemoryModal } from "@/components/chat/memory-modal";
 import { MarkdownMessage } from "@/components/chat/markdown";
@@ -147,7 +149,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     deleteChat(chatId);
   };
 
-  const resolveAction = async (pendingId: string, status: 'approved' | 'rejected') => {
+  const resolveAction = async (pendingId: string, status: 'approved' | 'rejected'): Promise<boolean> => {
     setNotice(null);
     const res = await fetch('/api/agent/approve', {
       method: 'POST',
@@ -161,7 +163,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
           ? `Couldn't ${status === 'approved' ? 'approve' : 'deny'} the action: ${data.error}`
           : "Couldn't reach the agent server."
       );
-      return;
+      return false;
     }
     append({
       role: 'user',
@@ -169,6 +171,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
         ? `I have approved the action.\n__PENDING_ACTION_ID__:${pendingId}`
         : `I have denied the action. Please try a different approach.\n__PENDING_ACTION_ID__:${pendingId}`,
     });
+    return true;
   };
 
   const attachFile = async (file: File) => {
@@ -299,7 +302,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label="Switch chat"
-                className="flex items-center gap-1.5 max-w-[16rem] sm:max-w-md outline-none border-none bg-transparent cursor-pointer rounded-md hover:text-primary transition-colors"
+                className="flex items-center gap-1.5 max-w-full outline-none border-none bg-transparent cursor-pointer rounded-md hover:text-primary transition-colors"
               >
                 <h1 className="text-lg font-semibold text-foreground truncate">{currentChat?.title ?? DEFAULT_CHAT_TITLE}</h1>
                 <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
@@ -527,51 +530,16 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                       })()}
                       {/* Text Content */}
                       {message.content && (() => {
-                        const securityMatch = message.content.match(/Pending Action ID: `([a-f0-9-]+)`/);
+                        const pendingId = message.role === 'assistant' ? parseApprovalId(message.content) : null;
 
-                        if (securityMatch && message.role === 'assistant') {
-                          const pendingId = securityMatch[1];
-                          const isHistorical = index < messages.length - 1;
-
+                        if (pendingId && workspaceId) {
                           return (
-                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">
-                              <div className="flex items-center gap-3 px-5 py-3 bg-amber-500/10 border-b border-amber-500/20">
-                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                                  <Shield className="w-4 h-4 text-amber-400" />
-                                </div>
-                                <div>
-                                  <p className="text-sm font-semibold text-amber-300">Security Approval Required</p>
-                                  <p className="text-xs text-amber-400/70">Torvaix needs your permission to execute a system command</p>
-                                </div>
-                              </div>
-                              <div className="px-5 py-4 flex flex-col gap-3">
-                                <p className="text-sm text-muted-foreground">
-                                  The agent is requesting access to run a potentially dangerous action on your machine.
-                                  Review and approve to continue, or deny to try a safer approach.
-                                </p>
-                                <div className="flex items-center gap-3 flex-wrap">
-                                  <Button
-                                    size="sm"
-                                    disabled={isHistorical || isLoading}
-                                    className="bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30 font-medium"
-                                    onClick={() => resolveAction(pendingId, 'approved')}
-                                  >
-                                    <CheckCircle2 className="w-4 h-4 mr-2" />
-                                    Approve Execution
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={isHistorical || isLoading}
-                                    className="border-red-500/30 text-red-400 hover:bg-red-500/10 font-medium"
-                                    onClick={() => resolveAction(pendingId, 'rejected')}
-                                  >
-                                    <XCircle className="w-4 h-4 mr-2" />
-                                    Deny
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
+                            <ApprovalCard
+                              pendingId={pendingId}
+                              workspaceId={workspaceId}
+                              disabled={index < messages.length - 1 || isLoading}
+                              onResolve={resolveAction}
+                            />
                           );
                         }
 

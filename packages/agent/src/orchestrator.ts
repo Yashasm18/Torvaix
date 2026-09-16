@@ -532,7 +532,8 @@ ${structure}
           if (onStreamChunk) {
             onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
           }
-          state.messages.push({ role: 'system', content: `Tool Result: ${resultText}` });
+          // Same label as the main loop, so a repeated request for this call returns this output.
+          state.messages.push({ role: 'system', content: `Tool ${pending.action} Result: ${resultText}` });
         } catch (e: any) {
           const durationMs = performance.now() - toolStart;
           const errorText = `Tool execution failed: ${e.message}`;
@@ -551,7 +552,7 @@ ${structure}
           // Resumed on its own (approved from the Tasks page): nothing further was asked,
           // so report the tool's result instead of planning new steps.
           const last = state.messages[state.messages.length - 1];
-          state.output = last ? last.content.replace(/^Tool Result: /, '') : 'Action executed.';
+          state.output = last ? last.content.replace(/^Tool \S+ Result: /, '') : 'Action executed.';
           state.final = true;
           state.nextNode = 'end';
           return state;
