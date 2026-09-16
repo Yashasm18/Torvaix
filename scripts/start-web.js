@@ -6,9 +6,11 @@
  *   - local build:  apps/web/.next/standalone/apps/web/server.js
  *   - Docker image: apps/web/server.js (the standalone tree is copied to the app root)
  */
+require('./load-env');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { webHost } = require('./web-host');
 
 const root = path.resolve(__dirname, '..');
 const candidates = [
@@ -25,7 +27,10 @@ if (!server) {
   process.exit(1);
 }
 
-const child = spawn(process.execPath, [server], { stdio: 'inherit', env: process.env });
+// The standalone server reads HOSTNAME. Always set it: many shells and containers export the
+// machine's own name there, which is not an address we want to listen on.
+const env = { ...process.env, HOSTNAME: webHost() };
+const child = spawn(process.execPath, [server], { stdio: 'inherit', env });
 child.on('exit', (code, signal) => process.exit(signal ? 1 : code ?? 0));
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => child.kill(signal));

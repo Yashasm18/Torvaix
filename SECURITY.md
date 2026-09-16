@@ -26,10 +26,10 @@ It is **not** designed to be exposed to the internet or shared with people you d
 
 | Protection | Details |
 | --- | --- |
-| Loopback binding | The agent server listens on `127.0.0.1` unless you set `AGENT_HOST`. |
+| Loopback binding | The web app and the agent server listen on `127.0.0.1` unless you set `WEB_HOST` or `AGENT_HOST`. The Docker Compose file publishes every port on `127.0.0.1` only. |
 | Origin and Host checks | The agent rejects browser requests from other origins, and requests whose `Host` isn't localhost or listed in `AGENT_ALLOWED_HOSTS`. This blocks DNS-rebinding attacks. |
 | CSRF check | The web app's API routes reject cross-site state-changing requests. |
-| Approval for code execution | `bash` and `python` tool calls pause until you approve them in the UI. An approval covers that tool in that workspace for 5 minutes, and each pending action can be used only once. |
+| Approval for code execution | `bash` and `python` tool calls pause until you approve them in the UI. Each approval covers exactly one command and can be used only once. |
 | Workspace confinement for files | `read_file` and `write_file` can't reach paths outside the workspace folder. |
 | Input validation and rate limits | Request bodies are validated, and the API is rate-limited. |
 | Timeouts | Shell and Python commands are stopped after 15 seconds. |
@@ -38,11 +38,10 @@ It is **not** designed to be exposed to the internet or shared with people you d
 
 Know these before you run Torvaix anywhere other than your own machine:
 
-- **Approved commands aren't sandboxed.** An approved `bash` or `python` call runs with your full user permissions. It starts in the workspace folder but can read or change anything your account can. Read each command before approving it, and remember that an approval also covers that tool's other calls in the workspace for the next 5 minutes.
+- **Approved commands aren't sandboxed.** An approved `bash` or `python` call runs with your full user permissions. It starts in the workspace folder but can read or change anything your account can. Read each command before approving it.
 - **Login isn't required.** Requests to the agent without a `Bearer` token run as a default local user. The login endpoints exist, but they don't protect anything yet.
-- **The web app is reachable from your network.** `npm run dev`, `npm start` and the Docker image serve the web UI on all network interfaces. Anyone who can reach port 3000 can use Torvaix, including approving commands. On shared or untrusted networks, block port 3000 with a firewall or put the app behind an authenticating reverse proxy.
+- **The web app has no login.** Anyone who can open it can use Torvaix, including approving commands. It listens only on this computer by default. If you set `WEB_HOST` to another address, put the app behind a firewall or an authenticating reverse proxy.
 - **Companion device scopes aren't enforced.** The experimental pairing endpoints issue `readonly` and `admin` sessions, but no other endpoint checks them yet.
-- **Default `JWT_SECRET`.** `.env.example` and `docker-compose.yml` ship with placeholder secrets. Replace them with a long random value if you use login tokens.
 - **Prompt injection.** Web search results, files and stored memories go into the model's context and can try to steer it. The approval step is your defence, so don't approve commands you didn't expect.
 
 ## Data and privacy
@@ -60,6 +59,5 @@ Everything else is stored under `TORVAIX_HOME` (default `~/.torvaix`), in Qdrant
 
 - Put Torvaix behind HTTPS and an authenticating reverse proxy.
 - Don't publish ports 3001 (agent), 6333 (Qdrant), 11434 (Ollama) or 8000 (NLP service).
-  The bundled `docker-compose.yml` publishes these ports on every network interface, so on a shared host change each mapping to `127.0.0.1:PORT:PORT`.
 - Run it in a container or VM, as a user with access only to the data it needs.
 - Set `AGENT_ALLOWED_ORIGINS` and `AGENT_ALLOWED_HOSTS` to exactly the names you use.

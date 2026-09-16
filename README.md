@@ -26,7 +26,7 @@ It's built for local models through [Ollama](https://ollama.com). Cloud provider
 
 - **Chat with memory.** Facts you share are stored per workspace and recalled in later conversations. Retrieval combines keyword search (SQLite FTS5) with vector search (Qdrant) when Qdrant is available.
 - **Knowledge graph.** Entities and relationships are extracted from stored memories and shown in an interactive graph, scoped to each workspace.
-- **Tool use with approval.** The agent can read and write files inside the workspace folder, search the web, and scan a repository. `bash` and `python` commands pause until you approve them. An approval lasts 5 minutes for that tool in that workspace.
+- **Tool use with approval.** The agent can read and write files inside the workspace folder, search the web, and scan a repository. Every `bash` and `python` command pauses until you approve that exact command.
 - **Automations.** Run workflows on a schedule (interval, hourly, daily, weekly), on events such as a new memory, or manually.
 - **Memory consolidation.** Finds duplicate and related memories, scores them, and groups them into themes.
 - **Agent trace.** Each reply shows how the request was routed, what was retrieved, and how long each tool call took.
@@ -75,7 +75,7 @@ docker compose up -d qdrant
 npm run dev
 ```
 
-This starts the agent server on `127.0.0.1:3001` and the web app on port 3000. Open <http://localhost:3000>, or run `npm run dev:open` to start both and open the browser for you.
+This starts the agent server on `127.0.0.1:3001` and the web app on `127.0.0.1:3000`. Both are reachable only from this computer. Open <http://localhost:3000>, or run `npm run dev:open` to start both and open the browser for you.
 
 ### Production build
 
@@ -86,11 +86,11 @@ npm start
 
 ### Docker
 
-`docker compose up -d` builds and starts the whole stack: Qdrant, Ollama (which pulls `llama3.2` and `nomic-embed-text` on first start), the Python NLP service and the app. The first build and model download take a while. The web app is published on port 3000.
+`docker compose up -d` builds and starts the whole stack: Qdrant, Ollama (which pulls `llama3.2` and `nomic-embed-text` on first start), the Python NLP service and the app. The first build and model download take a while. The web app is published on `127.0.0.1:3000`, and your data is kept in the `torvaix_data` volume.
 
 ## Configuration
 
-Copy `.env.example` to `.env`. Every setting is optional.
+Copy `.env.example` to `.env` in the repository root. Every setting is optional, and variables already set in your shell take precedence.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -99,11 +99,12 @@ Copy `.env.example` to `.env`. Every setting is optional.
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant endpoint |
 | `PYTHON_SERVICE_URL` | `http://localhost:8000` | Optional NLP service for entity extraction |
+| `WEB_HOST` | `127.0.0.1` | Interface the web app listens on. Keep it on loopback. |
 | `AGENT_PORT` / `AGENT_HOST` | `3001` / `127.0.0.1` | Agent server address. Keep it on loopback. |
 | `AGENT_SERVER_URL` | `http://localhost:3001` | Where the web app sends requests for the agent |
 | `AGENT_ALLOWED_ORIGINS` / `AGENT_ALLOWED_HOSTS` | localhost only | Extra origins or hosts the agent accepts |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` | none | Enable cloud providers |
-| `JWT_SECRET` | dev value | Signs login tokens (see [SECURITY.md](SECURITY.md)) |
+| `JWT_SECRET` | random at startup | Signs login tokens |
 
 If `OPENAI_API_KEY` is set and Ollama can't produce embeddings, memory text is sent to OpenAI for embeddings. If neither is available, Torvaix uses a local keyword-based embedding.
 
