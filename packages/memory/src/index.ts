@@ -724,6 +724,15 @@ export class MemoryStore {
 
   // ── Workspace Methods ──
 
+  /** Close the SQLite handle (call on shutdown). */
+  close(): void {
+    try {
+      this.db.close();
+    } catch {
+      // already closed
+    }
+  }
+
   createWorkspace(name: string, settings: any = {}, forceId?: string): string {
     const id = forceId || uuidv4();
 

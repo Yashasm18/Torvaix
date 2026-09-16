@@ -176,14 +176,19 @@ export default function TasksPage() {
         }),
       });
 
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
         setLastDispatchedOutput(data.task?.output || "Task initiated.");
         setInstructions("");
         await fetchData();
+      } else {
+        setLastDispatchedOutput(
+          `Couldn't dispatch the task: ${data.details || data.error || `HTTP ${res.status}`}`
+        );
       }
     } catch (e) {
       console.error("Dispatch error:", e);
+      setLastDispatchedOutput("Couldn't reach the agent server.");
     } finally {
       setDispatching(false);
     }

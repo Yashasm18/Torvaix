@@ -2,7 +2,7 @@
   "name": "torvaix",
   "version": "0.3.0",
   "private": true,
-  "description": "Torvaix: Workspace-first AI Operating System — local-first, privacy-first, no telemetry.",
+  "description": "Torvaix: Workspace-first AI Operating System \u2014 local-first, privacy-first, no telemetry.",
   "license": "AGPL-3.0",
   "engines": {
     "node": ">=22"
@@ -31,20 +31,23 @@
     "test:router": "vitest run packages/router",
     "test:agent": "vitest run packages/agent",
     "test:mcp": "vitest run packages/mcp",
-    "benchmark": "npx tsx scripts/benchmark.ts"
+    "benchmark": "npx tsx scripts/benchmark.ts",
+    "start": "concurrently -k -p \"[{name}]\" -n \"AGENT,WEB\" -c \"blue.bold,green.bold\" \"npm run start:agent\" \"npm run start:web\"",
+    "start:agent": "tsx packages/agent/src/server.ts",
+    "start:web": "node scripts/start-web.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "node-fetch": "^3.3.2"
+    "concurrently": "^10.0.3",
+    "node-fetch": "^3.3.2",
+    "tsx": "^4.22.4"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.0.0",
     "@types/ws": "^8.18.1",
-    "concurrently": "^10.0.3",
     "kill-port": "^2.0.1",
     "open-cli": "^9.0.0",
-    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vitest": "^2.1.0",
     "wait-on": "^9.0.10"

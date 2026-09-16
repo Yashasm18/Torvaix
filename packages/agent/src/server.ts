@@ -17,6 +17,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { AgentOrchestrator } from './orchestrator';
+import { closeAllMcpClients } from '@torvaix/mcp';
 import { checkBrowserRequest, parseList, DEFAULT_ALLOWED_ORIGINS } from './http-security';
 import { isValidEmail } from './validation';
 import { MemoryStore } from '@torvaix/memory';
@@ -971,5 +972,39 @@ server.listen(PORT, HOST, () => {
   console.log(`Memory API:   http://localhost:${PORT}/api/memory/store`);
   console.log(`Companion:    http://localhost:${PORT}/api/companion/pair/create [EXPERIMENTAL]`);
 });
+
+// ── Graceful Shutdown ──
+// Tool calls spawn MCP server child processes and SQLite holds file handles; without this,
+// every restart (including tsx --watch reloads) leaked those processes and left the WAL open.
+let shuttingDown = false;
+
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Shutdown] ${signal} received — stopping Torvaix agent server...`);
+
+  const failsafe = setTimeout(() => {
+    console.warn('[Shutdown] Timed out, forcing exit.');
+    process.exit(1);
+  }, 8000);
+  failsafe.unref();
+
+  try {
+    automationEngine.stop();
+    await closeAllMcpClients();
+    wss.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    memoryStore.close();
+    console.log('[Shutdown] Clean exit.');
+  } catch (error: any) {
+    console.error('[Shutdown] Error while shutting down:', error?.message ?? error);
+  } finally {
+    clearTimeout(failsafe);
+    process.exit(0);
+  }
+}
+
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 export default app;

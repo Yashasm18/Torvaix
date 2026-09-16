@@ -48,6 +48,8 @@ COPY --from=builder --chown=torvaix:nodejs /app/apps/web/.next/static ./apps/web
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/package.json ./package.json
+# Workspace manifests: npm ci below resolves the workspaces declared in package.json
+COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 
 # Reinstall production dependencies (for native modules)
@@ -62,5 +64,5 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 ENV AGENT_PORT=3001
 
-# Start both Next.js frontend and Agent server
-CMD ["npm", "run", "dev:services"]
+# Start the built frontend and the agent server (not the dev servers)
+CMD ["npm", "run", "start"]

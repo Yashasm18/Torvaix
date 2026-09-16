@@ -166,6 +166,16 @@ export function getMcpClient(workspacePath: string): McpClientManager {
   return instance;
 }
 
+/**
+ * Close every cached client, terminating the tool-server child processes they spawned.
+ * Without this, each agent-server restart leaves orphaned `tsx` processes behind.
+ */
+export async function closeAllMcpClients(): Promise<void> {
+  const instances = Array.from(_instances.values());
+  _instances.clear();
+  await Promise.allSettled(instances.map(instance => instance.close()));
+}
+
 /** Reset the cache (primarily for testing). */
 export function resetMcpClient() {
   _instances.clear();
