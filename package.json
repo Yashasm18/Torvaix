@@ -1,8 +1,8 @@
 {
   "name": "torvaix",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
-  "description": "Torvaix: Workspace-first AI Operating System \u2014 local-first, privacy-first, no telemetry.",
+  "description": "Torvaix: Workspace-first AI Operating System — local-first, privacy-first, no telemetry.",
   "license": "AGPL-3.0",
   "engines": {
     "node": ">=22"
