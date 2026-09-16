@@ -28,6 +28,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data);
   } catch (error: any) {
     console.error('API /api/agent/tasks error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+    // A failed fetch here means the agent server isn't up; say so instead of "fetch failed".
+    return NextResponse.json(
+      { error: "The agent server isn't reachable on port 3001. Start it with npm run dev." },
+      { status: 502 }
+    );
   }
 }

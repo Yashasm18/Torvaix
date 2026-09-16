@@ -40,7 +40,8 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   typescript: {
-    ignoreBuildErrors: true,
+    // Type errors should fail the build (and CI) instead of shipping silently.
+    ignoreBuildErrors: false,
   },
   devIndicators: false,
   async headers() {
