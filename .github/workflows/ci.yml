@@ -34,3 +34,39 @@ jobs:
       
     - name: Build project
       run: npm run build
+
+  docker-smoke:
+    # Builds the production image and checks that it actually starts and can write to its database.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+    - uses: docker/setup-buildx-action@v3
+    - name: Build image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        target: runner
+        load: true
+        tags: torvaix:smoke
+        cache-from: type=gha,scope=smoke
+        cache-to: type=gha,scope=smoke,mode=max
+    - name: Start container
+      run: docker run -d --name torvaix -p 127.0.0.1:3000:3000 torvaix:smoke
+    - name: Wait for the web app and the agent
+      run: |
+        for i in $(seq 1 60); do
+          if curl -fsS -o /dev/null http://127.0.0.1:3000/ && docker exec torvaix curl -fsS -o /dev/null http://127.0.0.1:3001/api/health; then
+            echo "ready"; exit 0
+          fi
+          sleep 2
+        done
+        echo "container did not become ready"; exit 1
+    - name: Store a memory through the web app
+      run: |
+        curl -fsS -X POST http://127.0.0.1:3000/api/memory \
+          -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:3000' \
+          -d '{"workspaceId":"default","content":"docker smoke test"}'
+    - name: Container logs
+      if: always()
+      run: docker logs torvaix
