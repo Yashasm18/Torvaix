@@ -7,7 +7,11 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     // Graph and workspace folders resolve from TORVAIX_HOME; never let tests write to the user's real home.
-    env: { TORVAIX_HOME: path.join(os.tmpdir(), 'torvaix-vitest-home') },
+    // Same for Qdrant: tests must never write into the user's real vector collection.
+    env: {
+      TORVAIX_HOME: path.join(os.tmpdir(), 'torvaix-vitest-home'),
+      QDRANT_URL: 'http://127.0.0.1:1',
+    },
     include: ['packages/**/src/__tests__/**/*.test.ts', 'apps/web/src/**/__tests__/**/*.test.ts'],
   },
 

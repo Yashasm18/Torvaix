@@ -17,6 +17,8 @@ export async function POST(req: Request) {
     // Proxy the request to the Torvaix Agent Server with streaming enabled
     const agentRes = await fetch(`${AGENT_SERVER_URL}/api/agent/run?stream=true`, {
       method: 'POST',
+      // Pressing Stop aborts the browser request; pass that on so the agent stops too.
+      signal: req.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         workspaceId: workspaceId || 'default',

@@ -1,11 +1,11 @@
 /**
  * Torvaix Memory Store
  *
- * Dual-layer vector memory system:
- * - Primary: Qdrant vector search with Ollama embeddings
- * - Fallback 1: OpenAI embeddings (if Ollama unavailable and API key present)
- * - Fallback 2: Deterministic local keyword embedding (no external deps)
- * - Source of truth: SQLite
+ * Dual-layer memory system:
+ * - Source of truth: SQLite, with FTS5 keyword search
+ * - Optional: Qdrant vector search, using Ollama embeddings (or OpenAI if a key is set)
+ * - Qdrant and Ollama are re-checked periodically, so starting either later just works,
+ *   and memories saved while Qdrant was down are indexed once it is reachable
  *
  * Also manages workspaces, conversations, pending actions, execution logs,
  * and companion device pairing.
@@ -119,16 +119,29 @@ export function extractKeywords(query: string): string[] {
   return Array.from(new Set(words));
 }
 
+/** How long a Qdrant/Ollama availability check is trusted before it is repeated. */
+const SERVICE_RECHECK_MS = 30_000;
+
+/** A vector from a real embedding model, tagged so vectors from different models are never compared. */
+interface ModelEmbedding {
+  vector: number[];
+  model: string;
+}
+
 export class MemoryStore {
   private db: Database.Database;
   private qdrant: QdrantClient;
   private qdrantAvailable = false;
-  private qdrantChecked = false;
+  private qdrantCheckedAt = 0;
+  /** Vector size of the existing Qdrant collection; vectors of any other size are not sent to it. */
+  private collectionVectorSize: number | null = null;
+  private backfillRunning: Promise<number> | null = null;
+  private loggedDimensionMismatch = false;
   private collectionName = 'torvaix_memories';
   private embedModel = 'nomic-embed-text';
   private ollamaUrl: string;
   private ollamaAvailable = false;
-  private ollamaChecked = false;
+  private ollamaCheckedAt = 0;
   private embedSource: EmbedSource = 'none';
   private vectorSize = 768; // default for nomic-embed-text
 
@@ -136,7 +149,8 @@ export class MemoryStore {
     this.db = new Database(dbPath);
     this.ollamaUrl = options?.ollamaUrl ?? process.env.OLLAMA_URL ?? 'http://localhost:11434';
     const qdrantUrl = options?.qdrantUrl ?? process.env.QDRANT_URL ?? 'http://localhost:6333';
-    this.qdrant = new QdrantClient({ url: qdrantUrl });
+    // Short timeout: an unreachable Qdrant must not stall chat requests while it is re-checked.
+    this.qdrant = new QdrantClient({ url: qdrantUrl, timeout: 5_000, checkCompatibility: false });
     this.initSQLite();
   }
 
@@ -312,73 +326,150 @@ export class MemoryStore {
 
   // ── Qdrant ──
 
+  /**
+   * Whether Qdrant is reachable. The answer is cached for SERVICE_RECHECK_MS rather than
+   * forever, so a Qdrant started (or restarted) after the agent is picked up automatically.
+   */
   async initQdrant(): Promise<boolean> {
-    if (this.qdrantChecked) return this.qdrantAvailable;
-    this.qdrantChecked = true;
+    if (Date.now() - this.qdrantCheckedAt < SERVICE_RECHECK_MS) return this.qdrantAvailable;
+    const firstCheck = this.qdrantCheckedAt === 0;
+    this.qdrantCheckedAt = Date.now();
+    const wasAvailable = this.qdrantAvailable;
 
     try {
       const result = await this.qdrant.getCollections();
       const exists = result.collections.some(c => c.name === this.collectionName);
 
-      if (!exists) {
-        // Detect vector size from active embedding source
-        const testVector = await this.generateEmbedding('test');
-        this.vectorSize = testVector?.length ?? 768;
-
-        await this.qdrant.createCollection(this.collectionName, {
-          vectors: {
-            size: this.vectorSize,
-            distance: 'Cosine',
-          },
-        });
-        console.log(`[MemoryStore] Created Qdrant collection: ${this.collectionName} (dim=${this.vectorSize})`);
+      if (exists) {
+        const info = await this.qdrant.getCollection(this.collectionName);
+        const vectors = info.config?.params?.vectors as { size?: number } | undefined;
+        this.collectionVectorSize = typeof vectors?.size === 'number' ? vectors.size : null;
+      } else {
+        // Size the collection for the embedding model in use. Without one there is nothing to store yet.
+        const probe = await this.embedWithModel('test');
+        if (probe) {
+          await this.qdrant.createCollection(this.collectionName, {
+            vectors: { size: probe.vector.length, distance: 'Cosine' },
+          });
+          this.collectionVectorSize = probe.vector.length;
+          console.log(`[MemoryStore] Created Qdrant collection: ${this.collectionName} (dim=${probe.vector.length})`);
+        }
       }
 
       this.qdrantAvailable = true;
-      console.log('[MemoryStore] Qdrant connected successfully');
+      if (!wasAvailable) {
+        console.log('[MemoryStore] Qdrant connected successfully');
+        // Index memories saved while Qdrant was unreachable (or embedded with another model).
+        void this.backfillVectors().catch(e => console.warn('[MemoryStore] Vector backfill failed:', e));
+      }
     } catch (e) {
       this.qdrantAvailable = false;
-      console.warn('[MemoryStore] Qdrant unavailable — falling back to SQLite-only mode');
+      if (wasAvailable || firstCheck) {
+        console.warn('[MemoryStore] Qdrant unavailable — using SQLite keyword search only');
+      }
     }
 
     return this.qdrantAvailable;
   }
 
+  /**
+   * Adds vectors for memories that are missing from Qdrant or were embedded with a different
+   * model. Returns how many memories were (re)indexed.
+   */
+  backfillVectors(): Promise<number> {
+    if (this.backfillRunning) return this.backfillRunning;
+    this.backfillRunning = (async () => {
+      let indexed = 0;
+      const rows = this.db.prepare('SELECT id, workspaceId, source, content FROM memories ORDER BY createdAt').all() as {
+        id: string; workspaceId: string; source: string; content: string;
+      }[];
+
+      for (let i = 0; i < rows.length; i += 100) {
+        const batch = rows.slice(i, i + 100);
+        const existing = await this.qdrant.retrieve(this.collectionName, {
+          ids: batch.map(r => r.id),
+          with_payload: true,
+          with_vector: false,
+        });
+        const current = new Map(existing.map(p => [String(p.id), (p.payload as { embedModel?: string } | null)?.embedModel]));
+
+        for (const row of batch) {
+          const embedding = await this.embedWithModel(row.content);
+          if (!embedding) return indexed; // no embedding model available right now
+          if (current.get(row.id) === embedding.model) continue;
+          if (await this.upsertVector(row.id, embedding, { workspaceId: row.workspaceId, source: row.source })) indexed++;
+        }
+      }
+      if (indexed > 0) console.log(`[MemoryStore] Indexed ${indexed} memories in Qdrant`);
+      return indexed;
+    })().finally(() => {
+      this.backfillRunning = null;
+    });
+    return this.backfillRunning;
+  }
+
+  /** Writes one memory's vector to Qdrant. Returns false (without throwing) if it can't be stored. */
+  private async upsertVector(id: string, embedding: ModelEmbedding, payload: { workspaceId: string; source: string }): Promise<boolean> {
+    if (this.collectionVectorSize !== null && embedding.vector.length !== this.collectionVectorSize) {
+      if (!this.loggedDimensionMismatch) {
+        this.loggedDimensionMismatch = true;
+        console.warn(
+          `[MemoryStore] ${embedding.model} produces ${embedding.vector.length}-dim vectors but the Qdrant collection ` +
+            `"${this.collectionName}" uses ${this.collectionVectorSize}. Vector search is off until they match; keyword search still works.`
+        );
+      }
+      return false;
+    }
+    try {
+      await this.qdrant.upsert(this.collectionName, {
+        wait: true,
+        points: [{ id, vector: embedding.vector, payload: { ...payload, embedModel: embedding.model } }],
+      });
+      return true;
+    } catch (e) {
+      console.warn('[MemoryStore] Qdrant upsert failed:', e);
+      return false;
+    }
+  }
+
   // ── Embedding Chain: Ollama → OpenAI → Local ──
 
   private async checkOllama(): Promise<boolean> {
-    if (this.ollamaChecked) return this.ollamaAvailable;
-    this.ollamaChecked = true;
+    if (Date.now() - this.ollamaCheckedAt < SERVICE_RECHECK_MS) return this.ollamaAvailable;
+    this.ollamaCheckedAt = Date.now();
+    const wasAvailable = this.ollamaAvailable;
 
     try {
-      const response = await fetch(`${this.ollamaUrl}/api/tags`);
-      if (response.ok) {
-        this.ollamaAvailable = true;
-        this.embedSource = 'ollama';
-        console.log('[MemoryStore] Ollama connected successfully');
-      }
+      const response = await fetch(`${this.ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(3_000) });
+      this.ollamaAvailable = response.ok;
     } catch (e) {
       this.ollamaAvailable = false;
-      console.warn('[MemoryStore] Ollama unavailable');
+    }
+    if (this.ollamaAvailable !== wasAvailable) {
+      console.log(`[MemoryStore] Ollama ${this.ollamaAvailable ? 'connected successfully' : 'unavailable'}`);
     }
     return this.ollamaAvailable;
   }
 
-  async generateEmbedding(text: string): Promise<number[] | null> {
-    // Try 1: Ollama (local, privacy-first)
-    const ollamaOk = await this.checkOllama();
-    if (ollamaOk) {
+  /**
+   * Embedding from a real model: Ollama first, then OpenAI if a key is set. Returns null when
+   * neither is available. Only these vectors go to Qdrant; hash-based local vectors would make
+   * similarity scores meaningless next to model vectors.
+   */
+  private async embedWithModel(text: string): Promise<ModelEmbedding | null> {
+    if (await this.checkOllama()) {
       try {
         const response = await fetch(`${this.ollamaUrl}/api/embeddings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: this.embedModel, prompt: text }),
+          signal: AbortSignal.timeout(30_000),
         });
         if (response.ok) {
           const data = await response.json();
-          if (data.embedding) {
+          if (Array.isArray(data.embedding) && data.embedding.length > 0) {
             this.embedSource = 'ollama';
-            return data.embedding;
+            return { vector: data.embedding, model: `ollama:${this.embedModel}` };
           }
         }
       } catch (e) {
@@ -386,7 +477,6 @@ export class MemoryStore {
       }
     }
 
-    // Try 2: OpenAI embeddings (if API key available)
     const openaiKey = process.env.OPENAI_API_KEY;
     if (openaiKey) {
       try {
@@ -397,14 +487,14 @@ export class MemoryStore {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
+          signal: AbortSignal.timeout(30_000),
         });
         if (response.ok) {
           const data = await response.json();
           const embedding = data.data?.[0]?.embedding;
-          if (embedding) {
+          if (Array.isArray(embedding) && embedding.length > 0) {
             this.embedSource = 'openai';
-            this.vectorSize = embedding.length; // 1536 for text-embedding-3-small
-            return embedding;
+            return { vector: embedding, model: 'openai:text-embedding-3-small' };
           }
         }
       } catch (e) {
@@ -412,7 +502,13 @@ export class MemoryStore {
       }
     }
 
-    // Try 3: Deterministic local keyword embedding (no ML, no network)
+    return null;
+  }
+
+  /** An embedding for `text`: a model embedding when available, otherwise a local keyword vector. */
+  async generateEmbedding(text: string): Promise<number[] | null> {
+    const embedding = await this.embedWithModel(text);
+    if (embedding) return embedding.vector;
     this.embedSource = 'local';
     return this.localKeywordEmbedding(text);
   }
@@ -458,24 +554,12 @@ export class MemoryStore {
   async storeMemory(workspaceId: string, content: string, source: string): Promise<string> {
     const id = uuidv4();
     
-    // 1. Try to store vector in Qdrant (if available)
-    await this.initQdrant();
-    if (this.qdrantAvailable) {
-      const vector = await this.generateEmbedding(content);
-      if (vector) {
-        try {
-          // Ensure collection has correct dimensions
-          if (vector.length !== this.vectorSize) {
-            this.vectorSize = vector.length;
-          }
-          await this.qdrant.upsert(this.collectionName, {
-            wait: true,
-            points: [{ id, vector, payload: { workspaceId, source } }],
-          });
-        } catch (e) {
-          console.warn('[MemoryStore] Qdrant upsert failed, storing in SQLite only:', e);
-        }
-      }
+    // 1. Store the vector in Qdrant when it and an embedding model are available. If not, the
+    //    backfill indexes this memory once they are.
+    let vectorStored = false;
+    if (await this.initQdrant()) {
+      const embedding = await this.embedWithModel(content);
+      if (embedding) vectorStored = await this.upsertVector(id, embedding, { workspaceId, source });
     }
 
     // 2. Always store in SQLite (the source of truth)
@@ -484,7 +568,7 @@ export class MemoryStore {
 
     // 3. Emit Event
     torvaixEvents.emitMemoryCreated({ id, workspaceId, source, content });
-    console.log(`[MemoryStore] Stored memory: "${content.substring(0, 50)}..." [${this.qdrantAvailable ? 'Qdrant+SQLite' : 'SQLite-only'}]`);
+    console.log(`[MemoryStore] Stored memory: "${content.substring(0, 50)}..." [${vectorStored ? 'Qdrant+SQLite' : 'SQLite-only'}]`);
 
     return id;
   }
@@ -609,20 +693,22 @@ export class MemoryStore {
   }
 
   async queryMemory(workspaceId: string, query: string, topK: number = 5): Promise<MemoryQueryResult[]> {
-    await this.initQdrant();
-
     let vectorResults: MemoryQueryResult[] = [];
 
-    // 1. Dense Vector Search via Qdrant (if available)
-    if (this.qdrantAvailable) {
-      const vector = await this.generateEmbedding(query);
-      if (vector) {
+    // 1. Dense vector search via Qdrant, comparing only vectors from the same embedding model
+    if (typeof query === 'string' && query.trim() && (await this.initQdrant())) {
+      const embedding = await this.embedWithModel(query);
+      const sizeMatches = embedding && (this.collectionVectorSize === null || embedding.vector.length === this.collectionVectorSize);
+      if (embedding && sizeMatches) {
         try {
           const searchResults = await this.qdrant.search(this.collectionName, {
-            vector,
+            vector: embedding.vector,
             limit: topK * 2,
             filter: {
-              must: [{ key: 'workspaceId', match: { value: workspaceId } }],
+              must: [
+                { key: 'workspaceId', match: { value: workspaceId } },
+                { key: 'embedModel', match: { value: embedding.model } },
+              ],
             },
           });
 
@@ -647,7 +733,7 @@ export class MemoryStore {
     }
 
     // 2. Sparse Keyword Search via SQLite FTS5 / BM25
-    const keywordResults = this.performKeywordSearch(workspaceId, query, topK * 2);
+    const keywordResults = typeof query === 'string' ? this.performKeywordSearch(workspaceId, query, topK * 2) : [];
 
     // 3. Fused Hybrid Retrieval using Reciprocal Rank Fusion (RRF)
     let results: MemoryQueryResult[];
@@ -687,18 +773,12 @@ export class MemoryStore {
     const row = stmt.get(id) as { workspaceId: string; source: string } | undefined;
     if (!row) throw new Error(`Memory with ID ${id} not found`);
 
-    await this.initQdrant();
-    if (this.qdrantAvailable) {
-      const vector = await this.generateEmbedding(newContent);
-      if (vector) {
-        try {
-          await this.qdrant.upsert(this.collectionName, {
-            wait: true,
-            points: [{ id, vector, payload: { workspaceId: row.workspaceId, source: row.source } }],
-          });
-        } catch (e) {
-          console.warn('[MemoryStore] Qdrant update failed:', e);
-        }
+    if (await this.initQdrant()) {
+      const embedding = await this.embedWithModel(newContent);
+      const stored = embedding && (await this.upsertVector(id, embedding, { workspaceId: row.workspaceId, source: row.source }));
+      if (!stored) {
+        // Never leave the old text's vector behind: the backfill re-adds it with the new text.
+        await this.qdrant.delete(this.collectionName, { wait: true, points: [id] }).catch(() => {});
       }
     }
 
@@ -708,8 +788,7 @@ export class MemoryStore {
   }
 
   async deleteMemory(id: string): Promise<void> {
-    await this.initQdrant();
-    if (this.qdrantAvailable) {
+    if (await this.initQdrant()) {
       try {
         await this.qdrant.delete(this.collectionName, { wait: true, points: [id] });
       } catch (e) {

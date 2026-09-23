@@ -69,3 +69,41 @@ describe('code execution approval', () => {
     expect(callTool).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('cancelling a run', () => {
+  beforeEach(() => callTool.mockClear());
+
+  it('runs no tool once the client has gone', async () => {
+    const store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+    const cancel = new AbortController();
+    // The user presses Stop while the model is still deciding what to do.
+    const llm = {
+      complete: vi.fn(async () => {
+        cancel.abort();
+        return { text: '{"done": false, "tool": "write_file", "args": {"filePath": "a.txt", "content": "x"}}' };
+      }),
+      getDefaultModel: () => 'test-model',
+    } as any;
+
+    const agent = new AgentOrchestrator(store, { llm, model: 'test-model' });
+    const state = await agent.run({ workspaceId: 'default', instructions: 'write a file', nextNode: 'execution' } as any, undefined, { signal: cancel.signal });
+
+    expect(callTool).not.toHaveBeenCalled();
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+    expect(state.output).toBe('Stopped.');
+  });
+
+  it('leaves an approved action unclaimed when cancelled before it runs', async () => {
+    const store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+    const approvedId = store.createPendingAction('default', 'bash', { command: 'echo hi' });
+    store.updatePendingActionStatus(approvedId, 'approved');
+    const cancel = new AbortController();
+    cancel.abort();
+
+    const agent = new AgentOrchestrator(store, { llm: scriptedLlm([]), model: 'test-model' });
+    await agent.run({ workspaceId: 'default', instructions: '', pendingActionId: approvedId }, undefined, { signal: cancel.signal });
+
+    expect(callTool).not.toHaveBeenCalled();
+    expect(store.getPendingAction(approvedId)?.status).toBe('approved');
+  });
+});
