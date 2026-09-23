@@ -46,6 +46,8 @@ export interface LLMOptions {
   maxTokens?: number;
   system?: string;
   topP?: number;
+  /** Cancels the request, e.g. when the user presses Stop. */
+  signal?: AbortSignal;
 }
 
 export const PROVIDERS = [
@@ -202,6 +204,7 @@ export class LLMClient {
 
     const res = await this._fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
+      signal: opts.signal,
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
@@ -239,6 +242,7 @@ export class LLMClient {
 
     const res = await this._fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      signal: opts.signal,
       headers: {
         'x-api-key': key,
         'anthropic-version': '2023-06-01',
@@ -284,6 +288,7 @@ export class LLMClient {
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
       {
         method: 'POST',
+      signal: opts.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }
@@ -310,6 +315,7 @@ export class LLMClient {
 
     const res = await this._fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
+      signal: opts.signal,
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
@@ -339,6 +345,7 @@ export class LLMClient {
 
     const res = await this._fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
+      signal: opts.signal,
       headers: {
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
@@ -371,6 +378,7 @@ export class LLMClient {
     // Ollama uses /api/chat (not /api/generate) for chat-style conversations
     const res = await this._fetchWithTimeout(`${this.ollamaUrl}/api/chat`, {
       method: 'POST',
+      signal: opts.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
@@ -398,8 +406,9 @@ export class LLMClient {
   private async _fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const signal = init.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal;
     try {
-      const res = await fetch(url, { ...init, signal: controller.signal });
+      const res = await fetch(url, { ...init, signal });
       return res;
     } finally {
       clearTimeout(timeout);

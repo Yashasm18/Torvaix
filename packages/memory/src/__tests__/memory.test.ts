@@ -18,8 +18,8 @@ describe('MemoryStore — SQLite Operations', () => {
   beforeEach(() => {
     dbPath = path.join(os.tmpdir(), `torvaix-test-${Date.now()}.db`);
     store = new MemoryStore(dbPath, {
-      ollamaUrl: 'http://localhost:11434', // will fail gracefully
-      qdrantUrl: 'http://localhost:6333',  // will fail gracefully
+      ollamaUrl: 'http://127.0.0.1:1', // unreachable: never touch the user's real services
+      qdrantUrl: 'http://127.0.0.1:1',
     });
   });
 

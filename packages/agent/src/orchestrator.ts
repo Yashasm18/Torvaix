@@ -65,6 +65,8 @@ export class AgentOrchestrator {
   private llm: LLMClient;
   private model: string;
   private readonly maxIterations = 10;
+  /** Aborted when the user presses Stop or the client disconnects. */
+  private signal?: AbortSignal;
   private readonly maxContextChars: number;
 
   constructor(
@@ -92,6 +94,7 @@ export class AgentOrchestrator {
       const res = await this.llm.complete(this.model, messages, {
         temperature: opts?.temperature ?? 0.1,
         maxTokens: opts?.maxTokens ?? 4096,
+        signal: this.signal,
       });
       const durationMs = performance.now() - start;
       // Trace the LLM call
@@ -109,6 +112,16 @@ export class AgentOrchestrator {
       }
       throw err;
     }
+  }
+
+  /** Ends the run if it was cancelled. Checked before every step and every tool call. */
+  private stopIfAborted(state: AgentState): boolean {
+    if (!this.signal?.aborted) return false;
+    if (!state.final) console.log('[Agent] Run cancelled by the client; no further steps or tools will run');
+    state.output = 'Stopped.';
+    state.final = true;
+    state.nextNode = 'end';
+    return true;
   }
 
   // ── Message History Management ──
@@ -434,6 +447,10 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       onStreamChunk(`> Running instantaneous repository analysis...\n`);
     }
 
+    if (this.stopIfAborted(state)) {
+      endTrace({ cancelled: true });
+      return state;
+    }
     try {
       const mcp = getMcpClient(workspacePath);
       const mcpResult = await mcp.callTool('repo_scan', {});
@@ -504,6 +521,10 @@ ${structure}
     const mcp = getMcpClient(workspacePath);
 
     // If there is a pending action, it means it was just approved
+    if (state.pendingActionId && this.stopIfAborted(state)) {
+      endTrace({ cancelled: true }); // leave the approval unclaimed
+      return state;
+    }
     if (state.pendingActionId) {
       // Claim atomically: the action must be approved, belong to this workspace, and not have run yet.
       const claimed = this.memoryStore.consumeApprovedAction(state.pendingActionId, state.workspaceId);
@@ -698,6 +719,11 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         return state;
       }
 
+      if (this.stopIfAborted(state)) {
+        endTrace({ tool, cancelled: true });
+        return state;
+      }
+
       // Execute tool
       console.log(`[Execution Agent] Executing tool: ${tool}`);
       const toolCallId = crypto.randomUUID();
@@ -796,7 +822,12 @@ Reply with ONLY ONE JSON object. Nothing else.`;
 
   // ── Main Run Loop ──
 
-  async run(initialState: Partial<AgentState>, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
+  async run(
+    initialState: Partial<AgentState>,
+    onStreamChunk?: (chunk: string) => void,
+    options?: { signal?: AbortSignal }
+  ): Promise<AgentState> {
+    this.signal = options?.signal;
     const trace = new TraceCollector();
 
     let state: AgentState = {
@@ -823,6 +854,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
 
     try {
       while (state.nextNode !== 'end' && !state.final && state.iteration < this.maxIterations) {
+        if (this.stopIfAborted(state)) break;
         state.iteration++;
         console.log(`[STEP START] Iteration ${state.iteration}`);
 
@@ -854,8 +886,10 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         trace.recordError('execution', `Max iterations (${this.maxIterations}) reached`);
       }
     } catch (e: any) {
-      trace.recordError('execution', `Fatal: ${e.message}`);
-      state.output = `Agent error: ${e.message}`;
+      if (!this.stopIfAborted(state)) {
+        trace.recordError('execution', `Fatal: ${e.message}`);
+        state.output = `Agent error: ${e.message}`;
+      }
     } finally {
       trace.addEvent('complete', 'Agent run finished', {
         iterations: state.iteration,

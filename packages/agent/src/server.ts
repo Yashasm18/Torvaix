@@ -472,6 +472,16 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
     // Resuming an approved action is handled inside the orchestrator, which verifies the
     // approval and claims it once. Never grant tool approval here from a bare id.
 
+    // Stop the run when the client goes away (the chat's Stop button, a closed tab). Without
+    // this the agent kept calling the model and running tools such as write_file afterwards.
+    const cancel = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) cancel.abort();
+    });
+    const write = (chunk: string) => {
+      if (!res.destroyed && !res.writableEnded) res.write(chunk);
+    };
+
     const finalState = await orchestrator.run(
       {
         workspaceId: workspaceId ?? 'default',
@@ -479,8 +489,14 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
         messages,
         pendingActionId,
       },
-      isStream ? ((chunk: string) => res.write(chunk)) : undefined
+      isStream ? write : undefined,
+      { signal: cancel.signal }
     );
+
+    if (cancel.signal.aborted) {
+      if (!res.destroyed) res.end();
+      return;
+    }
 
     if (isStream) {
       let outputText = finalState.output;

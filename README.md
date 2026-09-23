@@ -63,7 +63,7 @@ cp .env.example .env
 
 ### 3. Optional: start Qdrant
 
-Without Qdrant, memory search falls back to keyword matching, which still works but is less accurate.
+Without Qdrant, memory search falls back to keyword matching, which still works but is less accurate. You can start Qdrant at any time: the agent notices within 30 seconds and indexes the memories you already have. Vector search also needs the `nomic-embed-text` model from step 1.
 
 ```bash
 docker compose up -d qdrant
