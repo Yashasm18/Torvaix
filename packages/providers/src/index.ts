@@ -394,7 +394,10 @@ export class LLMClient {
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Ollama error ${res.status}: ${text}. Is Ollama running at ${this.ollamaUrl}?`);
+      if (res.status === 404 && /not found/i.test(text)) {
+        throw new Error(`The model "${model}" isn't installed in Ollama. Install it with: ollama pull ${model}`);
+      }
+      throw new Error(`Ollama error ${res.status}: ${text}`);
     }
     const data = await res.json();
     return {
@@ -410,6 +413,22 @@ export class LLMClient {
     try {
       const res = await fetch(url, { ...init, signal });
       return res;
+    } catch (e) {
+      // Cancelled by the caller (the user pressed Stop): pass that through unchanged.
+      if (init.signal?.aborted) throw e;
+      // Otherwise replace fetch's bare "fetch failed" / "This operation was aborted" with
+      // something the user can act on.
+      const target = new URL(url);
+      const isOllama = url.startsWith(this.ollamaUrl);
+      const name = isOllama ? `Ollama at ${target.origin}` : target.host;
+      if (controller.signal.aborted) {
+        throw new Error(`${name} didn't respond within ${Math.round(this.timeoutMs / 1000)} seconds.`);
+      }
+      throw new Error(
+        isOllama
+          ? `Couldn't reach Ollama at ${target.origin}. Is it running? Start it with: ollama serve`
+          : `Couldn't reach ${name}: ${(e as Error).message}`
+      );
     } finally {
       clearTimeout(timeout);
     }
