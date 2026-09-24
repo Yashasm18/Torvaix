@@ -196,4 +196,32 @@ describe('LLMClient with mocked fetch', () => {
     expect(body.temperature).toBe(0.5);
     expect(body.max_tokens).toBe(100);
   });
+
+  it('explains how to fix an unreachable Ollama instead of "fetch failed"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
+    await expect(client.complete('llama3.2:3b', [{ role: 'user', content: 'hi' }])).rejects.toThrow(
+      'Couldn\'t reach Ollama at http://localhost:11434. Is it running? Start it with: ollama serve'
+    );
+  });
+
+  it('names the command to install a missing Ollama model', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => '{"error":"model \'llama3.2\' not found"}',
+    }));
+    await expect(client.complete('llama3.2', [{ role: 'user', content: 'hi' }])).rejects.toThrow(
+      'The model "llama3.2" isn\'t installed in Ollama. Install it with: ollama pull llama3.2'
+    );
+  });
+
+  it('passes a user cancellation through unchanged', async () => {
+    const cancel = new AbortController();
+    cancel.abort();
+    const abortError = new DOMException('This operation was aborted', 'AbortError');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abortError));
+    await expect(
+      client.complete('llama3.2:3b', [{ role: 'user', content: 'hi' }], { signal: cancel.signal })
+    ).rejects.toBe(abortError);
+  });
 });
