@@ -581,3 +581,29 @@ describe('MemoryStore — Search relevance & companion pairing', () => {
     expect(store.claimPairingToken(readonly.token, 'Phone', 'fp-3')).toBeTruthy(); // failed attempt didn't burn the token
   });
 });
+
+describe('memory events carry their workspace', () => {
+  it('includes workspaceId on update and delete, and emits nothing for a missing memory', async () => {
+    const { eventBus } = await import('@torvaix/events');
+    const store = new MemoryStore(':memory:', { ollamaUrl: 'http://127.0.0.1:1', qdrantUrl: 'http://127.0.0.1:1' });
+    const seen: [string, unknown][] = [];
+    const onUpdated = (p: unknown) => seen.push(['MEMORY_UPDATED', p]);
+    const onDeleted = (p: unknown) => seen.push(['MEMORY_DELETED', p]);
+    eventBus.on('MEMORY_UPDATED', onUpdated);
+    eventBus.on('MEMORY_DELETED', onDeleted);
+    try {
+      const id = await store.storeMemory('ws-events', 'Tea over coffee', 'test');
+      await store.updateMemory(id, 'Coffee over tea');
+      await store.deleteMemory(id);
+      await store.deleteMemory('does-not-exist');
+
+      expect(seen).toEqual([
+        ['MEMORY_UPDATED', { id, workspaceId: 'ws-events', newContent: 'Coffee over tea' }],
+        ['MEMORY_DELETED', { id, workspaceId: 'ws-events' }],
+      ]);
+    } finally {
+      eventBus.off('MEMORY_UPDATED', onUpdated);
+      eventBus.off('MEMORY_DELETED', onDeleted);
+    }
+  });
+});

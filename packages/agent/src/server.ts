@@ -18,6 +18,8 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { AgentOrchestrator } from './orchestrator';
+import { ingestKnowledgeGraph } from '@torvaix/graph';
+import { validateAutomationInput } from './validation';
 import { formatApprovalRequest } from './approval-message';
 import { closeAllMcpClients } from '@torvaix/mcp';
 import { checkBrowserRequest, parseList, DEFAULT_ALLOWED_ORIGINS } from './http-security';
@@ -25,7 +27,7 @@ import { isValidEmail } from './validation';
 import { MemoryStore } from '@torvaix/memory';
 import { LLMClient, PROVIDERS, pickInstalledModel, resolveModel } from '@torvaix/providers';
 import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
-import { AutomationEngine, AutomationWorkflow } from '@torvaix/events';
+import { AutomationEngine, AutomationWorkflow, torvaixEvents } from '@torvaix/events';
 import rateLimit from 'express-rate-limit';
 
 
@@ -131,13 +133,14 @@ const automationEngine = new AutomationEngine({
 automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
   const { actionType, actionConfig, workspaceId } = workflow;
 
+  // Reports only: consolidation analyses memories without changing them or the graph.
   if (actionType === 'consolidate_memory') {
     const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
     const synthesizer = new WorkspaceKnowledgeSynthesizer();
     const report = synthesizer.consolidateWorkspace(workspaceId, memories);
     return {
       success: true,
-      output: `Autonomous Memory Consolidation completed: ${report.processedCount} memories analyzed, ${report.clustersCount} clusters created, ${report.reinforcedEdgesCount} graph edges reinforced.`
+      output: `Memory consolidation: ${report.processedCount} memories analysed, ${report.clustersCount} themes found, ${report.deduplicatedCount} likely duplicates.`
     };
   }
 
@@ -145,17 +148,34 @@ automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
     const memories = (await memoryStore.getAllMemories(workspaceId)) as any[];
     const synthesizer = new WorkspaceKnowledgeSynthesizer();
     const report = synthesizer.consolidateWorkspace(workspaceId, memories);
+    // Write the links between each theme's keywords into this workspace's graph. They used to be
+    // computed, reported as "generated" and then discarded.
+    if (report.graphReinforcements.length > 0) {
+      ingestKnowledgeGraph(
+        {
+          relationships: report.graphReinforcements.map(e => ({
+            source: e.sourceEntity,
+            relation: e.relation,
+            target: e.targetEntity,
+            confidence: e.weight,
+          })),
+        },
+        workspaceId,
+        { reinforce: false } // recomputed each run: re-running must not inflate existing links
+      );
+    }
     return {
       success: true,
-      output: `Knowledge Graph Indexer completed: ${report.synthesizedInsights.length} insights synthesized, ${report.reinforcedEdgesCount} graph edges generated.`
+      output: `Knowledge graph indexer: ${report.graphReinforcements.length} links written to the graph from ${report.clustersCount} themes.`
     };
   }
 
+  // Reports memory health; it doesn't delete anything.
   if (actionType === 'clean_stale_memories') {
     const stats = memoryStore.getMemoryStats(workspaceId);
     return {
       success: true,
-      output: `Stale Memory Cleaner evaluated: ${stats.total} total memories retained, average retrieval frequency: ${stats.avgRetrieval}.`
+      output: `Memory health: ${stats.total} memories, average retrieval count ${stats.avgRetrieval}. Nothing was deleted.`
     };
   }
 
@@ -173,9 +193,10 @@ automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
     };
   }
 
+  // Unknown action types are rejected when automations are saved; never report success for work not done.
   return {
-    success: true,
-    output: `Executed automation ${workflow.name} [${actionType}]`
+    success: false,
+    output: `Unsupported action type "${actionType}"; nothing was run.`
   };
 });
 
@@ -482,9 +503,14 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
       if (!res.destroyed && !res.writableEnded) res.write(chunk);
     };
 
+    const runWorkspaceId = typeof workspaceId === 'string' && workspaceId ? workspaceId : 'default';
+    const runId = crypto.randomUUID();
+    const task = typeof instructions === 'string' && instructions.trim() ? instructions : 'Resume an approved action';
+    torvaixEvents.emitAgentStarted({ agentId: runId, workspaceId: runWorkspaceId, task });
+
     const finalState = await orchestrator.run(
       {
-        workspaceId: workspaceId ?? 'default',
+        workspaceId: runWorkspaceId,
         instructions,
         messages,
         pendingActionId,
@@ -497,6 +523,13 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
       if (!res.destroyed) res.end();
       return;
     }
+    torvaixEvents.emitAgentFinished({
+      agentId: runId,
+      workspaceId: runWorkspaceId,
+      task,
+      status: finalState.pendingActionId ? 'awaiting_approval' : 'completed',
+      result: finalState.output,
+    });
 
     if (isStream) {
       let outputText = finalState.output;
@@ -592,6 +625,14 @@ app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest,
       model: chatModel,
     });
 
+    const taskId = crypto.randomUUID();
+    const taskText = typeof instructions === 'string' && instructions.trim() ? instructions : 'Resume an approved action';
+    // A resumed task was already announced when it was first dispatched.
+    if (typeof pendingActionId !== 'string') {
+      torvaixEvents.emitTaskCreated({ id: taskId, workspaceId, instructions: taskText });
+    }
+    torvaixEvents.emitAgentStarted({ agentId: taskId, workspaceId, task: taskText });
+
     const finalState = await orchestrator.run({
       workspaceId,
       instructions: typeof instructions === 'string' ? instructions : '',
@@ -599,10 +640,23 @@ app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest,
       pendingActionId,
     });
 
+    const awaitingApproval = Boolean(finalState.pendingActionId);
+    torvaixEvents.emitAgentFinished({
+      agentId: taskId,
+      workspaceId,
+      task: taskText,
+      status: awaitingApproval ? 'awaiting_approval' : 'completed',
+      result: finalState.output,
+    });
+    // Not complete while it waits for approval; it completes when the approved action runs.
+    if (!awaitingApproval) {
+      torvaixEvents.emitTaskCompleted({ id: taskId, workspaceId, instructions: taskText, output: finalState.output });
+    }
+
     res.json({
       success: true,
       task: {
-        id: crypto.randomUUID(),
+        id: taskId,
         workspaceId,
         instructions,
         priority,
@@ -737,6 +791,11 @@ app.post('/api/automations', requireAuth, async (req: AuthRequest, res) => {
       res.status(400).json({ error: 'Missing required fields: name, triggerType, actionType' });
       return;
     }
+    const invalid = validateAutomationInput({ triggerType, triggerConfig, actionType, status });
+    if (invalid) {
+      res.status(400).json({ error: invalid });
+      return;
+    }
     const record = memoryStore.createAutomation({
       workspaceId,
       name,
@@ -791,7 +850,20 @@ app.get('/api/automations/:id', requireAuth, async (req: AuthRequest, res) => {
 app.put('/api/automations/:id', requireAuth, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string;
-    const updates = req.body;
+    const updates = req.body ?? {};
+    const existing = memoryStore.getAutomation(id);
+    if (!existing) { res.status(404).json({ error: 'Automation not found' }); return; }
+    // Validate the result of the update, so e.g. switching to an event trigger needs a valid event.
+    const invalid = validateAutomationInput({
+      triggerType: updates.triggerType ?? existing.triggerType,
+      triggerConfig: updates.triggerConfig ?? JSON.parse(existing.triggerConfig || '{}'),
+      actionType: updates.actionType ?? existing.actionType,
+      status: updates.status ?? existing.status,
+    });
+    if (invalid) {
+      res.status(400).json({ error: invalid });
+      return;
+    }
     const updated = memoryStore.updateAutomation(id, updates);
     if (!updated) { res.status(404).json({ error: 'Automation not found' }); return; }
     const record = memoryStore.getAutomation(id);

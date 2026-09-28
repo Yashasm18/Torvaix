@@ -1,16 +1,31 @@
 import mitt from 'mitt';
 
+// Every event carries its workspaceId: the automation engine only runs workflows from the
+// workspace the event happened in.
 type Events = {
   MEMORY_CREATED: { id: string; workspaceId: string; source: string; content: string };
-  MEMORY_UPDATED: { id: string; newContent: string };
-  MEMORY_DELETED: { id: string };
-  
-  TASK_CREATED: { id: string; title: string; status: string };
-  TASK_COMPLETED: { id: string };
+  MEMORY_UPDATED: { id: string; workspaceId: string; newContent: string };
+  MEMORY_DELETED: { id: string; workspaceId: string };
 
+  /** A task dispatched from the Tasks page. */
+  TASK_CREATED: { id: string; workspaceId: string; instructions: string };
+  TASK_COMPLETED: { id: string; workspaceId: string; instructions: string; output: string };
+
+  /** A chat or task run. Runs started by automations don't emit these, so workflows can't trigger each other in a loop. */
   AGENT_STARTED: { agentId: string; workspaceId: string; task: string };
-  AGENT_FINISHED: { agentId: string; result: string };
+  AGENT_FINISHED: { agentId: string; workspaceId: string; task: string; status: 'completed' | 'awaiting_approval'; result: string };
 };
+
+/** Events the automation engine listens to, and the Automation page offers as triggers. */
+export const AUTOMATION_EVENTS = [
+  'MEMORY_CREATED',
+  'MEMORY_UPDATED',
+  'MEMORY_DELETED',
+  'TASK_CREATED',
+  'TASK_COMPLETED',
+  'AGENT_STARTED',
+  'AGENT_FINISHED',
+] as const satisfies readonly (keyof Events)[];
 
 export const eventBus = mitt<Events>();
 

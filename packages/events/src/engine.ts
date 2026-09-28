@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { eventBus } from './index';
+import { eventBus, AUTOMATION_EVENTS } from './index';
 import type { 
   AutomationWorkflow, 
   WorkflowExecutionLog, 
@@ -176,17 +176,7 @@ export class AutomationEngine {
    * Register listeners for all workspace bus events.
    */
   private registerEventListeners(): void {
-    const events: Array<'MEMORY_CREATED' | 'MEMORY_UPDATED' | 'MEMORY_DELETED' | 'TASK_CREATED' | 'TASK_COMPLETED' | 'AGENT_STARTED' | 'AGENT_FINISHED'> = [
-      'MEMORY_CREATED',
-      'MEMORY_UPDATED',
-      'MEMORY_DELETED',
-      'TASK_CREATED',
-      'TASK_COMPLETED',
-      'AGENT_STARTED',
-      'AGENT_FINISHED'
-    ];
-
-    events.forEach(eventName => {
+    AUTOMATION_EVENTS.forEach(eventName => {
       const handler = (payload: any) => {
         this.handleEventTrigger(eventName, payload);
       };
@@ -201,6 +191,12 @@ export class AutomationEngine {
   public async handleEventTrigger(eventName: string, payload: any): Promise<void> {
     try {
       const workspaceId = payload?.workspaceId;
+      // Without a workspace, listAutomations would return every workspace's workflows and an
+      // event in one workspace would run automations in all of them.
+      if (typeof workspaceId !== 'string' || !workspaceId) {
+        console.warn(`[AutomationEngine] Ignoring ${eventName} without a workspaceId`);
+        return;
+      }
       const allWorkflows = this.storage.listAutomations(workspaceId);
       const matchingWorkflows = allWorkflows.filter(
         w => w.status === 'active' && 

@@ -8,7 +8,7 @@ describe('@torvaix/intelligence — MemoryConsolidator', () => {
     const text = 'The user prefers Next.js and TypeScript for modern web development!';
     const tokens = consolidator.tokenize(text);
     expect(tokens).toContain('user');
-    expect(tokens).toContain('prefers');
+    expect(tokens).not.toContain('prefers'); // filler verbs would become graph entities
     expect(tokens).toContain('next');
     expect(tokens).toContain('typescript');
     expect(tokens).not.toContain('the');

@@ -13,7 +13,11 @@
     "ws": "^8.21.0",
     "@torvaix/intelligence": "*",
     "@torvaix/events": "*",
-    "express-rate-limit": "^8.5.2"
+    "express-rate-limit": "^8.5.2",
+    "@torvaix/graph": "*",
+    "@torvaix/mcp": "*",
+    "@torvaix/memory": "*",
+    "@torvaix/providers": "*"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

@@ -784,10 +784,13 @@ export class MemoryStore {
 
     const updateStmt = this.db.prepare('UPDATE memories SET content = ? WHERE id = ?');
     updateStmt.run(newContent, id);
-    torvaixEvents.emitMemoryUpdated({ id, newContent });
+    torvaixEvents.emitMemoryUpdated({ id, workspaceId: row.workspaceId, newContent });
   }
 
   async deleteMemory(id: string): Promise<void> {
+    const row = this.db.prepare('SELECT workspaceId FROM memories WHERE id = ?').get(id) as { workspaceId: string } | undefined;
+    if (!row) return; // nothing to delete, so no MEMORY_DELETED event either
+
     if (await this.initQdrant()) {
       try {
         await this.qdrant.delete(this.collectionName, { wait: true, points: [id] });
@@ -798,7 +801,7 @@ export class MemoryStore {
 
     const stmt = this.db.prepare('DELETE FROM memories WHERE id = ?');
     stmt.run(id);
-    torvaixEvents.emitMemoryDeleted({ id });
+    torvaixEvents.emitMemoryDeleted({ id, workspaceId: row.workspaceId });
   }
 
   // ── Workspace Methods ──
