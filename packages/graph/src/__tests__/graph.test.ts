@@ -267,3 +267,28 @@ describe('@torvaix/graph — workspace isolation', () => {
     expect(getAllNodesAndEdges('ws-a').nodes.length).toBe(0);
   });
 });
+
+describe('ingestKnowledgeGraph without reinforcement', () => {
+  beforeEach(() => {
+    db.exec('DELETE FROM edges');
+    db.exec('DELETE FROM nodes');
+  });
+
+  it('leaves the graph unchanged when the same derived links are written again', () => {
+    const payload: MLIntelligencePayload = { relationships: [{ source: 'Svelte', relation: 'RELATED_TO', target: 'Framework', confidence: 0.6 }] };
+    ingestKnowledgeGraph(payload, 'ws-idem', { reinforce: false });
+    ingestKnowledgeGraph(payload, 'ws-idem', { reinforce: false });
+    ingestKnowledgeGraph(payload, 'ws-idem', { reinforce: false });
+
+    const edges = db.prepare("SELECT frequency, confidence FROM edges WHERE workspaceId = 'ws-idem'").all() as { frequency: number; confidence: number }[];
+    expect(edges).toEqual([{ frequency: 1, confidence: 0.6 }]);
+  });
+
+  it('still reinforces by default when a fact is mentioned again', () => {
+    const payload: MLIntelligencePayload = { relationships: [{ source: 'Svelte', relation: 'RELATED_TO', target: 'Framework', confidence: 0.6 }] };
+    ingestKnowledgeGraph(payload, 'ws-reinforce');
+    ingestKnowledgeGraph(payload, 'ws-reinforce');
+    const edge = db.prepare("SELECT frequency FROM edges WHERE workspaceId = 'ws-reinforce'").get() as { frequency: number };
+    expect(edge.frequency).toBe(2);
+  });
+});

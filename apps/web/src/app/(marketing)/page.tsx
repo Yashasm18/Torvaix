@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, type ReactNode } from "react"
 import { motion, useInView, AnimatePresence } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { MessageSquare, Terminal, Mail, Search, GitCompare, Database, Sparkles, Shield, BookOpen, ExternalLink, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react"
+import { MessageSquare, Terminal, Search, Database, Sparkles, Shield, BookOpen, ExternalLink, ArrowRight, ChevronLeft, ChevronRight, Network, Zap, Cpu } from "lucide-react"
 import { HeroBackground } from "@/components/ui/hero-background"
 import { AppLogo } from "@/components/ui/app-logo"
 
@@ -18,53 +18,60 @@ function GithubIcon({ className }: { className?: string }) {
 }
 
 /* ── Feature card data ── */
-const features = [
+interface Feature {
+  icon: ReactNode
+  title: string
+  description: string
+  border?: string
+  badge?: string
+}
+
+const features: Feature[] = [
   {
     icon: <MessageSquare className="h-5 w-5 text-primary" />,
-    title: "Chat & Agents",
-    description: "Multi-turn chat plus autonomous agents that plan, call tools, and work through tasks."
+    title: "Chat with memory",
+    description: "Chat with local or cloud models. Facts you share are saved per workspace and recalled in later conversations."
   },
   {
     icon: <Terminal className="h-5 w-5 text-primary" />,
-    title: "Tools & MCP",
-    description: "Built-in tools (bash, files, web, memory) plus any MCP server you connect. Toggle per tool."
+    title: "Tools with approval",
+    description: "The agent reads and writes files in its workspace folder, searches the web and runs shell or Python commands — each command only after you approve it."
   },
   {
-    icon: <BookOpen className="h-5 w-5 text-primary" />,
-    title: "Cookbook",
-    description: "Hardware-aware model recommendations and one-click serving across 270+ catalogued models."
+    icon: <Network className="h-5 w-5 text-primary" />,
+    title: "Knowledge graph",
+    description: "People, projects and technologies from your memories become an interactive graph, kept separately for each workspace."
   },
   {
-    icon: <Mail className="h-5 w-5 text-primary" />,
-    title: "Email Assistant",
-    description: "AI summaries, style-matched draft replies, auto-tagging and spam triage over IMAP/SMTP."
-  },
-  {
-    icon: <Search className="h-5 w-5 text-primary" />,
-    title: "Deep Research",
-    description: "Multi-step research runs that gather, read, and synthesize sources into a written report."
-  },
-  {
-    icon: <GitCompare className="h-5 w-5 text-primary" />,
-    title: "Compare",
-    description: "Send one prompt to several models at once and compare their answers side-by-side."
+    icon: <Zap className="h-5 w-5 text-primary" />,
+    title: "Automations",
+    description: "Run agent tasks and memory maintenance on a schedule, when something happens (a new memory, a finished task), or on demand."
   },
   {
     icon: <Database className="h-5 w-5 text-primary" />,
-    title: "Memory",
-    description: "Persistent memory the assistant builds up and recalls across all your conversations.",
+    title: "Hybrid search",
+    description: "Memory search combines keyword matching with vector search through Qdrant when it's running.",
     border: "border-primary/40 shadow-[0_0_20px_-5px_rgba(0,212,170,0.25)]"
   },
   {
     icon: <Sparkles className="h-5 w-5 text-primary" />,
-    title: "Skills",
-    badge: "self-evolving",
-    description: "The assistant writes, refines, and reuses its own skills — getting more capable over time."
+    title: "Memory consolidation",
+    description: "Finds duplicate and related memories, groups them into themes and reports on memory health."
+  },
+  {
+    icon: <Search className="h-5 w-5 text-primary" />,
+    title: "Agent trace",
+    description: "See how each request was routed, which memories were used and how long each step and tool call took."
+  },
+  {
+    icon: <Cpu className="h-5 w-5 text-primary" />,
+    title: "Your choice of model",
+    description: "Ollama by default. OpenAI, Anthropic, Google, Groq and OpenRouter work when you add an API key."
   },
   {
     icon: <Shield className="h-5 w-5 text-primary" />,
     title: "Private by default",
-    description: "Runs on your machine against your own endpoints. No telemetry, with optional external integrations when you choose them.",
+    description: "Runs on your machine and listens only on localhost. No telemetry. Data leaves only for providers or web searches you choose.",
     border: "border-primary/40 shadow-[0_0_20px_-5px_rgba(0,212,170,0.25)]"
   }
 ]
@@ -84,12 +91,12 @@ const timeline = [
   {
     date: "Mid 2025",
     title: "Workspace Vision",
-    text: "Chat alone wasn't enough. We added tools, file access, memory, research, email — it became a full workspace."
+    text: "Chat alone wasn't enough. We added tools, file access, memory, a knowledge graph and automations — it became a full workspace."
   },
   {
     date: "2026",
     title: "Open Source Launch",
-    text: "Torvaix ships publicly. Self-hosted, zero telemetry, runs offline. Your data never leaves your machine."
+    text: "Torvaix ships publicly. Self-hosted, no telemetry, and with local models your conversations and memory stay on your machine."
   }
 ]
 
@@ -395,29 +402,28 @@ function TypingEffect({ text }: { text: string }) {
 }
 
 function AnimatedCodeBackground() {
-  const codeSnippet = `import { Agent, Workspace } from '@torvaix/core';
-import { LLMProvider } from '@torvaix/llm';
+  // The real agent API, so the background shows code that actually works against Torvaix.
+  const codeSnippet = `// Torvaix agent server — http://127.0.0.1:3001
+const agent = 'http://localhost:3001';
 
-async function bootstrapTorvaix() {
-  const workspace = new Workspace({ db: 'local-vector-store' });
-  
-  // Initialize local uncompromised LLM
-  const model = await LLMProvider.load('llama-3-8b-instruct');
-  workspace.attachModel(model);
-  
-  // Knowledge graph setup
-  const memory = new VectorStore();
-  await memory.indexDirectory('./knowledge');
-  
-  // Core event loop
-  workspace.on('user_input', async (input) => {
-    const context = await memory.search(input);
-    const response = await model.generate(input, context);
-    console.log(response);
-  });
-}
+// Remember a fact in a workspace
+await fetch(\`\${agent}/api/memory/store\`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    workspaceId: 'default',
+    content: 'My favourite framework is Svelte',
+  }),
+});
 
-bootstrapTorvaix();`;
+// Recall it later (keyword + vector search)
+const res = await fetch(\`\${agent}/api/memory/query\`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ workspaceId: 'default', query: 'framework', topK: 3 }),
+});
+const { results } = await res.json();
+console.log(results[0].content);`;
 
   const repeatedCode = Array(20).fill(codeSnippet).join('\n\n');
 
@@ -648,7 +654,7 @@ export default function LandingPage() {
             transition={{ delay: 0.2 }}
             className="text-slate-500 font-mono text-[11px] sm:text-sm max-w-xl mx-auto px-2 sm:px-0"
           >
-            Real workspace intelligence. Persistent context. Local execution.
+            Illustrative examples of what a workspace can remember — not customer quotes.
           </motion.p>
         </div>
 

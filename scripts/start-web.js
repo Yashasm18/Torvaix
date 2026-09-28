@@ -27,6 +27,22 @@ if (!server) {
   process.exit(1);
 }
 
+// Next's standalone output leaves out static assets: the JS/CSS chunks in .next/static and the
+// files in public/. Without them a local `npm start` served pages whose scripts and styles all
+// 404, i.e. a blank screen. The Docker image copies them in at build time; do the same here.
+const localStandalone = path.join(root, 'apps/web/.next/standalone/apps/web');
+if (server.startsWith(localStandalone + path.sep)) {
+  const assets = [
+    [path.join(root, 'apps/web/.next/static'), path.join(localStandalone, '.next/static')],
+    [path.join(root, 'apps/web/public'), path.join(localStandalone, 'public')],
+  ];
+  for (const [from, to] of assets) {
+    if (!fs.existsSync(from)) continue;
+    fs.rmSync(to, { recursive: true, force: true });
+    fs.cpSync(from, to, { recursive: true });
+  }
+}
+
 // The standalone server reads HOSTNAME. Always set it: many shells and containers export the
 // machine's own name there, which is not an address we want to listen on.
 const env = { ...process.env, HOSTNAME: webHost() };

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { checkBrowserRequest, hostnameOf, parseList, DEFAULT_ALLOWED_ORIGINS } from '../http-security';
-import { isValidEmail } from '../validation';
+import { isValidEmail, validateAutomationInput } from '../validation';
 import { keywordRoute } from '../routing';
 
 const opts = { allowedOrigins: DEFAULT_ALLOWED_ORIGINS, allowedHosts: [] as string[] };
@@ -86,5 +86,28 @@ describe('keywordRoute', () => {
     expect(keywordRoute('How do I create a React component?')).toBeNull();
     expect(keywordRoute('Explain how to write a for loop')).toBeNull();
     expect(keywordRoute('Help me brainstorm app names')).toBeNull();
+  });
+});
+
+describe('validateAutomationInput', () => {
+  const ok = { triggerType: 'schedule', triggerConfig: { frequency: 'daily' }, actionType: 'consolidate_memory' };
+
+  it('accepts supported triggers and actions', () => {
+    expect(validateAutomationInput(ok)).toBeNull();
+    expect(validateAutomationInput({ triggerType: 'event', triggerConfig: { eventName: 'AGENT_FINISHED' }, actionType: 'agent_task' })).toBeNull();
+    expect(validateAutomationInput({ triggerType: 'manual', actionType: 'synthesize_graph', status: 'paused' })).toBeNull();
+  });
+
+  it('rejects actions the engine cannot run, which used to report success without doing anything', () => {
+    expect(validateAutomationInput({ ...ok, actionType: 'mcp_tool' })).toMatch(/actionType/);
+    expect(validateAutomationInput({ ...ok, actionType: 'send_email' })).toMatch(/actionType/);
+  });
+
+  it('rejects events that are never emitted and unknown triggers', () => {
+    expect(validateAutomationInput({ triggerType: 'event', triggerConfig: { eventName: 'FILE_CHANGED' }, actionType: 'agent_task' })).toMatch(/eventName/);
+    expect(validateAutomationInput({ triggerType: 'event', actionType: 'agent_task' })).toMatch(/eventName/);
+    expect(validateAutomationInput({ ...ok, triggerType: 'webhook' })).toMatch(/triggerType/);
+    expect(validateAutomationInput({ ...ok, triggerConfig: { frequency: 'custom' } })).toMatch(/frequency/);
+    expect(validateAutomationInput({ ...ok, status: 'running' })).toMatch(/status/);
   });
 });

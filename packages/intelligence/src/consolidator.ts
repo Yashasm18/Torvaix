@@ -20,7 +20,13 @@ const STOP_WORDS = new Set([
   'she', 'should', 'so', 'some', 'such', 'than', 'that', 'the', 'their', 'theirs',
   'them', 'themselves', 'then', 'there', 'these', 'they', 'this', 'those', 'through',
   'to', 'too', 'under', 'until', 'up', 'very', 'was', 'we', 'were', 'what', 'when',
-  'where', 'which', 'while', 'who', 'whom', 'why', 'with', 'would', 'you', 'your'
+  'where', 'which', 'while', 'who', 'whom', 'why', 'with', 'would', 'you', 'your',
+  // Common verbs and fillers. Keywords become knowledge-graph nodes, so words like "use" or
+  // "remember" must not end up as entities ("use → RELATED_TO → svelte").
+  'use', 'uses', 'used', 'using', 'like', 'likes', 'liked', 'want', 'wants', 'need', 'needs',
+  'get', 'gets', 'got', 'make', 'makes', 'made', 'also', 'really', 'always', 'never', 'will',
+  'could', 'may', 'might', 'must', 'let', 'lets', 'remember', 'note', 'prefer', 'prefers',
+  'favorite', 'favourite', 'thing', 'things', 'way', 'much', 'many', 'every'
 ]);
 
 export class MemoryConsolidator {

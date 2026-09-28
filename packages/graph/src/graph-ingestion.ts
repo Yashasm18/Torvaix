@@ -12,7 +12,20 @@ function slugify(text: string): string {
   return text.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
-export function ingestKnowledgeGraph(payload: MLIntelligencePayload, workspaceId: string = DEFAULT_GRAPH_WORKSPACE) {
+/**
+ * Adds entities and relationships to a workspace's graph.
+ *
+ * By default an edge that already exists is reinforced (frequency + 1, confidence nudged up),
+ * because the same fact was mentioned again. Pass `reinforce: false` for derived data that is
+ * recomputed from scratch, such as the scheduled graph indexer: re-running it on unchanged
+ * memories must leave the graph as it was.
+ */
+export function ingestKnowledgeGraph(
+  payload: MLIntelligencePayload,
+  workspaceId: string = DEFAULT_GRAPH_WORKSPACE,
+  options: { reinforce?: boolean } = {}
+) {
+  const reinforce = options.reinforce ?? true;
   const affectedNodeIds = new Set<string>();
 
   // Transaction for atomic safety
@@ -48,8 +61,9 @@ export function ingestKnowledgeGraph(payload: MLIntelligencePayload, workspaceId
       INSERT INTO edges (id, workspaceId, source_id, relation, target_id, confidence, frequency)
       VALUES (@id, @workspaceId, @source_id, @relation, @target_id, @confidence, 1)
       ON CONFLICT(workspaceId, source_id, relation, target_id) DO UPDATE SET
-        frequency = edges.frequency + 1,
-        confidence = MIN(1.0, MAX(edges.confidence, excluded.confidence) + 0.05)
+        ${reinforce
+          ? 'frequency = edges.frequency + 1, confidence = MIN(1.0, MAX(edges.confidence, excluded.confidence) + 0.05)'
+          : 'confidence = MAX(edges.confidence, excluded.confidence)'}
     `);
 
     // 2. Insert relationships

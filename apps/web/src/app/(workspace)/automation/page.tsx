@@ -118,7 +118,7 @@ const actionLabels: Record<string, { label: string; icon: any; color: string }> 
   consolidate_memory: { label: "Memory Consolidation", icon: Sparkles, color: "text-purple-400 bg-purple-500/10 border-purple-500/20" },
   synthesize_graph: { label: "Graph Indexer", icon: GitBranch, color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20" },
   agent_task: { label: "Autonomous Agent Task", icon: Cpu, color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
-  clean_stale_memories: { label: "Stale Memory Cleanup", icon: Trash2, color: "text-amber-400 bg-amber-500/10 border-amber-500/20" },
+  clean_stale_memories: { label: "Memory Health Report", icon: Activity, color: "text-amber-400 bg-amber-500/10 border-amber-500/20" },
   mcp_tool: { label: "MCP Tool Execution", icon: Terminal, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
 };
 
@@ -444,9 +444,9 @@ export default function AutomationPage() {
                         className="w-full mt-1.5 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                       >
                         <option value="consolidate_memory">Memory Consolidation</option>
-                        <option value="synthesize_graph">Knowledge Graph Indexer</option>
+                        <option value="synthesize_graph">Knowledge Graph Indexer (writes theme links to the graph)</option>
                         <option value="agent_task">Autonomous Agent Task</option>
-                        <option value="clean_stale_memories">Stale Memory Cleanup</option>
+                        <option value="clean_stale_memories">Memory Health Report (read-only)</option>
                       </select>
                     </div>
                   </div>
@@ -526,10 +526,13 @@ export default function AutomationPage() {
                           onChange={e => setNewEventName(e.target.value)}
                           className="w-full mt-1.5 px-3 py-1.5 bg-background border border-border rounded-md text-sm text-foreground"
                         >
-                          <option value="MEMORY_CREATED">MEMORY_CREATED (When new memory stored)</option>
-                          <option value="TASK_COMPLETED">TASK_COMPLETED (When agent task finishes)</option>
-                          <option value="AGENT_FINISHED">AGENT_FINISHED (Agent execution complete)</option>
-                          <option value="MEMORY_DELETED">MEMORY_DELETED (When memory pruned)</option>
+                          <option value="MEMORY_CREATED">MEMORY_CREATED (a memory is saved)</option>
+                          <option value="MEMORY_UPDATED">MEMORY_UPDATED (a memory is edited)</option>
+                          <option value="MEMORY_DELETED">MEMORY_DELETED (a memory is deleted)</option>
+                          <option value="TASK_CREATED">TASK_CREATED (a task is dispatched from Tasks)</option>
+                          <option value="TASK_COMPLETED">TASK_COMPLETED (a dispatched task finishes)</option>
+                          <option value="AGENT_STARTED">AGENT_STARTED (a chat or task run starts)</option>
+                          <option value="AGENT_FINISHED">AGENT_FINISHED (a chat or task run finishes)</option>
                         </select>
                       </div>
                       <div>
