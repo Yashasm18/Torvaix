@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useEffect, useRef, type ReactNode } from "react"
-import { motion, useInView, AnimatePresence } from "framer-motion"
+import { motion, useInView } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { MessageSquare, Terminal, Search, Database, Sparkles, Shield, BookOpen, ExternalLink, ArrowRight, ChevronLeft, ChevronRight, Network, Zap, Cpu } from "lucide-react"
+import { MessageSquare, Terminal, Search, Database, Sparkles, Shield, BookOpen, ExternalLink, ArrowRight, Network, Zap, Cpu } from "lucide-react"
 import { HeroBackground } from "@/components/ui/hero-background"
 import { AppLogo } from "@/components/ui/app-logo"
+import { WorkspaceStories } from "@/components/marketing/workspace-stories"
 
 /* ── Inline GitHub SVG icon (not available in lucide-react) ── */
 function GithubIcon({ className }: { className?: string }) {
@@ -100,257 +101,6 @@ const timeline = [
   }
 ]
 
-/* ── Memory Log Fragments data ── */
-const memoryLogs = [
-  {
-    id: "001",
-    workspace: "Developer Workspace",
-    quote: "I asked it to summarize my repo last week.\nToday it remembered everything.",
-    metrics: { confidence: 98, nodes: 14, traces: 6 }
-  },
-  {
-    id: "002",
-    workspace: "Founder Workspace",
-    quote: "Torvaix remembered my investor notes\nand turned them into a pitch strategy.",
-    metrics: { confidence: 96, nodes: 11, traces: 4 }
-  },
-  {
-    id: "003",
-    workspace: "Research Workspace",
-    quote: "It connected papers, experiments, and code\nwithout me re-explaining context.",
-    metrics: { confidence: 99, nodes: 23, traces: 9 }
-  },
-  {
-    id: "004",
-    workspace: "Security Workspace",
-    quote: "No cloud. No tracking.\nEverything stayed local.",
-    metrics: { confidence: 100, nodes: 8, traces: 3 }
-  },
-  {
-    id: "005",
-    workspace: "Product Workspace",
-    quote: "Torvaix converted conversations into tasks,\ntasks into execution, execution into memory.",
-    metrics: { confidence: 97, nodes: 19, traces: 7 }
-  }
-]
-
-/* ── Memory Log Carousel Component ── */
-function MemoryLogCarousel() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [direction, setDirection] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
-  const autoplayRef = useRef<NodeJS.Timeout | null>(null);
-  const touchStartX = useRef<number | null>(null);
-  const touchEndX = useRef<number | null>(null);
-
-  const startAutoplay = () => {
-    if (autoplayRef.current) clearInterval(autoplayRef.current);
-    autoplayRef.current = setInterval(() => {
-      if (!isPaused) {
-        setDirection(1);
-        setCurrentIndex((prev) => (prev + 1) % memoryLogs.length);
-      }
-    }, 6000);
-  };
-
-  useEffect(() => {
-    startAutoplay();
-    return () => {
-      if (autoplayRef.current) clearInterval(autoplayRef.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPaused]);
-
-  const navigate = (dir: number) => {
-    setDirection(dir);
-    setCurrentIndex((prev) => {
-      const next = prev + dir;
-      if (next < 0) return memoryLogs.length - 1;
-      if (next >= memoryLogs.length) return 0;
-      return next;
-    });
-    setIsPaused(true);
-    setTimeout(() => setIsPaused(false), 10000);
-  };
-
-  const goToSlide = (idx: number) => {
-    setDirection(idx > currentIndex ? 1 : -1);
-    setCurrentIndex(idx);
-    setIsPaused(true);
-    setTimeout(() => setIsPaused(false), 10000);
-  };
-
-  /* Touch swipe handlers */
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    touchEndX.current = null;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    touchEndX.current = e.touches[0].clientX;
-  };
-
-  const handleTouchEnd = () => {
-    if (touchStartX.current === null || touchEndX.current === null) return;
-    const diff = touchStartX.current - touchEndX.current;
-    const threshold = 50;
-    if (Math.abs(diff) > threshold) {
-      navigate(diff > 0 ? 1 : -1);
-    }
-    touchStartX.current = null;
-    touchEndX.current = null;
-  };
-
-  const slideVariants = {
-    enter: (dir: number) => ({
-      x: dir > 0 ? 200 : -200,
-      opacity: 0,
-      scale: 0.97,
-    }),
-    center: {
-      x: 0,
-      opacity: 1,
-      scale: 1,
-    },
-    exit: (dir: number) => ({
-      x: dir > 0 ? -200 : 200,
-      opacity: 0,
-      scale: 0.97,
-    }),
-  };
-
-  const log = memoryLogs[currentIndex];
-
-  return (
-    <div className="relative max-w-3xl mx-auto px-2 sm:px-0">
-      {/* Navigation Arrows — hidden on mobile, shown on md+ */}
-      <button
-        onClick={() => navigate(-1)}
-        className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 -translate-x-14 lg:-translate-x-16 z-20 w-11 h-11 lg:w-12 lg:h-12 rounded-full bg-[#111827]/80 border border-white/10 items-center justify-center text-slate-400 hover:text-[#00D4AA] hover:border-[#00D4AA]/40 hover:shadow-[0_0_20px_rgba(0,212,170,0.15)] transition-all duration-300 backdrop-blur-sm"
-        aria-label="Previous memory log"
-      >
-        <ChevronLeft className="w-5 h-5" />
-      </button>
-      <button
-        onClick={() => navigate(1)}
-        className="hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 translate-x-14 lg:translate-x-16 z-20 w-11 h-11 lg:w-12 lg:h-12 rounded-full bg-[#111827]/80 border border-white/10 items-center justify-center text-slate-400 hover:text-[#00D4AA] hover:border-[#00D4AA]/40 hover:shadow-[0_0_20px_rgba(0,212,170,0.15)] transition-all duration-300 backdrop-blur-sm"
-        aria-label="Next memory log"
-      >
-        <ChevronRight className="w-5 h-5" />
-      </button>
-
-      {/* Card Container */}
-      <div
-        className="relative overflow-hidden rounded-xl sm:rounded-2xl"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        <AnimatePresence mode="wait" custom={direction}>
-          <motion.div
-            key={currentIndex}
-            custom={direction}
-            variants={slideVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
-            className="bg-[#111827] border border-[#00D4AA]/20 rounded-xl sm:rounded-2xl p-5 sm:p-7 md:p-10 text-left relative overflow-hidden shadow-[0_0_40px_rgba(0,212,170,0.06),0_0_80px_rgba(0,212,170,0.03)]"
-          >
-            {/* Top glow line */}
-            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#00D4AA]/50 to-transparent" />
-            
-            {/* Scanline effect */}
-            <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
-              backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,212,170,0.1) 2px, rgba(0,212,170,0.1) 4px)',
-            }} />
-
-            {/* Log Header */}
-            <div className="font-mono text-[10px] sm:text-xs text-[#00D4AA]/60 mb-4 sm:mb-5 flex items-center gap-2">
-              <span className="inline-block w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#00D4AA] animate-pulse shrink-0" />
-              <span>[Workspace Log #{log.id}]</span>
-            </div>
-
-            {/* Quote */}
-            <div className="font-mono text-sm sm:text-base md:text-lg text-slate-200 leading-relaxed sm:leading-loose mb-6 sm:mb-8">
-              <span className="text-[#00D4AA]/50 mr-1.5 sm:mr-2">{'>'}</span>
-              <span className="italic">&ldquo;{log.quote}&rdquo;</span>
-            </div>
-
-            {/* Metrics — stacks on mobile, 3-col on sm+ */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 font-mono text-[10px] sm:text-xs border-t border-white/5 pt-4 sm:pt-5">
-              <div className="flex sm:block items-center justify-between sm:justify-start">
-                <div className="text-slate-500 mb-0 sm:mb-1">Memory Confidence</div>
-                <div className="text-[#00D4AA] font-bold text-xs sm:text-sm flex sm:block items-center gap-2 sm:gap-0">
-                  <span>{log.metrics.confidence}%</span>
-                  <div className="w-16 sm:w-auto sm:mt-1.5 h-1 rounded-full bg-[#0B1020] overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${log.metrics.confidence}%` }}
-                      transition={{ duration: 1, delay: 0.3, ease: "easeOut" }}
-                      className="h-full rounded-full bg-gradient-to-r from-[#00D4AA] to-[#00D4AA]/60"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="flex sm:block items-center justify-between sm:justify-start">
-                <div className="text-slate-500 mb-0 sm:mb-1">Knowledge Nodes</div>
-                <div className="text-[#00D4AA] font-bold text-xs sm:text-sm">{log.metrics.nodes}</div>
-              </div>
-              <div className="flex sm:block items-center justify-between sm:justify-start">
-                <div className="text-slate-500 mb-0 sm:mb-1">Execution Traces</div>
-                <div className="text-[#00D4AA] font-bold text-xs sm:text-sm">{log.metrics.traces}</div>
-              </div>
-            </div>
-
-            {/* Workspace Label */}
-            <div className="mt-4 sm:mt-6 pt-3 sm:pt-4 border-t border-white/5 font-mono text-[10px] sm:text-xs text-slate-500 flex items-center gap-2">
-              <Terminal className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#00D4AA]/40 shrink-0" />
-              <span>— {log.workspace}</span>
-            </div>
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      {/* Mobile Navigation Row — arrows + dots inline on mobile */}
-      <div className="flex items-center justify-center gap-4 mt-6 sm:mt-8">
-        {/* Mobile left arrow */}
-        <button
-          onClick={() => navigate(-1)}
-          className="md:hidden w-9 h-9 rounded-full bg-[#111827]/80 border border-white/10 flex items-center justify-center text-slate-400 active:text-[#00D4AA] active:border-[#00D4AA]/40 transition-all duration-200 shrink-0"
-          aria-label="Previous memory log"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-
-        {/* Pagination Dots */}
-        <div className="flex items-center justify-center gap-2 sm:gap-2.5">
-          {memoryLogs.map((_, idx) => (
-            <button
-              key={idx}
-              onClick={() => goToSlide(idx)}
-              className={`transition-all duration-300 rounded-full ${
-                idx === currentIndex
-                  ? 'w-6 sm:w-8 h-2 bg-[#00D4AA] shadow-[0_0_10px_rgba(0,212,170,0.4)]'
-                  : 'w-2 h-2 bg-slate-600 hover:bg-slate-400'
-              }`}
-              aria-label={`Go to memory log ${idx + 1}`}
-            />
-          ))}
-        </div>
-
-        {/* Mobile right arrow */}
-        <button
-          onClick={() => navigate(1)}
-          className="md:hidden w-9 h-9 rounded-full bg-[#111827]/80 border border-white/10 flex items-center justify-center text-slate-400 active:text-[#00D4AA] active:border-[#00D4AA]/40 transition-all duration-200 shrink-0"
-          aria-label="Next memory log"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function TypingEffect({ text }: { text: string }) {
   const [displayText, setDisplayText] = useState("");
@@ -623,22 +373,21 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ════════════════════ LIVE MEMORY FRAGMENTS ════════════════════ */}
+      {/* ════════════════════ WORKSPACE STORIES ════════════════════ */}
       <section id="memory-fragments" className="relative z-10 py-16 sm:py-20 md:py-28 px-4 sm:px-6 md:px-8 border-t border-white/5 overflow-hidden">
-        {/* Background ambient glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] sm:w-[600px] h-[300px] sm:h-[400px] bg-[#00D4AA]/[0.03] rounded-full blur-[120px] pointer-events-none" />
-        
-        <div className="max-w-6xl mx-auto text-center mb-10 sm:mb-14 md:mb-16 relative z-10">
-          <motion.div 
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] sm:w-[700px] h-[300px] sm:h-[500px] bg-[#00D4AA]/[0.04] rounded-full blur-[140px] pointer-events-none" />
+
+        <div className="max-w-6xl mx-auto text-center mb-10 sm:mb-14 relative z-10">
+          <motion.div
             initial={{ opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             className="flex items-center justify-center gap-2 sm:gap-2.5 mb-4 sm:mb-5"
           >
             <Terminal className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#00D4AA]" />
-            <span className="text-[#00D4AA] font-mono text-[10px] sm:text-xs font-bold tracking-[0.15em] sm:tracking-[0.2em] uppercase">Live Memory Fragments</span>
+            <span className="text-[#00D4AA] font-mono text-[10px] sm:text-xs font-bold tracking-[0.15em] sm:tracking-[0.2em] uppercase">Workspace Stories</span>
           </motion.div>
-          <motion.h3 
+          <motion.h3
             initial={{ opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -654,13 +403,19 @@ export default function LandingPage() {
             transition={{ delay: 0.2 }}
             className="text-slate-500 font-mono text-[11px] sm:text-sm max-w-xl mx-auto px-2 sm:px-0"
           >
-            Illustrative examples of what a workspace can remember — not customer quotes.
+            Five kinds of work, one memory. Watch what happens after the question.
           </motion.p>
         </div>
 
-        <div className="relative z-10">
-          <MemoryLogCarousel />
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-80px" }}
+          transition={{ duration: 0.6 }}
+          className="relative z-10"
+        >
+          <WorkspaceStories />
+        </motion.div>
       </section>
 
       {/* ════════════════════ HOW IT STARTED (STORY) ════════════════════ */}
