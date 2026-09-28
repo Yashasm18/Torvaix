@@ -361,3 +361,12 @@
 .dot-grid-animated {
   animation: grid-scroll 8s linear infinite;
 }
+/* Landing page: workspace stories */
+@keyframes story-progress {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+@keyframes story-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
