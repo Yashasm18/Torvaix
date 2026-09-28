@@ -4,10 +4,10 @@ import { useState, useEffect, useRef, type ReactNode } from "react"
 import { motion, useInView } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { MessageSquare, Terminal, Search, Database, Sparkles, Shield, BookOpen, ExternalLink, ArrowRight, Network, Zap, Cpu } from "lucide-react"
+import { MessageSquare, Terminal, Search, Star, Database, Sparkles, Shield, BookOpen, ExternalLink, ArrowRight, Network, Zap, Cpu } from "lucide-react"
 import { HeroBackground } from "@/components/ui/hero-background"
 import { AppLogo } from "@/components/ui/app-logo"
-import { WorkspaceStories } from "@/components/marketing/workspace-stories"
+import { CustomerReviews } from "@/components/marketing/customer-reviews"
 
 /* ── Inline GitHub SVG icon (not available in lucide-react) ── */
 function GithubIcon({ className }: { className?: string }) {
@@ -205,7 +205,7 @@ export default function LandingPage() {
         </button>
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
           <Link href="#features" className="hover:text-foreground transition-colors duration-200">Features</Link>
-          <Link href="#memory-fragments" className="hover:text-foreground transition-colors duration-200">Memory</Link>
+          <Link href="#reviews" className="hover:text-foreground transition-colors duration-200">Reviews</Link>
           <Link href="#story" className="hover:text-foreground transition-colors duration-200">How it started</Link>
           <Link href="#install" className="hover:text-foreground transition-colors duration-200">Get started</Link>
         </div>
@@ -373,19 +373,25 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ════════════════════ WORKSPACE STORIES ════════════════════ */}
-      <section id="memory-fragments" className="relative z-10 py-16 sm:py-20 md:py-28 px-4 sm:px-6 md:px-8 border-t border-white/5 overflow-hidden">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] sm:w-[700px] h-[300px] sm:h-[500px] bg-[#00D4AA]/[0.04] rounded-full blur-[140px] pointer-events-none" />
-
-        <div className="max-w-6xl mx-auto text-center mb-10 sm:mb-14 relative z-10">
+      {/* ════════════════════ CUSTOMER REVIEWS (a joke, and labelled as one) ════════════════════ */}
+      <section
+        id="reviews"
+        className="relative z-10 py-16 sm:py-20 md:py-28 px-4 sm:px-6 md:px-8 border-t border-white/5 overflow-hidden"
+        style={{
+          backgroundImage:
+            "radial-gradient(760px 480px at 82% 6%, rgba(0,212,170,0.07), transparent 60%), radial-gradient(700px 480px at 6% 96%, rgba(56,189,248,0.07), transparent 58%), radial-gradient(circle, rgba(148,163,184,0.07) 1px, transparent 1.4px)",
+          backgroundSize: "cover, cover, 24px 24px",
+        }}
+      >
+        <div className="max-w-6xl mx-auto text-center mb-10 sm:mb-12 relative z-10">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             className="flex items-center justify-center gap-2 sm:gap-2.5 mb-4 sm:mb-5"
           >
-            <Terminal className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#00D4AA]" />
-            <span className="text-[#00D4AA] font-mono text-[10px] sm:text-xs font-bold tracking-[0.15em] sm:tracking-[0.2em] uppercase">Workspace Stories</span>
+            <Star className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#00D4AA]" />
+            <span className="text-[#00D4AA] font-mono text-[10px] sm:text-xs font-bold tracking-[0.15em] sm:tracking-[0.2em] uppercase">Customer love</span>
           </motion.div>
           <motion.h3
             initial={{ opacity: 0, y: 10 }}
@@ -394,16 +400,16 @@ export default function LandingPage() {
             transition={{ delay: 0.1 }}
             className="text-2xl sm:text-3xl md:text-5xl font-bold text-slate-200 mb-3 sm:mb-4"
           >
-            What Torvaix remembers
+            Trusted by leading enterprises
           </motion.h3>
           <motion.p
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
             transition={{ delay: 0.2 }}
-            className="text-slate-500 font-mono text-[11px] sm:text-sm max-w-xl mx-auto px-2 sm:px-0"
+            className="text-slate-500 text-sm sm:text-base max-w-xl mx-auto px-2 sm:px-0"
           >
-            Five kinds of work, one memory. Watch what happens after the question.
+            Don&apos;t take our word for it. Take theirs.
           </motion.p>
         </div>
 
@@ -412,9 +418,9 @@ export default function LandingPage() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-80px" }}
           transition={{ duration: 0.6 }}
-          className="relative z-10"
+          className="relative z-10 md:px-16"
         >
-          <WorkspaceStories />
+          <CustomerReviews />
         </motion.div>
       </section>
 
