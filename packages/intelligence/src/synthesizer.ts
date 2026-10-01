@@ -5,7 +5,7 @@
  * workspace insights and knowledge-graph relational reinforcements.
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import {
   MemoryRecord,
   MemoryCluster,
@@ -47,7 +47,7 @@ export class WorkspaceKnowledgeSynthesizer {
       const actionable = cluster.category === 'task' || cluster.category === 'architecture';
 
       insights.push({
-        id: uuidv4(),
+        id: randomUUID(),
         category: cluster.category,
         title,
         summary,

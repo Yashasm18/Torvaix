@@ -18,7 +18,6 @@ This directory contains Torvaix documentation that is useful beyond the reposito
 - [Roadmap](planning/roadmap.md)
 - [Milestones](planning/milestones.md)
 - [Production audit](reports/production-audit.md)
-- [Implementation summary](reports/implementation-summary.md)
 - [Demo summary](reports/demo-summary.md)
 
 ## Supporting material

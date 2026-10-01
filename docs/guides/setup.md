@@ -1,239 +1,171 @@
-# Torvaix Setup Guide
+# Setup guide
 
-Welcome to the **Torvaix Setup Guide**. 
+This guide goes a little deeper than the [README](../../README.md): what each piece does, how to check that it works, and what to do when it doesn't. For contributing, see [CONTRIBUTING.md](../../CONTRIBUTING.md); for security, see [SECURITY.md](../../SECURITY.md).
 
-Torvaix is engineered from the ground up to be a **local-first** AI operating system. We believe your memory, knowledge graphs, and agent executions should reside exclusively on your own hardware. 
+## Requirements
 
-The philosophy is simple: **clone → install → start services → run.**
+- **Node.js 22 or newer** and npm
+- **[Ollama](https://ollama.com)**, running locally, for the chat model and for embeddings
+- **Docker** *(optional)*, for Qdrant (vector search) and the Python NLP service
 
-For contribution guidelines, see [`CONTRIBUTING.md`](CONTRIBUTING.md).  
-For security recommendations, see [`SECURITY.md`](SECURITY.md).
+Local models are demanding. As a rough guide, a 3B model such as `llama3.2:3b` is comfortable with 8 GB of RAM; bigger models want 16 GB or a GPU.
 
----
+## Install and run
 
-## 🖥️ Requirements
-
-Before diving in, ensure your environment is prepared. 
-
-> [!IMPORTANT]
-> Because Torvaix relies on local model inference and vector storage, hardware capabilities directly impact performance.
-
-**Required:**
-* **Node.js** 20+
-* **npm** 10+
-* **Docker** & Docker Compose
-* **Ollama** (for local model inference)
-
-**Recommended Hardware:**
-* **16GB+ RAM** (crucial for smooth local LLM execution)
-* **Local Model Support** (GPU acceleration highly recommended)
-* **SSD Storage** (for low-latency embeddings and memory retrieval)
-
----
-
-## Quick Start
-
-Getting Torvaix running takes only a few commands.
-
-### 1. Clone the repository
-Pull the latest source code to your machine:
 ```bash
 git clone https://github.com/Yashasm18/Torvaix.git
 cd Torvaix
-```
-
-### 2. Install dependencies
-Install all required Node packages across the monorepo:
-```bash
 npm install
+cp .env.example .env
 ```
 
-### 3. Start local services
-Boot up the vector database and internal services:
-```bash
-docker compose up -d
-```
-> [!NOTE]
-> This spins up **Qdrant** (our semantic memory vector store) and the **Intelligence Layer**
-> (the Python NLP service that extracts entities/relationships into your knowledge graph).
-> The Intelligence Layer image is large on first build (bundled spaCy + sentence-transformers
-> models), so the initial `docker compose up` can take a few minutes. It's optional at runtime —
-> the agent calls it best-effort, so chat and memory keep working even while it's still starting.
+Pull the models:
 
-### 4. Start Ollama
-Start your local inference engine:
-```bash
-ollama serve
-```
-If you don't have the model downloaded yet, pull it in a separate terminal:
 ```bash
 ollama pull llama3.2
 ```
 
-### 5. Run Torvaix
-Launch the complete OS environment:
+```bash
+ollama pull nomic-embed-text
+```
+
+Optionally start Qdrant. Without it, memory search uses keyword matching, which still works:
+
+```bash
+docker compose up -d qdrant
+```
+
+Start Torvaix:
+
 ```bash
 npm run dev
 ```
-Torvaix will orchestrate the startup sequence and automatically open your workspace at:
-`http://localhost:3000`
 
----
+Open <http://localhost:3000>. The agent server runs on `127.0.0.1:3001`; you don't open it directly.
 
-## Architecture: Execution Flow
+> Don't run a bare `docker compose up -d` while developing. It also starts the packaged app container, which publishes the same ports as `npm run dev`.
 
-When you run Torvaix, requests follow a strict state machine through the agent framework:
+## How it fits together
 
-```mermaid
-stateDiagram-v2
-    [*] --> Request
-    Request --> Router : Classify Task
-    
-    state Router {
-        direction LR
-        Knowledge --> Store
-        Memory --> Retrieve
-        Execution --> Plan
-    }
-    
-    Plan --> SecurityGate : Dangerous Tool?
-    
-    state SecurityGate {
-        PendingAction --> UserApproval : Pause
-        UserApproval --> ExecuteTool : Approved
-    }
-    
-    ExecuteTool --> MCP
-    MCP --> Plan : Next Step
-    
-    Store --> [*]
-    Retrieve --> [*]
-```
+- **Web app** (`localhost:3000`): the interface. Its API routes forward requests to the agent server.
+- **Agent server** (`127.0.0.1:3001`): decides what each message needs (recall a memory, store a fact, answer, or call a tool), talks to the model, and runs tools.
+- **SQLite**: the source of truth for memories, workspaces, approvals and the knowledge graph. It lives under `~/.torvaix` (or `TORVAIX_HOME`).
+- **Qdrant** *(optional)*: vector search over your memories. The agent checks for it every 30 seconds, so you can start it at any time, and it indexes memories you saved before it was running.
+- **Ollama**: runs the chat model and creates embeddings.
 
-* **Frontend (`localhost:3000`)**: Your primary workspace UI where you interact with agents.
-* **Agent Server**: Runs in the background managing multi-agent orchestration, memory retrieval, execution flow, and tool routing.
-* **Qdrant / SQLite**: Powered by Docker and local storage, this is the brain for long-term semantic memory and document embeddings.
-* **Ollama**: Your local AI engine handling reasoning and execution planning.
+For the full picture and the package list, see the [architecture section of the README](../../README.md#architecture).
 
----
+## Check that it works
 
-## First Run & Recommended Test Flow
+Create a workspace in the UI, then try these in a chat.
 
-Once Torvaix is running, we recommend a standard sequence to ensure your local OS is fully operational. 
+**1. Store a fact**
 
-> [!TIP]
-> On your first run, create a workspace and start a conversation. You will be prompted to approve dangerous actions (like file modifications) before they execute—this is intentional security.
-
-### 1. Test Memory Storage
 ```text
 Remember that my favorite framework is Next.js
 ```
 
-### 2. Test Memory Retrieval
+**2. Recall it in a new chat**
+
 ```text
 What is my favorite framework?
 ```
-*(This verifies that Qdrant and your embedding models are syncing correctly.)*
 
-### 3. Test Tool Execution
+**3. Approve a command.** `bash` and `python` commands always pause for approval, and the approval card shows exactly what will run:
+
 ```text
-Create a hello.py file and print Hello World
+Run the bash command: echo hello from torvaix
 ```
 
-### 4. Test Security Gating
-```text
-Delete all files in this workspace
-```
-*(This should immediately trigger a security approval gate. Do not approve it unless you want an empty workspace!)*
+Read the command on the card, approve it, and the output appears in the chat. Writing files in the workspace folder and searching the web don't need approval.
 
----
+You can also check the services directly:
+
+```bash
+curl http://localhost:3001/api/health
+```
+
+It reports whether SQLite, Qdrant and Ollama are reachable, and which chat model is in use.
+
+## Configuration
+
+Everything is optional. Put settings in `.env` in the repository root (see `.env.example`); variables already set in your shell win. The full table is in the [README](../../README.md#configuration). The ones people usually change:
+
+| Variable | Why |
+| --- | --- |
+| `TORVAIX_MODEL` | Use a specific chat model instead of the auto-selected installed one |
+| `PORT` / `AGENT_PORT` | Run on other ports if 3000 or 3001 are taken. If you change `AGENT_PORT`, set `AGENT_SERVER_URL` to match. |
+| `TORVAIX_HOME` | Keep your data somewhere other than `~/.torvaix` |
+| `OPENAI_API_KEY` and friends | Enable cloud models |
 
 ## Troubleshooting
 
-If you hit a snag, check these common local-first development issues:
+### The agent crashes with "compiled against a different Node.js version"
 
-### Port already in use
-If port `3000` is occupied by another process:
+SQLite's native module was built for another Node version, usually after switching versions with nvm or Homebrew. `npm run dev` rebuilds it automatically. To do it by hand:
+
 ```bash
-# Find the process
-lsof -i :3000
-
-# Kill it
-kill -9 <PID>
-
-# Restart Torvaix
-npm run dev
+npm rebuild better-sqlite3
 ```
 
-### Ollama not detected
-If the agent server is failing to reason:
+### A port is already in use
+
+`npm run dev` stops a leftover Torvaix server from this folder on its own. If another program holds the port, it tells you which one (pid and command) and exits; it never kills programs it doesn't recognise. Stop that program, or set `PORT` / `AGENT_PORT`.
+
+### Chat says it couldn't reach Ollama
+
+Start it and check the model is installed:
+
+```bash
+ollama serve
+```
+
 ```bash
 ollama list
 ```
-*Ensure `ollama serve` is running in a background terminal and your selected model is downloaded.*
 
-### Qdrant not running
-If memory retrieval is failing:
-```bash
-# Check if the container is up
-docker ps
+If the model is missing, the error names the `ollama pull` command to run.
 
-# If not, force restart the services
-docker compose up -d
-```
+### Memory search is weak or only matches exact words
 
-### Memory not retrieving
-Verify the trifecta:
-1. **Ollama** embeddings are actively running.
-2. **Qdrant** docker container is healthy.
-3. Your **Workspace** is currently active in the UI.
+That's keyword-only search. Check the vector side:
 
-### "1 Issue" badge in the corner after pulling changes
-This is usually a stale Next.js dev cache, not a real bug — most often triggered by a route being
-renamed or restructured since your last build. Clear it and restart:
+1. Ollama is running and `nomic-embed-text` is installed.
+2. Qdrant is running: `docker compose ps qdrant`. Start it with `docker compose up -d qdrant`.
+3. Wait up to 30 seconds, then check `curl http://localhost:3001/api/health`.
+
+### The dev server shows a "1 Issue" badge after pulling changes
+
+Usually a stale Next.js cache after routes were renamed. Clear it and restart:
+
 ```bash
 rm -rf apps/web/.next
 npm run dev
 ```
 
----
+## Using Torvaix from another device
 
-## 🌐 Local Network Access (Optional)
+By default both servers listen only on `127.0.0.1`. Torvaix has no login, and anyone who can open it can approve commands that run as you, so the safest way to reach it from elsewhere is an SSH tunnel to the machine it runs on:
 
-By default, Torvaix is bound to `localhost`. To access your workspace from another trusted device on your network (like an iPad or laptop):
+```bash
+ssh -L 3000:localhost:3000 you@your-machine
+```
 
-1. Expose the server to `0.0.0.0:3000`.
-2. **Crucial Security Warnings:**
-   * Only do this on a **trusted LAN**.
-   * Place it behind authentication.
-   * **Never expose Torvaix publicly** without HTTPS and robust access controls.
+Then open <http://localhost:3000> on the device you're connecting from.
 
-> [!CAUTION]
-> Torvaix has direct access to your local filesystem and execution environments. Exposing it irresponsibly gives external users terminal-level access to your machine.
+If you really need it reachable on your network, set `WEB_HOST=0.0.0.0` in `.env`. Only do this on a network you trust, behind a firewall or an authenticating reverse proxy with HTTPS. Never expose the agent port (3001), Qdrant, Ollama or the NLP service. See [SECURITY.md](../../SECURITY.md).
 
----
-
-## 🔄 Updating Torvaix
-
-To keep your local OS up to date:
+## Updating
 
 ```bash
 git pull
 npm install
-rm -rf apps/web/.next
-docker compose up -d --build
-npm run dev
 ```
 
-> [!NOTE]
-> The `rm -rf apps/web/.next` step matters after any `git pull` — Next.js's dev cache doesn't always
-> invalidate cleanly across renamed or restructured routes, and a stale cache can surface as a
-> "1 Issue" indicator in the bottom corner of the app with a confusing or unrelated error. If you
-> ever see that badge after pulling changes, clearing `apps/web/.next` and restarting `npm run dev`
-> is the first thing to try.
+Then restart `npm run dev`. If you run the Docker stack, rebuild it:
 
----
+```bash
+docker compose up -d --build
+```
 
-<div align="center">
-  <p><b>Your data belongs to you. Keep it local.</b></p>
-</div>
+Your data stays in `~/.torvaix` (or the `torvaix_data` volume for Docker), so updates don't touch it.

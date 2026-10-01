@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { db, DEFAULT_GRAPH_WORKSPACE } from './graph-store';
 import type { MLIntelligencePayload } from './types';
 
@@ -93,7 +93,7 @@ export function ingestKnowledgeGraph(
         metadata: JSON.stringify({ inferred: true })
       });
 
-      const edgeId = uuidv4();
+      const edgeId = randomUUID();
       insertEdge.run({
         id: edgeId,
         workspaceId,

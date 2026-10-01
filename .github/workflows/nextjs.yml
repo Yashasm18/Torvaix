@@ -38,7 +38,7 @@ jobs:
         run: |
           node -e "
             const fs = require('fs');
-            const configPath = 'apps/web/next.config.ts';
+            const configPath = 'apps/web/next.config.mts';
             const config = fs.readFileSync(configPath, 'utf8');
             fs.writeFileSync(
               configPath,

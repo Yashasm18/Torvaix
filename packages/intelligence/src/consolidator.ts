@@ -5,7 +5,7 @@
  * recency decay modeling, and access-frequency reinforcement.
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { MemoryRecord, MemoryCluster, MemoryHealthMetrics, KnowledgeCategory } from './types';
 
 const STOP_WORDS = new Set([
@@ -144,7 +144,7 @@ export class MemoryConsolidator {
         const topic = keywords.slice(0, 3).join(' ') || 'General Knowledge';
 
         clusters.push({
-          id: uuidv4(),
+          id: randomUUID(),
           topic: this.formatTopicName(topic),
           category: this.inferCategory(memory.content),
           confidence: 1.0,
