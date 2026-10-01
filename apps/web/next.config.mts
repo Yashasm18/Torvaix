@@ -1,8 +1,9 @@
 import path from "path";
 import type { NextConfig } from "next";
 
-// next.config.ts is loaded as CommonJS: `import.meta` makes Next evaluate the compiled
-// config as ESM, which then fails with "exports is not defined". Use __dirname instead.
+// An .mts file is an explicit ES module (what Next recommends for CommonJS packages like this one),
+// so Node doesn't have to re-parse it, and __dirname is replaced by import.meta.dirname.
+const here = import.meta.dirname;
 
 const securityHeaders = [
   {
@@ -34,7 +35,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   turbopack: {
-    root: path.resolve(__dirname, "../../"),
+    root: path.resolve(here, "../../"),
   },
   images: {
     unoptimized: true,

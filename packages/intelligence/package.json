@@ -6,11 +6,8 @@
   "scripts": {
     "test": "vitest run"
   },
-  "dependencies": {
-    "uuid": "^10.0.0"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@types/uuid": "^10.0.0",
     "typescript": "^5.0.0"
   }
 }

@@ -5,12 +5,14 @@ import fs from 'fs';
 
 // Resolve to $TORVAIX_HOME/graph.db (default ~/.torvaix), the same home the memory store uses.
 const torvaixDir = process.env.TORVAIX_HOME || path.join(os.homedir(), '.torvaix');
-if (!fs.existsSync(torvaixDir)) {
-  fs.mkdirSync(torvaixDir, { recursive: true });
+// The data folder is chosen at runtime (TORVAIX_HOME), so tell Next's file tracer not to treat this
+// as "include the whole project in the build output".
+if (!fs.existsSync(/*turbopackIgnore: true*/ torvaixDir)) {
+  fs.mkdirSync(/*turbopackIgnore: true*/ torvaixDir, { recursive: true });
 }
 
 const dbPath = path.join(torvaixDir, 'graph.db');
-export const db = new Database(dbPath);
+export const db = new Database(/*turbopackIgnore: true*/ dbPath);
 
 // Initialize schema with WAL mode
 db.pragma('journal_mode = WAL');

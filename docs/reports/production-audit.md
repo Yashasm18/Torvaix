@@ -1,6 +1,8 @@
 # Torvaix Production Audit
 **Self-Debugging & Bottleneck Analysis**
 
+> **Status note:** this audit was written before v0.3 and is kept as a record, not a current assessment. Since then: item 1's in-memory trace map is gone, item 5 is resolved (`npm run dev` starts both servers together), and `web_search` has timeouts. Items 2–4 haven't been revisited. In particular, approved `bash` and `python` commands still run directly on your machine with no sandbox; see [SECURITY.md](../../SECURITY.md).
+
 As part of the final push for V1, an internal audit was conducted across the Torvaix Monorepo to identify production bottlenecks, security concerns, and scaling limitations.
 
 ## 1. Concurrency & Agent State 

@@ -13,7 +13,7 @@
 
 import { QdrantClient } from '@qdrant/js-client-rest';
 import Database from 'better-sqlite3';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { torvaixEvents } from '@torvaix/events';
 
 export interface MemoryMetadata {
@@ -552,7 +552,7 @@ export class MemoryStore {
   // ── Memory CRUD ──
 
   async storeMemory(workspaceId: string, content: string, source: string): Promise<string> {
-    const id = uuidv4();
+    const id = randomUUID();
     
     // 1. Store the vector in Qdrant when it and an embedding model are available. If not, the
     //    backfill indexes this memory once they are.
@@ -816,7 +816,7 @@ export class MemoryStore {
   }
 
   createWorkspace(name: string, settings: any = {}, forceId?: string): string {
-    const id = forceId || uuidv4();
+    const id = forceId || randomUUID();
 
     // Agent tools run inside settings.path, so it is always provisioned here, never taken from input.
     const workspaceSettings = { ...settings, path: this.provisionWorkspaceFolder(name, id) };
@@ -910,7 +910,7 @@ export class MemoryStore {
   // ── Conversation Methods ──
 
   createConversation(workspaceId: string, title: string): string {
-    const id = uuidv4();
+    const id = randomUUID();
     const stmt = this.db.prepare('INSERT INTO conversations (id, workspaceId, title) VALUES (?, ?, ?)');
     stmt.run(id, workspaceId, title);
     return id;
@@ -924,7 +924,7 @@ export class MemoryStore {
   // ── Pending Actions (Security) ──
 
   createPendingAction(workspaceId: string, action: string, params: any): string {
-    const id = uuidv4();
+    const id = randomUUID();
     const stmt = this.db.prepare('INSERT INTO pending_actions (id, workspaceId, action, params) VALUES (?, ?, ?, ?)');
     stmt.run(id, workspaceId, action, JSON.stringify(params));
     return id;
@@ -962,7 +962,7 @@ export class MemoryStore {
   // ── Execution Logs ──
 
   logExecution(workspaceId: string, action: string, params: any, result: any, status: string) {
-    const id = uuidv4();
+    const id = randomUUID();
     const stmt = this.db.prepare('INSERT INTO execution_logs (id, workspaceId, action, params, result, status) VALUES (?, ?, ?, ?, ?, ?)');
     stmt.run(id, workspaceId, action, JSON.stringify(params), JSON.stringify(result), status);
     return id;
@@ -999,7 +999,7 @@ export class MemoryStore {
     actionConfig?: any;
     status?: 'active' | 'paused' | 'draft';
   }): AutomationRecord {
-    const id = params.id || uuidv4();
+    const id = params.id || randomUUID();
     const description = params.description || '';
     const triggerConfig = typeof params.triggerConfig === 'string' ? params.triggerConfig : JSON.stringify(params.triggerConfig || {});
     const actionConfig = typeof params.actionConfig === 'string' ? params.actionConfig : JSON.stringify(params.actionConfig || {});
@@ -1092,7 +1092,7 @@ export class MemoryStore {
     startedAt: string;
     completedAt?: string;
   }): AutomationLogRecord {
-    const id = log.id || uuidv4();
+    const id = log.id || randomUUID();
     const output = log.output || '';
     const durationMs = log.durationMs || 0;
     const completedAt = log.completedAt || new Date().toISOString();
@@ -1181,7 +1181,7 @@ export class MemoryStore {
   // ── User Management (Auth Hardening) ──
 
   createUser(username: string, email: string, passwordHash: string): string {
-    const id = uuidv4();
+    const id = randomUUID();
     const stmt = this.db.prepare('INSERT INTO users (id, username, email, passwordHash) VALUES (?, ?, ?, ?)');
     stmt.run(id, username, email, passwordHash);
     return id;
@@ -1205,8 +1205,8 @@ export class MemoryStore {
   // ── Companion Layer (Experimental) ──
 
   createPairingToken(scope: 'readonly' | 'admin' = 'readonly', expiryMinutes: number = 10): { id: string; token: string } {
-    const id = uuidv4();
-    const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
+    const id = randomUUID();
+    const token = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
     const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000).toISOString();
     const stmt = this.db.prepare('INSERT INTO companion_tokens (id, token, scope, expiresAt) VALUES (?, ?, ?, ?)');
     stmt.run(id, token, scope, expiresAt);
@@ -1220,7 +1220,7 @@ export class MemoryStore {
     if (new Date(row.expiresAt) < new Date()) return null;
     if (row.claimedByDeviceId) return null;
 
-    const deviceId = uuidv4();
+    const deviceId = randomUUID();
     // Claim the token and register the device atomically. A fingerprint that is already paired
     // is rejected: returning the existing device let any valid token (even readonly) take over
     // another device, including an admin one.
@@ -1244,7 +1244,7 @@ export class MemoryStore {
     const device = this.db.prepare('SELECT * FROM companion_devices WHERE id = ? AND revoked = 0').get(deviceId) as any;
     if (!device) return null;
 
-    const sessionToken = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
+    const sessionToken = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
     const sessionExpiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000).toISOString();
 
     const stmt = this.db.prepare('UPDATE companion_devices SET sessionToken = ?, sessionExpiresAt = ?, lastSeenAt = CURRENT_TIMESTAMP WHERE id = ?');

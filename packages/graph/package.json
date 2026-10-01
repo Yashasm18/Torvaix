@@ -7,12 +7,10 @@
     "test": "echo \"No tests specified yet\""
   },
   "dependencies": {
-    "better-sqlite3": "^12.10.0",
-    "uuid": "^10.0.0"
+    "better-sqlite3": "^12.10.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/uuid": "^10.0.0",
     "typescript": "^5.0.0"
   }
 }

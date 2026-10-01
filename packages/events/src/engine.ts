@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { eventBus, AUTOMATION_EVENTS } from './index';
 import type { 
   AutomationWorkflow, 
@@ -241,7 +241,7 @@ export class AutomationEngine {
   ): Promise<WorkflowExecutionLog> {
     const startTime = Date.now();
     const startedAt = new Date().toISOString();
-    const logId = uuidv4();
+    const logId = randomUUID();
 
     let status: 'success' | 'error' = 'success';
     let output = '';
