@@ -55,3 +55,54 @@ export function validateAutomationInput(
   }
   return null;
 }
+
+// ── Request input limits ──
+
+export const LIMITS = {
+  /** One stored memory. Large enough for a pasted file, small enough not to flood prompts or embeddings. */
+  memoryChars: 100_000,
+  /** A chat message or task instruction (attachments are capped at 100 KB in the UI). */
+  instructionsChars: 150_000,
+  messages: 200,
+  workspaceIdChars: 200,
+  nameChars: 200,
+  descriptionChars: 2_000,
+  topK: 50,
+} as const;
+
+/** `workspaceId` is optional, but when present it must be one plain string. */
+export function validateWorkspaceId(value: unknown): string | null {
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || value.length === 0 || value.length > LIMITS.workspaceIdChars || /[\u0000-\u001f]/.test(value)) {
+    return 'workspaceId must be a single non-empty string';
+  }
+  return null;
+}
+
+/** Chat history sent along with a run. Returns an error message, or null when valid. */
+export function validateMessages(value: unknown): string | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value)) return 'messages must be an array';
+  if (value.length > LIMITS.messages) return `messages can have at most ${LIMITS.messages} entries`;
+  for (const m of value) {
+    if (!m || typeof m !== 'object') return 'each message must be an object with a role and content';
+    const { role, content } = m as { role?: unknown; content?: unknown };
+    if (role !== 'system' && role !== 'user' && role !== 'assistant') return 'message role must be "system", "user" or "assistant"';
+    if (typeof content !== 'string') return 'message content must be a string';
+    if (content.length > LIMITS.instructionsChars) return 'a message is too long';
+  }
+  return null;
+}
+
+export function validateText(value: unknown, field: string, max: number): string | null {
+  if (typeof value !== 'string' || !value.trim()) return `${field} is required`;
+  if (value.length > max) return `${field} is too long (at most ${max.toLocaleString('en-US')} characters)`;
+  return null;
+}
+
+/** Clamps a client-supplied count to 1..max, falling back to `fallback` for anything that isn't a number. */
+export function clampCount(value: unknown, fallback: number, max: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), 1), max);
+}
