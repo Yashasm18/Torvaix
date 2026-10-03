@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { checkBrowserRequest, hostnameOf, parseList, DEFAULT_ALLOWED_ORIGINS } from '../http-security';
-import { isValidEmail, validateAutomationInput } from '../validation';
+import { isValidEmail, validateAutomationInput, validateWorkspaceId, validateMessages, validateText, clampCount, LIMITS } from '../validation';
 import { keywordRoute } from '../routing';
 
 const opts = { allowedOrigins: DEFAULT_ALLOWED_ORIGINS, allowedHosts: [] as string[] };
@@ -109,5 +109,41 @@ describe('validateAutomationInput', () => {
     expect(validateAutomationInput({ ...ok, triggerType: 'webhook' })).toMatch(/triggerType/);
     expect(validateAutomationInput({ ...ok, triggerConfig: { frequency: 'custom' } })).toMatch(/frequency/);
     expect(validateAutomationInput({ ...ok, status: 'running' })).toMatch(/status/);
+  });
+});
+
+describe('request input validation', () => {
+  it('accepts a missing workspaceId and plain strings, rejects everything else', () => {
+    expect(validateWorkspaceId(undefined)).toBeNull();
+    expect(validateWorkspaceId('default')).toBeNull();
+    for (const bad of ['', 'x'.repeat(201), ['a', 'b'], { a: 1 }, 5, null, 'a\nb']) {
+      expect(validateWorkspaceId(bad)).toMatch(/workspaceId/);
+    }
+  });
+
+  it('accepts well-formed chat history and rejects the shapes that used to crash the agent', () => {
+    expect(validateMessages(undefined)).toBeNull();
+    expect(validateMessages([])).toBeNull();
+    expect(validateMessages([{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }])).toBeNull();
+    expect(validateMessages('oops')).toMatch(/array/);
+    expect(validateMessages([null])).toMatch(/object/);
+    expect(validateMessages([5])).toMatch(/object/);
+    expect(validateMessages([{ role: 'user' }])).toMatch(/content/);
+    expect(validateMessages([{ role: 'admin', content: 'x' }])).toMatch(/role/);
+    expect(validateMessages(Array.from({ length: LIMITS.messages + 1 }, () => ({ role: 'user', content: 'x' })))).toMatch(/at most/);
+  });
+
+  it('limits text and clamps counts', () => {
+    expect(validateText('hello', 'content', 10)).toBeNull();
+    expect(validateText('   ', 'content', 10)).toMatch(/required/);
+    expect(validateText(5, 'content', 10)).toMatch(/required/);
+    expect(validateText('x'.repeat(11), 'content', 10)).toMatch(/too long/);
+    expect(clampCount(3, 5, 50)).toBe(3);
+    expect(clampCount(1e9, 5, 50)).toBe(50);
+    expect(clampCount(-5, 5, 50)).toBe(1);
+    expect(clampCount('7', 5, 50)).toBe(7);
+    expect(clampCount('abc', 5, 50)).toBe(5);
+    expect(clampCount(undefined, 5, 50)).toBe(5);
+    expect(clampCount(2.9, 5, 50)).toBe(2);
   });
 });

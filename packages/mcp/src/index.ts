@@ -5,24 +5,17 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { exec, execFile } from "child_process";
-import { promisify } from "util";
+import { randomUUID } from "crypto";
+import { runProcess, formatRun } from "./run-process";
+import { resolveInsideWorkspace } from "./workspace-path";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as cheerio from "cheerio";
 
-const execAsync = promisify(exec);
-const execFileAsync = promisify(execFile);
 
-function assertInsideWorkspace(targetPath: string, workspaceRoot: string) {
-  const resolved = path.resolve(targetPath);
-  const root = path.resolve(workspaceRoot);
-  // Compare whole path segments: a bare prefix check let "/ws/default" reach "/ws/default-other".
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new Error("Workspace boundary violation: " + resolved);
-  }
-  return resolved;
-}
+
+/** How long a shell or Python tool call may run before it and everything it started is stopped. */
+const SHELL_TIMEOUT_MS = 15_000;
 
 const WORKSPACE_ROOT = process.env.TORVAIX_WORKSPACE_PATH || process.cwd();
 
@@ -153,7 +146,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         
         try {
           // ensure we run tree in the WORKSPACE_ROOT
-          const { stdout } = await execAsync("tree -L 2 -I 'node_modules|.git|dist|build|.next'", { cwd: WORKSPACE_ROOT, timeout: 5000 });
+          const scan = await runProcess("tree", ["-L", "2", "-I", "node_modules|.git|dist|build|.next"], { cwd: WORKSPACE_ROOT, timeoutMs: 5000 });
+          if (scan.code !== 0) throw new Error(scan.stderr || "tree is not installed");
+          const stdout = scan.stdout;
           structure = stdout;
         } catch (e) {
           structure = "Tree command failed or not installed.";
@@ -170,7 +165,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "read_file": {
         const { filePath } = ReadFileArgsSchema.parse(args);
         try {
-          const resolvedPath = assertInsideWorkspace(path.resolve(WORKSPACE_ROOT, filePath), WORKSPACE_ROOT);
+          const resolvedPath = resolveInsideWorkspace(path.resolve(WORKSPACE_ROOT, filePath), WORKSPACE_ROOT);
           const content = await fs.readFile(resolvedPath, "utf-8");
           return { content: [{ type: "text", text: content }] };
         } catch (e: any) {
@@ -181,7 +176,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "write_file": {
         const { filePath, content } = WriteFileArgsSchema.parse(args);
         try {
-          const resolvedPath = assertInsideWorkspace(path.resolve(WORKSPACE_ROOT, filePath), WORKSPACE_ROOT);
+          const resolvedPath = resolveInsideWorkspace(path.resolve(WORKSPACE_ROOT, filePath), WORKSPACE_ROOT);
           await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
           await fs.writeFile(resolvedPath, content, "utf-8");
           return { content: [{ type: "text", text: `Successfully wrote to ${resolvedPath}` }] };
@@ -191,26 +186,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "bash": {
-        const { command: rawCommand } = BashArgsSchema.parse(args);
-        const command = rawCommand.replace(/\bpython\b(?!3)/g, 'python3');
-        try {
-          const { stdout, stderr } = await execAsync(command, { cwd: WORKSPACE_ROOT, timeout: 15000 });
-          return { content: [{ type: "text", text: stdout || stderr || "Command executed successfully with no output." }] };
-        } catch (e: any) {
-          return { content: [{ type: "text", text: `Command failed: ${e.message}\nStdout: ${e.stdout}\nStderr: ${e.stderr}` }], isError: true };
-        }
+        // Run exactly the command the user approved. It used to rewrite "python" to "python3"
+        // first, which also changed things like "rm python.txt" into "rm python3.txt".
+        const { command } = BashArgsSchema.parse(args);
+        const run = await runProcess("/bin/sh", ["-c", command], { cwd: WORKSPACE_ROOT, timeoutMs: SHELL_TIMEOUT_MS });
+        const out = formatRun(run, { label: "Command", timeoutMs: SHELL_TIMEOUT_MS, emptyOk: "Command executed successfully with no output." });
+        return { content: [{ type: "text", text: out.text }], ...(out.isError ? { isError: true } : {}) };
       }
 
       case "python": {
         const { code } = PythonArgsSchema.parse(args);
-        const tempFile = path.join(WORKSPACE_ROOT, `.temp_script_${Date.now()}.py`);
+        const tempFile = path.join(WORKSPACE_ROOT, `.temp_script_${randomUUID()}.py`);
         await fs.writeFile(tempFile, code);
         try {
           // Pass the script path as an argument, not through a shell: workspace paths may contain spaces.
-          const { stdout, stderr } = await execFileAsync("python3", [tempFile], { cwd: WORKSPACE_ROOT, timeout: 15000 });
-          return { content: [{ type: "text", text: stdout || stderr || "Script executed successfully with no output." }] };
-        } catch (e: any) {
-          return { content: [{ type: "text", text: `Script failed: ${e.message}\nStdout: ${e.stdout}\nStderr: ${e.stderr}` }], isError: true };
+          const run = await runProcess("python3", [tempFile], { cwd: WORKSPACE_ROOT, timeoutMs: SHELL_TIMEOUT_MS });
+          const out = formatRun(run, { label: "Script", timeoutMs: SHELL_TIMEOUT_MS, emptyOk: "Script executed successfully with no output." });
+          return { content: [{ type: "text", text: out.text }], ...(out.isError ? { isError: true } : {}) };
         } finally {
           await fs.unlink(tempFile).catch(() => {});
         }

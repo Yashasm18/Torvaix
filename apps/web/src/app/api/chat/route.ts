@@ -5,7 +5,11 @@ const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || 'http://localhost:3001'
 export async function POST(req: Request) {
   try {
     const { messages, workspaceId, pendingActionId: bodyPendingId } = await req.json();
-    let lastMsg = messages[messages.length - 1].content;
+    const last = Array.isArray(messages) ? messages[messages.length - 1] : undefined;
+    if (!last || typeof last.content !== 'string') {
+      return NextResponse.json({ error: 'A message is required' }, { status: 400 });
+    }
+    let lastMsg: string = last.content;
     let pendingActionId = bodyPendingId;
 
     const match = lastMsg.match(/__PENDING_ACTION_ID__:([a-f0-9-]+)/);
@@ -23,7 +27,13 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         workspaceId: workspaceId || 'default',
         instructions: lastMsg,
-        messages: messages.slice(0, -1), // pass context history
+        // Context history: only plain user/assistant/system text. The chat library also keeps tool
+        // calls, annotations and "data" entries on messages; the agent only understands role + text.
+        messages: (messages as any[])
+          .slice(0, -1)
+          .filter((m) => m && ['user', 'assistant', 'system'].includes(m.role) && typeof m.content === 'string')
+          .slice(-100)
+          .map((m) => ({ role: m.role, content: m.content })),
         pendingActionId
       })
     });

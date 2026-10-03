@@ -23,7 +23,7 @@ import { validateAutomationInput } from './validation';
 import { formatApprovalRequest } from './approval-message';
 import { closeAllMcpClients } from '@torvaix/mcp';
 import { checkBrowserRequest, parseList, DEFAULT_ALLOWED_ORIGINS } from './http-security';
-import { isValidEmail } from './validation';
+import { isValidEmail, validateWorkspaceId, validateMessages, validateText, clampCount, LIMITS } from './validation';
 import { MemoryStore } from '@torvaix/memory';
 import { LLMClient, PROVIDERS, pickInstalledModel, resolveModel } from '@torvaix/providers';
 import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
@@ -232,7 +232,24 @@ app.use((req, res, next) => {
 });
 
 // Parse bodies only after the origin/host guard, so rejected requests never get buffered.
-app.use(express.json({ limit: '50mb' }));
+// 5 MB comfortably covers chat history plus a pasted file; the old 50 MB let one request buffer
+// (and then store, embed and prompt with) a huge payload.
+app.use(express.json({ limit: '5mb' }));
+
+// A malformed body is the client's mistake: answer 400, not an HTML error page or a 500.
+app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  if (err?.type === 'entity.too.large') { res.status(413).json({ error: 'Request body is too large' }); return; }
+  if (err?.type === 'entity.parse.failed') { res.status(400).json({ error: 'Request body is not valid JSON' }); return; }
+  next(err);
+});
+
+// `workspaceId` reaches SQL lookups and the filesystem. Reject anything but one plain string up
+// front: an array or object used to surface as a 500 that leaked SQLite's error text.
+app.use('/api/', (req, res, next) => {
+  const invalid = validateWorkspaceId(req.query.workspaceId) ?? validateWorkspaceId(req.body?.workspaceId);
+  if (invalid) { res.status(400).json({ error: invalid }); return; }
+  next();
+});
 
 // ── Auth Types ──
 
@@ -479,6 +496,10 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
       res.status(400).json({ error: 'instructions are required' });
       return;
     }
+    const invalid =
+      (typeof instructions === 'string' && instructions.length > LIMITS.instructionsChars ? 'instructions are too long' : null) ??
+      validateMessages(req.body.messages);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
 
     if (isStream) {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -619,6 +640,10 @@ app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest,
       res.status(400).json({ error: 'Instructions are required' });
       return;
     }
+    if (typeof instructions === 'string' && instructions.length > LIMITS.instructionsChars) {
+      res.status(400).json({ error: 'Instructions are too long' });
+      return;
+    }
 
     const orchestrator = new AgentOrchestrator(memoryStore, {
       llm: llmClient,
@@ -683,12 +708,10 @@ app.get('/api/memory/list', requireAuth, async (req: AuthRequest, res) => {
 
 app.post('/api/memory/store', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const { workspaceId = 'default', content, source = 'API' } = req.body;
-    if (!content || typeof content !== 'string') {
-      res.status(400).json({ error: 'content is required' });
-      return;
-    }
-    const id = await memoryStore.storeMemory(workspaceId, content, source);
+    const { workspaceId = 'default', content, source } = req.body;
+    const invalid = validateText(content, 'content', LIMITS.memoryChars);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
+    const id = await memoryStore.storeMemory(workspaceId, content, typeof source === 'string' && source ? source.slice(0, 100) : 'API');
     res.json({ success: true, id });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to store memory', details: error.message });
@@ -698,7 +721,9 @@ app.post('/api/memory/store', requireAuth, async (req: AuthRequest, res) => {
 app.post('/api/memory/query', requireAuth, async (req: AuthRequest, res) => {
   try {
     const { workspaceId, query, topK } = req.body;
-    const results = await memoryStore.queryMemory(workspaceId ?? 'default', query, topK ?? 5);
+    const invalid = validateText(query, 'query', LIMITS.instructionsChars);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
+    const results = await memoryStore.queryMemory(workspaceId ?? 'default', query, clampCount(topK, 5, LIMITS.topK));
     res.json({ success: true, results });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to query memory', details: error.message });
@@ -709,10 +734,8 @@ app.put('/api/memory/:id', requireAuth, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string;
     const { content } = req.body ?? {};
-    if (!content || typeof content !== 'string') {
-      res.status(400).json({ error: 'content is required' });
-      return;
-    }
+    const invalid = validateText(content, 'content', LIMITS.memoryChars);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
     if (!(await memoryStore.getMemoryById(id))) {
       res.status(404).json({ error: 'Memory not found' });
       return;
@@ -791,7 +814,12 @@ app.post('/api/automations', requireAuth, async (req: AuthRequest, res) => {
       res.status(400).json({ error: 'Missing required fields: name, triggerType, actionType' });
       return;
     }
-    const invalid = validateAutomationInput({ triggerType, triggerConfig, actionType, status });
+    const invalid =
+      validateText(name, 'name', LIMITS.nameChars) ??
+      (description !== undefined && (typeof description !== 'string' || description.length > LIMITS.descriptionChars)
+        ? `description must be text of at most ${LIMITS.descriptionChars} characters`
+        : null) ??
+      validateAutomationInput({ triggerType, triggerConfig, actionType, status });
     if (invalid) {
       res.status(400).json({ error: invalid });
       return;
@@ -854,7 +882,9 @@ app.put('/api/automations/:id', requireAuth, async (req: AuthRequest, res) => {
     const existing = memoryStore.getAutomation(id);
     if (!existing) { res.status(404).json({ error: 'Automation not found' }); return; }
     // Validate the result of the update, so e.g. switching to an event trigger needs a valid event.
-    const invalid = validateAutomationInput({
+    const invalid =
+      (updates.name !== undefined ? validateText(updates.name, 'name', LIMITS.nameChars) : null) ??
+      validateAutomationInput({
       triggerType: updates.triggerType ?? existing.triggerType,
       triggerConfig: updates.triggerConfig ?? JSON.parse(existing.triggerConfig || '{}'),
       actionType: updates.actionType ?? existing.actionType,
