@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.4.0](https://github.com/Yashasm18/Torvaix/compare/v0.3.0...v0.4.0) (2026-10-03)
+
+
+### Features
+
+* **app:** clearer UI across the workspace app ([c71082a](https://github.com/Yashasm18/Torvaix/commit/c71082a92b64342b67de9c457f94da246884b0e4))
+* **landing:** animated workspace stories section ([2bd353d](https://github.com/Yashasm18/Torvaix/commit/2bd353d059a7aff042984e9d91497a60f78d2f81))
+* **landing:** replace workspace stories with a deadpan customer-reviews carousel ([bf83340](https://github.com/Yashasm18/Torvaix/commit/bf83340fc46f98323c1627b255d95004205bc751))
+
+
+### Bug Fixes
+
+* **agent:** require approval for every bash/python call; add Docker smoke test ([49c0211](https://github.com/Yashasm18/Torvaix/commit/49c02116b392d4024297363dfaad7a86150a3813))
+* keep the web app local-only, load .env, fix the Docker image's SQLite binding ([6b0897a](https://github.com/Yashasm18/Torvaix/commit/6b0897ab2f297b316e22c139254dd83186b7a3b2))
+* rebuild better-sqlite3 automatically after a Node version change ([94d1505](https://github.com/Yashasm18/Torvaix/commit/94d15055eae470b24f2fc4a0a2929986ac37dd11))
+* run approved commands exactly, stop whole process trees on timeout, resolve symlinks, validate API input ([dc535db](https://github.com/Yashasm18/Torvaix/commit/dc535db8b0dbefb129ab8a523cdf619104c57bbe))
+* show the command on approval cards, stop killing unrelated processes on startup ([0fcb35b](https://github.com/Yashasm18/Torvaix/commit/0fcb35ba7dd3666630bbaab1ce62f92a7888d6c7))
+* Stop really stops the agent; recover when Qdrant or Ollama start later ([2d33c3c](https://github.com/Yashasm18/Torvaix/commit/2d33c3c9ee34dfaa7a7a9236d188403f505da934))
+* upgrade Next.js past critical advisories, drop unused vulnerable packages, clearer model errors ([1fa4b66](https://github.com/Yashasm18/Torvaix/commit/1fa4b66bc00447c487aea2828f6fc148ca2766a6))
+* wire up automation events, make the graph indexer write, fix blank npm start, honest landing page ([0fd8dd2](https://github.com/Yashasm18/Torvaix/commit/0fd8dd2ec10b699a02410c9169d5c2a01c5d59e5))
+
+
+### Documentation
+
+* rewrite README, SECURITY and CONTRIBUTING to match the code ([17f08c3](https://github.com/Yashasm18/Torvaix/commit/17f08c37ce74f30d3704dd58cf42d18b2487f4b9))
+
+
+### Maintenance
+
+* clear known issues (vulnerable dev tools, uuid, build warnings, stale docs) ([d895686](https://github.com/Yashasm18/Torvaix/commit/d8956860ec8ad6f8b304e2c13daaeaab6a361262))
+
 ## [0.3.0](https://github.com/Yashasm18/Torvaix/compare/v0.2.0...v0.3.0) (2026-09-15)
 
 
