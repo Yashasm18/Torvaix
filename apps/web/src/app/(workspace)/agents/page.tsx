@@ -30,7 +30,7 @@ type AgentState = "online" | "degraded" | "offline" | "loading";
 
 const stateConfig: Record<AgentState, { color: string; label: string; dot: string }> = {
   online: { color: "text-green-400", label: "Online", dot: "bg-green-500 animate-pulse" },
-  degraded: { color: "text-amber-400", label: "Degraded", dot: "bg-amber-500" },
+  degraded: { color: "text-amber-400", label: "Limited", dot: "bg-amber-500" },
   offline: { color: "text-red-400", label: "Offline", dot: "bg-red-500" },
   loading: { color: "text-muted-foreground", label: "Checking…", dot: "bg-slate-500" },
 };
@@ -91,7 +91,7 @@ export default function AgentsPage() {
       name: "Orchestrator",
       icon: Bot,
       state: state(agentUp, agentUp && !status?.ollama && status?.model?.provider === "ollama"),
-      description: "Classifies each message, pulls relevant memories into context, and answers with the configured LLM.",
+      description: "Reads each message, decides whether to recall, remember, answer or use a tool, and replies with your chat model.",
       facts: [
         `Model: ${status?.model?.id ?? "—"}`,
         status?.model ? (status.model.provider === "ollama" ? (status.ollama ? "Ollama reachable" : "Ollama unreachable") : status.model.provider) : null,
@@ -104,7 +104,7 @@ export default function AgentsPage() {
       name: "Memory Agent",
       icon: Brain,
       state: state(agentUp && status?.sqlite, !status?.qdrant),
-      description: "Stores facts you share and retrieves them with hybrid keyword + vector search (BM25 and embeddings, fused with RRF).",
+      description: "Saves the facts you share and finds them again by keyword, plus by meaning when vector search is on.",
       facts: [
         counts ? `${counts.memories} memories in this workspace` : null,
         status ? `Vectors: ${status.qdrant ? "Qdrant" : "off (keyword only)"}` : null,
@@ -118,7 +118,7 @@ export default function AgentsPage() {
       name: "Tool Executor",
       icon: TerminalIcon,
       state: state(agentUp),
-      description: "Runs tool calls for dispatched tasks. Risky actions wait for your approval before they execute.",
+      description: "Runs tools for chats and tasks. Shell and Python commands wait for your approval first.",
       facts: [
         counts?.lastExecution
           ? `Last run: ${counts.lastExecution.action} (${counts.lastExecution.status}) ${formatRelativeTime(lastRunAt)}`
@@ -133,7 +133,7 @@ export default function AgentsPage() {
       name: "Automation Engine",
       icon: Workflow,
       state: state(agentUp),
-      description: "Runs scheduled and event-triggered workflows in the background, without overlapping runs.",
+      description: "Runs your automations in the background, on a schedule or when something happens.",
       facts: [counts ? `${counts.activeAutomations} active of ${counts.totalAutomations} automations` : null],
       href: "/automation",
       cta: "Manage automations",
@@ -152,13 +152,13 @@ export default function AgentsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Agents</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            The agents running inside your local Torvaix server, with live status.
+            The parts of Torvaix that do the work, and whether each one is running.
           </p>
         </div>
         <Link href="/tasks">
           <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg">
             <Zap className="w-4 h-4" />
-            Dispatch Task
+            New task
           </Button>
         </Link>
       </motion.div>

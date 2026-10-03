@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Search, Plus, Trash2, Edit2, Database } from "lucide-react";
-import { AppLogo } from "@/components/ui/app-logo";
 
 interface MemoryRow {
   id: string;
@@ -125,39 +124,41 @@ export default function MemoryDebugPage() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-background">
-      <div className="flex items-center gap-3 mb-8">
-        <AppLogo size={32} animated={false} />
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Memory Inspector</h1>
-          <p className="text-sm text-muted-foreground">Inspect and edit the agent server&apos;s memory store for this workspace</p>
-        </div>
+    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-background">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+          <Database className="w-6 h-6 text-primary" />
+          Memory inspector
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Store, search, edit and delete this workspace&apos;s memories directly, without going through chat.
+        </p>
       </div>
 
       {error && (
         <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-sm text-red-400">{error}</div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Left Column: Actions */}
-        <div className="space-y-8">
+        <div className="space-y-6">
 
           {/* Store Memory */}
           <div className="bg-surface border border-border p-6 rounded-2xl">
             <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-              <Plus className="w-5 h-5 text-primary" /> Store Memory
+              <Plus className="w-5 h-5 text-primary" /> Store a memory
             </h2>
             <form onSubmit={handleStore} className="space-y-4">
               <Textarea
-                placeholder="Memory content..."
+                placeholder="What should be remembered?"
                 value={storeContent}
                 onChange={e => setStoreContent(e.target.value)}
                 required
                 className="bg-background border-border"
               />
               <Input
-                placeholder="Source (e.g., Conversation #12)"
+                placeholder="Source (optional), e.g. Meeting notes"
                 value={storeSource}
                 onChange={e => setStoreSource(e.target.value)}
                 className="bg-background border-border"
@@ -171,18 +172,18 @@ export default function MemoryDebugPage() {
           {/* Search Memory */}
           <div className="bg-surface border border-border p-6 rounded-2xl">
             <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-              <Search className="w-5 h-5 text-blue-400" /> Search Memory
+              <Search className="w-5 h-5 text-blue-400" /> Search memories
             </h2>
             <form onSubmit={handleSearch} className="space-y-4">
               <Input
-                placeholder="Query..."
+                placeholder="Search for…"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 required
                 className="bg-background border-border"
               />
               <Button type="submit" variant="secondary" disabled={loading || !workspaceId} className="w-full bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Hybrid Search"}
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Search"}
               </Button>
             </form>
 
@@ -205,7 +206,7 @@ export default function MemoryDebugPage() {
           {/* Update Memory */}
           <div className="bg-surface border border-border p-6 rounded-2xl">
             <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-              <Edit2 className="w-5 h-5 text-orange-400" /> Update Memory
+              <Edit2 className="w-5 h-5 text-orange-400" /> Edit a memory
             </h2>
             <form onSubmit={handleUpdate} className="space-y-4">
               <Input
@@ -216,7 +217,7 @@ export default function MemoryDebugPage() {
                 className="bg-background border-border font-mono text-xs"
               />
               <Textarea
-                placeholder="New content..."
+                placeholder="New text for this memory"
                 value={updateContent}
                 onChange={e => setUpdateContent(e.target.value)}
                 required
@@ -234,7 +235,7 @@ export default function MemoryDebugPage() {
         <div className="bg-surface border border-border p-6 rounded-2xl flex flex-col h-[calc(100vh-8rem)]">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Database className="w-5 h-5 text-purple-400" /> All Memories ({memories.length})
+              <Database className="w-5 h-5 text-purple-400" /> All memories ({memories.length})
             </h2>
             <Button variant="ghost" size="sm" onClick={loadAllMemories} disabled={loading}>
               Refresh

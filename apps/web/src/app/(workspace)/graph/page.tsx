@@ -109,7 +109,7 @@ export default function GraphPage() {
     <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-background p-4 sm:p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[14rem]">
-          <h1 className="text-2xl font-bold tracking-tight mb-1">Knowledge Graph</h1>
+          <h1 className="text-2xl font-bold tracking-tight mb-1">Knowledge graph</h1>
           <p className="text-sm text-muted-foreground">
             Entities and relationships saved in {workspace?.name ?? 'this workspace'}.
           </p>
@@ -129,7 +129,7 @@ export default function GraphPage() {
       <div className="relative flex flex-1 min-h-0 gap-6 overflow-hidden">
         <div
           ref={containerRef}
-          className="flex-1 rounded-xl border border-border bg-[#0a0a0a] shadow-inner overflow-hidden relative"
+          className="flex-1 rounded-xl border border-border bg-surface shadow-inner overflow-hidden relative"
         >
           {loaded && graphData.nodes.length === 0 && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 p-6 text-center pointer-events-none">
@@ -142,7 +142,7 @@ export default function GraphPage() {
                 <>
                   <p className="text-sm font-medium text-foreground">Your knowledge graph is empty</p>
                   <p className="max-w-sm text-xs text-muted-foreground">
-                    Save a fact in chat (for example, &ldquo;Remember that I prefer PostgreSQL&rdquo;). With the Intelligence Layer running, entities and relationships appear here.
+                    Save a few related facts in chat (for example, &ldquo;Remember that I prefer PostgreSQL&rdquo;). The graph fills in as Torvaix finds connections between them, in more detail when the optional NLP service is running.
                   </p>
                 </>
               )}

@@ -1139,14 +1139,45 @@ export class MemoryStore {
     };
   }
 
+  /**
+   * Earlier versions seeded these with names and descriptions that overstated what they do
+   * ("deduplicate and strengthen connections" for a read-only report). Rename the ones the user
+   * hasn't edited; anything renamed or reworded by the user no longer matches and is left alone.
+   */
+  private renameLegacyDefaultAutomations(): void {
+    const renames: [string, string, string, string][] = [
+      [
+        'Autonomous Memory Consolidation',
+        'Review recent conversation memories, deduplicate, and strengthen important connections in the knowledge graph.',
+        'Weekly memory themes',
+        "Looks over this workspace's memories and reports the themes and likely duplicates it finds. It doesn't change anything.",
+      ],
+      [
+        'Workspace Knowledge Graph Indexer',
+        'When new knowledge is added, automatically analyze relationships and synthesize updated graph entity edges.',
+        'Keep the knowledge graph up to date',
+        'Each time a memory is saved, links related topics in the knowledge graph.',
+      ],
+      [
+        'Daily Research Digest',
+        'Every morning, search for new papers and updates on AI deployment and summarize key insights.',
+        'Daily research digest',
+        "An example agent task: every morning, search the web for a topic and summarise what's new. Paused until you edit the instructions and turn it on.",
+      ],
+    ];
+    const stmt = this.db.prepare('UPDATE automations SET name = ?, description = ? WHERE name = ? AND description = ?');
+    for (const [oldName, oldDescription, name, description] of renames) stmt.run(name, description, oldName, oldDescription);
+  }
+
   seedDefaultAutomations(workspaceId = 'default'): void {
+    this.renameLegacyDefaultAutomations();
     const existing = this.listAutomations(workspaceId);
     if (existing.length > 0) return;
 
     this.createAutomation({
       workspaceId,
-      name: 'Autonomous Memory Consolidation',
-      description: 'Review recent conversation memories, deduplicate, and strengthen important connections in the knowledge graph.',
+      name: 'Weekly memory themes',
+      description: 'Looks over this workspace\'s memories and reports the themes and likely duplicates it finds. It doesn\'t change anything.',
       triggerType: 'schedule',
       triggerConfig: { frequency: 'weekly', dayOfWeek: 0, timeOfDay: '02:00' },
       actionType: 'consolidate_memory',
@@ -1156,8 +1187,8 @@ export class MemoryStore {
 
     this.createAutomation({
       workspaceId,
-      name: 'Workspace Knowledge Graph Indexer',
-      description: 'When new knowledge is added, automatically analyze relationships and synthesize updated graph entity edges.',
+      name: 'Keep the knowledge graph up to date',
+      description: 'Each time a memory is saved, links related topics in the knowledge graph.',
       triggerType: 'event',
       triggerConfig: { eventName: 'MEMORY_CREATED' },
       actionType: 'synthesize_graph',
@@ -1167,12 +1198,12 @@ export class MemoryStore {
 
     this.createAutomation({
       workspaceId,
-      name: 'Daily Research Digest',
-      description: 'Every morning, search for new papers and updates on AI deployment and summarize key insights.',
+      name: 'Daily research digest',
+      description: 'An example agent task: every morning, search the web for a topic and summarise what\'s new. Paused until you edit the instructions and turn it on.',
       triggerType: 'schedule',
       triggerConfig: { frequency: 'daily', timeOfDay: '09:00' },
       actionType: 'agent_task',
-      actionConfig: { prompt: 'Perform a research search on latest AI operating system breakthroughs and summarize key developments.' },
+      actionConfig: { prompt: 'Search the web for the latest news about local AI models and summarise the three most important developments.' },
       status: 'paused'
     });
   }

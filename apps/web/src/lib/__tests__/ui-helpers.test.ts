@@ -13,8 +13,10 @@ describe("describeTrigger", () => {
   })
 
   it("describes event and manual triggers", () => {
-    expect(describeTrigger("event", { eventName: "MEMORY_CREATED", filterPattern: "React" })).toBe('Event: MEMORY_CREATED ("React")')
-    expect(describeTrigger("manual")).toBe("Manual / On-Demand")
+    expect(describeTrigger("event", { eventName: "MEMORY_CREATED", filterPattern: "React" })).toBe('When a memory is saved containing "React"')
+    expect(describeTrigger("event", { eventName: "AGENT_FINISHED" })).toBe("When the agent finishes a run")
+    expect(describeTrigger("event", { eventName: "SOMETHING_NEW" })).toBe("When SOMETHING_NEW")
+    expect(describeTrigger("manual")).toBe("Manual")
   })
 })
 

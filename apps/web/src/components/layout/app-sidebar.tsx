@@ -14,6 +14,7 @@ import {
   Search,
   Plus,
   Database,
+  Share2,
   MessageSquare,
   Loader2,
   Activity,
@@ -49,6 +50,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { isActiveRoute, PAGE_TITLES } from "@/lib/nav"
 import { AppLogo } from "@/components/ui/app-logo"
 
 const ACTIVITY_REFRESH_MS = 30_000
@@ -66,6 +69,7 @@ export function AppSidebar() {
   const [memoryOpen, setMemoryOpen] = React.useState(false)
 
   const systemStatus = useSystemStatus()
+  const pathname = usePathname()
   const [activity, setActivity] = React.useState<WorkspaceActivity | null>(null)
 
   React.useEffect(() => {
@@ -108,16 +112,16 @@ export function AppSidebar() {
   }
 
   const navItems = [
-    { title: "Chat", icon: MessageSquare, href: "/chat" },
-    { title: "Workspace", icon: Home, href: "/workspace" },
-    { title: "Projects", icon: Folder, href: "/projects" },
-    { title: "Knowledge", icon: BookOpen, href: "/knowledge" },
-    { title: "Graph", icon: Database, href: "/graph" },
-    { title: "Agents", icon: Bot, href: "/agents" },
-    { title: "Tasks", icon: CheckSquare, href: "/tasks" },
-    { title: "Intelligence", icon: Cpu, href: "/intelligence" },
-    { title: "Automation", icon: Zap, href: "/automation" },
-  ]
+    { icon: MessageSquare, href: "/chat" },
+    { icon: Home, href: "/workspace" },
+    { icon: Folder, href: "/projects" },
+    { icon: BookOpen, href: "/knowledge" },
+    { icon: Share2, href: "/graph" },
+    { icon: Bot, href: "/agents" },
+    { icon: CheckSquare, href: "/tasks" },
+    { icon: Zap, href: "/automation" },
+    { icon: Cpu, href: "/intelligence" },
+  ].map((item) => ({ ...item, title: PAGE_TITLES[item.href] }))
 
   return (
     <Sidebar className="border-r border-sidebar-border bg-sidebar-background">
@@ -155,13 +159,13 @@ export function AppSidebar() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Universal Search Bar */}
+        {/* Opens the page switcher (⌘K) */}
         <button
           onClick={openCommandPalette}
           className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground bg-sidebar-accent/50 hover:bg-sidebar-accent border border-sidebar-border rounded-md transition-colors"
         >
           <Search className="h-4 w-4" />
-          <span className="flex-1 text-left">Search Everything...</span>
+          <span className="flex-1 text-left">Go to…</span>
           <kbd className="hidden md:inline-flex h-5 items-center gap-1 rounded border border-sidebar-border bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
             <span className="text-xs">⌘</span>K
           </kbd>
@@ -175,7 +179,12 @@ export function AppSidebar() {
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <Link href={item.href} className="w-full">
-                    <SidebarMenuButton tooltip={item.title} className="flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
+                    <SidebarMenuButton
+                      tooltip={item.title}
+                      isActive={isActiveRoute(pathname, item.href)}
+                      aria-current={isActiveRoute(pathname, item.href) ? "page" : undefined}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium"
+                    >
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
                     </SidebarMenuButton>
@@ -189,23 +198,23 @@ export function AppSidebar() {
           {/* Debug Tools (Phase 2A Verification) */}
           <SidebarGroup>
             <SidebarGroupLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">
-              Debug & Verification
+              Developer tools
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
                   <Link href="/debug/memory" className="w-full">
-                    <SidebarMenuButton tooltip="Memory Inspector">
+                    <SidebarMenuButton tooltip={PAGE_TITLES["/debug/memory"]} isActive={isActiveRoute(pathname, "/debug/memory")} className="data-[active=true]:bg-primary/10 data-[active=true]:text-primary">
                       <Database className="w-4 h-4" />
-                      <span>Memory Inspector</span>
+                      <span>{PAGE_TITLES["/debug/memory"]}</span>
                     </SidebarMenuButton>
                   </Link>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
                   <Link href="/debug/context" className="w-full">
-                    <SidebarMenuButton tooltip="Context Debugger">
+                    <SidebarMenuButton tooltip={PAGE_TITLES["/debug/context"]} isActive={isActiveRoute(pathname, "/debug/context")} className="data-[active=true]:bg-primary/10 data-[active=true]:text-primary">
                       <Activity className="w-4 h-4" />
-                      <span>Context Debugger</span>
+                      <span>{PAGE_TITLES["/debug/context"]}</span>
                     </SidebarMenuButton>
                   </Link>
                 </SidebarMenuItem>
@@ -213,22 +222,20 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
 
-          {/* System Status Indicators */}
-          <div className="px-4 py-4 mt-auto">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">System Status</h3>
-            <div className="space-y-2 text-xs">
-              <StatusRow label="Agent server" ok={systemStatus?.agent} />
-              <StatusRow label="Memory (SQLite)" ok={systemStatus?.sqlite} />
-              <StatusRow label="Vector (Qdrant)" ok={systemStatus?.qdrant} />
-              <StatusRow label="LLM (Ollama)" ok={systemStatus?.ollama} />
-            </div>
-          </div>
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border flex flex-col gap-4">
+        {/* Services: compact, and in the footer so it is never scrolled out of view */}
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-2 text-xs" aria-label="Service status">
+          <StatusDot label="Agent" title="Agent server" ok={systemStatus?.agent} />
+          <StatusDot label="Model" title="Ollama (chat model)" ok={systemStatus?.ollama} />
+          <StatusDot label="Database" title="SQLite" ok={systemStatus?.sqlite} />
+          <StatusDot label="Vectors" title="Qdrant (optional vector search)" ok={systemStatus?.qdrant} optional />
+        </div>
+
         {/* Workspace Activity */}
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Workspace Activity</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Activity</span>
           <div className="flex flex-col gap-1">
             <Link href="/automation" className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-sidebar-accent group">
               <div className="flex items-center gap-2">
@@ -267,18 +274,19 @@ export function AppSidebar() {
 }
 
 
-function StatusRow({ label, ok }: { label: string; ok: boolean | undefined }) {
+/**
+ * One service in the footer. An optional service that is off is shown as neutral, not as an
+ * error: Qdrant not running is a normal setup, and red made it look broken.
+ */
+function StatusDot({ label, title, ok, optional = false }: { label: string; title: string; ok: boolean | undefined; optional?: boolean }) {
+  const state = ok === undefined ? "checking" : ok ? "on" : optional ? "off" : "down"
+  const dot = { checking: "bg-muted-foreground/50", on: "bg-green-500", off: "bg-muted-foreground/40", down: "bg-red-500" }[state]
+  const text = { checking: "checking…", on: "running", off: "not running (optional)", down: "not reachable" }[state]
   return (
-    <div className="flex justify-between items-center">
-      <span className="text-muted-foreground">{label}</span>
-      {ok === undefined ? (
-        <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
-      ) : (
-        <span className={`flex items-center gap-1 ${ok ? "text-green-500" : "text-red-500"}`}>
-          <div className={`w-1.5 h-1.5 rounded-full ${ok ? "bg-green-500" : "bg-red-500"}`} />
-          {ok ? "Connected" : "Offline"}
-        </span>
-      )}
+    <div className="flex items-center gap-1.5 min-w-0" title={`${title}: ${text}`}>
+      {ok === undefined ? <Loader2 className="w-2.5 h-2.5 animate-spin text-muted-foreground shrink-0" /> : <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />}
+      <span className={`truncate ${state === "down" ? "text-red-400" : "text-muted-foreground"}`}>{label}</span>
+      <span className="sr-only">{text}</span>
     </div>
   )
 }

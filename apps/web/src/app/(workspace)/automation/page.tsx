@@ -115,10 +115,10 @@ const statusConfig: Record<string, { dot: string; text: string; label: string; b
 };
 
 const actionLabels: Record<string, { label: string; icon: any; color: string }> = {
-  consolidate_memory: { label: "Memory Consolidation", icon: Sparkles, color: "text-purple-400 bg-purple-500/10 border-purple-500/20" },
-  synthesize_graph: { label: "Graph Indexer", icon: GitBranch, color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20" },
-  agent_task: { label: "Autonomous Agent Task", icon: Cpu, color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
-  clean_stale_memories: { label: "Memory Health Report", icon: Activity, color: "text-amber-400 bg-amber-500/10 border-amber-500/20" },
+  consolidate_memory: { label: "Find memory themes", icon: Sparkles, color: "text-purple-400 bg-purple-500/10 border-purple-500/20" },
+  synthesize_graph: { label: "Update knowledge graph", icon: GitBranch, color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20" },
+  agent_task: { label: "Agent task", icon: Cpu, color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
+  clean_stale_memories: { label: "Memory health report", icon: Activity, color: "text-amber-400 bg-amber-500/10 border-amber-500/20" },
   mcp_tool: { label: "MCP Tool Execution", icon: Terminal, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
 };
 
@@ -352,20 +352,20 @@ export default function AutomationPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                Autonomous Background Automation
+                Automations
               </h1>
               {systemStatus && !systemStatus.agent ? (
                 <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-red-500/10 border border-red-500/20 text-red-400">
-                  Engine Offline
+                  Agent offline
                 </span>
               ) : (
                 <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-primary/10 border border-primary/20 text-primary">
-                  Engine Active
+                  Running
                 </span>
               )}
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              Event-driven automations, scheduled background tasks, and agent workflow orchestration.
+              Work that runs by itself: on a schedule, when something happens in this workspace, or when you start it.
             </p>
           </div>
 
@@ -378,7 +378,7 @@ export default function AutomationPage() {
               className="gap-1.5 border-border hover:bg-surface"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-              Sync
+              Refresh
             </Button>
 
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -386,25 +386,25 @@ export default function AutomationPage() {
                 render={
                   <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg shadow-sm">
                     <Plus className="w-4 h-4" />
-                    New Automation
+                    New automation
                   </Button>
                 }
               />
-              <DialogContent className="max-w-xl bg-surface border-border">
+              <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto bg-surface border-border">
                 <DialogHeader>
-                  <DialogTitle className="text-xl font-bold">Create Autonomous Workflow</DialogTitle>
+                  <DialogTitle className="text-xl font-bold">New automation</DialogTitle>
                   <DialogDescription>
-                    Configure an autonomous agent workflow triggered by schedules, events, or on-demand execution.
+                    Choose what should run and when. You can pause or delete it at any time.
                   </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={handleCreateAutomation} className="space-y-4 pt-2">
                   <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Workflow Name</label>
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Name</label>
                     <input
                       type="text"
                       required
-                      placeholder="e.g., Nightly Knowledge Graph Indexer"
+                      placeholder="e.g. Weekly summary"
                       value={newName}
                       onChange={e => setNewName(e.target.value)}
                       className="w-full mt-1.5 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 text-foreground"
@@ -414,7 +414,7 @@ export default function AutomationPage() {
                   <div>
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</label>
                     <textarea
-                      placeholder="Explain what this automation accomplishes..."
+                      placeholder="What is this automation for?"
                       value={newDescription}
                       onChange={e => setNewDescription(e.target.value)}
                       rows={2}
@@ -424,29 +424,29 @@ export default function AutomationPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Trigger Type</label>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">When it runs</label>
                       <select
                         value={newTriggerType}
                         onChange={e => setNewTriggerType(e.target.value as any)}
                         className="w-full mt-1.5 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                       >
-                        <option value="schedule">Schedule (Time/Interval)</option>
-                        <option value="event">Event-Driven (Event Bus)</option>
-                        <option value="manual">Manual / On-Demand</option>
+                        <option value="schedule">On a schedule</option>
+                        <option value="event">When something happens</option>
+                        <option value="manual">Only when I run it</option>
                       </select>
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Action Type</label>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">What it does</label>
                       <select
                         value={newActionType}
                         onChange={e => setNewActionType(e.target.value as any)}
                         className="w-full mt-1.5 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                       >
-                        <option value="consolidate_memory">Memory Consolidation</option>
-                        <option value="synthesize_graph">Knowledge Graph Indexer (writes theme links to the graph)</option>
-                        <option value="agent_task">Autonomous Agent Task</option>
-                        <option value="clean_stale_memories">Memory Health Report (read-only)</option>
+                        <option value="consolidate_memory">Find memory themes (read-only report)</option>
+                        <option value="synthesize_graph">Update the knowledge graph from memory themes</option>
+                        <option value="agent_task">Run an agent task</option>
+                        <option value="clean_stale_memories">Memory health report (read-only)</option>
                       </select>
                     </div>
                   </div>
@@ -505,7 +505,7 @@ export default function AutomationPage() {
 
                       {(newScheduleFreq === "daily" || newScheduleFreq === "weekly") && (
                         <div>
-                          <label className="text-xs text-muted-foreground">Target Time (24h format)</label>
+                          <label className="text-xs text-muted-foreground">Time</label>
                           <input
                             type="time"
                             value={newTimeOfDay}
@@ -520,23 +520,23 @@ export default function AutomationPage() {
                   {newTriggerType === "event" && (
                     <div className="p-3.5 rounded-lg border border-border/60 bg-background/50 space-y-3">
                       <div>
-                        <label className="text-xs font-medium text-muted-foreground">Bus Event Trigger</label>
+                        <label className="text-xs font-medium text-muted-foreground">Event</label>
                         <select
                           value={newEventName}
                           onChange={e => setNewEventName(e.target.value)}
                           className="w-full mt-1.5 px-3 py-1.5 bg-background border border-border rounded-md text-sm text-foreground"
                         >
-                          <option value="MEMORY_CREATED">MEMORY_CREATED (a memory is saved)</option>
-                          <option value="MEMORY_UPDATED">MEMORY_UPDATED (a memory is edited)</option>
-                          <option value="MEMORY_DELETED">MEMORY_DELETED (a memory is deleted)</option>
-                          <option value="TASK_CREATED">TASK_CREATED (a task is dispatched from Tasks)</option>
-                          <option value="TASK_COMPLETED">TASK_COMPLETED (a dispatched task finishes)</option>
-                          <option value="AGENT_STARTED">AGENT_STARTED (a chat or task run starts)</option>
-                          <option value="AGENT_FINISHED">AGENT_FINISHED (a chat or task run finishes)</option>
+                          <option value="MEMORY_CREATED">A memory is saved</option>
+                          <option value="MEMORY_UPDATED">A memory is edited</option>
+                          <option value="MEMORY_DELETED">A memory is deleted</option>
+                          <option value="TASK_CREATED">A task is started from the Tasks page</option>
+                          <option value="TASK_COMPLETED">A task from the Tasks page finishes</option>
+                          <option value="AGENT_STARTED">The agent starts a chat reply or task</option>
+                          <option value="AGENT_FINISHED">The agent finishes a chat reply or task</option>
                         </select>
                       </div>
                       <div>
-                        <label className="text-xs font-medium text-muted-foreground">Filter Pattern / Keyword (Optional)</label>
+                        <label className="text-xs font-medium text-muted-foreground">Only when it contains (optional)</label>
                         <input
                           type="text"
                           placeholder="e.g., React, TypeScript, Architecture"
@@ -551,10 +551,10 @@ export default function AutomationPage() {
                   {/* Agent Task prompt input */}
                   {newActionType === "agent_task" && (
                     <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Agent Task Prompt</label>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Instructions for the agent</label>
                       <textarea
                         required
-                        placeholder="What autonomous task should the agent execute when triggered?"
+                        placeholder="What should the agent do each time this runs?"
                         value={newPrompt}
                         onChange={e => setNewPrompt(e.target.value)}
                         rows={3}
@@ -571,7 +571,7 @@ export default function AutomationPage() {
                       Cancel
                     </Button>
                     <Button type="submit" disabled={creating} className="bg-primary text-primary-foreground">
-                      {creating ? "Deploying..." : "Deploy Automation"}
+                      {creating ? "Creating…" : "Create automation"}
                     </Button>
                   </div>
                 </form>
@@ -584,7 +584,7 @@ export default function AutomationPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 mb-2">
           <div className="bg-surface border border-border/60 rounded-xl p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Workflows</p>
+              <p className="text-xs font-medium text-muted-foreground">Automations</p>
               <p className="text-xl font-bold text-foreground mt-0.5">{stats?.totalAutomations || automations.length}</p>
             </div>
             <div className="p-2.5 rounded-lg bg-primary/10 text-primary border border-primary/20">
@@ -594,7 +594,7 @@ export default function AutomationPage() {
 
           <div className="bg-surface border border-border/60 rounded-xl p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Active Loops</p>
+              <p className="text-xs font-medium text-muted-foreground">Active</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <p className="text-xl font-bold text-emerald-400">{stats?.activeCount ?? automations.filter(a => a.status === "active").length}</p>
@@ -607,7 +607,7 @@ export default function AutomationPage() {
 
           <div className="bg-surface border border-border/60 rounded-xl p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Total Executions</p>
+              <p className="text-xs font-medium text-muted-foreground">Total runs</p>
               <p className="text-xl font-bold text-foreground mt-0.5">{stats?.totalRuns || automations.reduce((acc, a) => acc + (a.runCount || 0), 0)}</p>
             </div>
             <div className="p-2.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
@@ -617,7 +617,7 @@ export default function AutomationPage() {
 
           <div className="bg-surface border border-border/60 rounded-xl p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-muted-foreground">Success Rate</p>
+              <p className="text-xs font-medium text-muted-foreground">Success rate</p>
               <p className="text-xl font-bold text-emerald-400 mt-0.5">{successRate === null ? "—" : `${successRate}%`}</p>
             </div>
             <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
@@ -671,10 +671,10 @@ export default function AutomationPage() {
         <div className="flex items-center gap-1.5 bg-surface/70 border border-border/60 rounded-lg p-1 w-full sm:w-auto">
           {(
             [
-              { id: "all", label: "All Triggers" },
+              { id: "all", label: "All" },
               { id: "schedule", label: "Scheduled" },
-              { id: "event", label: "Event-Driven" },
-              { id: "manual", label: "On-Demand" },
+              { id: "event", label: "Event" },
+              { id: "manual", label: "Manual" },
             ] as const
           ).map(tab => (
             <button
@@ -695,7 +695,7 @@ export default function AutomationPage() {
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search automations..."
+            placeholder="Search automations…"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 bg-surface/80 border border-border/60 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-primary/40 text-foreground"
@@ -717,11 +717,11 @@ export default function AutomationPage() {
             </div>
             <h3 className="font-semibold text-foreground">No automations found</h3>
             <p className="text-xs text-muted-foreground max-w-sm">
-              {searchQuery ? "No workflows match your search query." : "Deploy your first autonomous workflow to automate workspace operations."}
+              {searchQuery ? "No automations match your search." : "Create one to run an agent task or memory maintenance without asking each time."}
             </p>
             <Button onClick={() => setIsCreateOpen(true)} className="mt-2 bg-primary text-primary-foreground gap-1.5 text-xs">
               <Plus className="w-3.5 h-3.5" />
-              Create Automation
+              New automation
             </Button>
           </div>
         ) : (
@@ -745,12 +745,12 @@ export default function AutomationPage() {
                   className="bg-surface border border-border rounded-xl p-5 hover:border-primary/40 transition-all duration-200 shadow-sm group"
                 >
                   {/* Top Row */}
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <div className="flex items-start gap-3.5">
+                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 md:gap-4 mb-3">
+                    <div className="flex items-start gap-3.5 min-w-0">
                       <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 group-hover:scale-105 transition-transform">
                         <Zap className="w-5 h-5" />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="flex items-center gap-2.5 flex-wrap">
                           <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
                             {automation.name}
@@ -766,13 +766,13 @@ export default function AutomationPage() {
                         </div>
 
                         <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                          {automation.description || "Autonomous workflow for workspace operations."}
+                          {automation.description || "No description."}
                         </p>
                       </div>
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                       <Button
                         variant="outline"
                         size="sm"
@@ -785,7 +785,7 @@ export default function AutomationPage() {
                         ) : (
                           <Play className="w-3.5 h-3.5 text-emerald-400" />
                         )}
-                        <span>{isTriggering ? "Running..." : "Run Now"}</span>
+                        <span>{isTriggering ? "Running…" : "Run now"}</span>
                       </Button>
 
                       <Button
@@ -859,11 +859,11 @@ export default function AutomationPage() {
 
       {/* Execution Logs Drawer / Modal */}
       <Dialog open={!!selectedWorkflowForLogs} onOpenChange={open => !open && setSelectedWorkflowForLogs(null)}>
-        <DialogContent className="max-w-2xl bg-surface border-border max-h-[85vh] flex flex-col">
+        <DialogContent className="sm:max-w-2xl bg-surface border-border max-h-[85vh] flex flex-col">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary" />
-              <DialogTitle className="text-lg font-bold">Execution History: {selectedWorkflowForLogs?.name}</DialogTitle>
+              <DialogTitle className="text-lg font-bold">Run history: {selectedWorkflowForLogs?.name}</DialogTitle>
             </div>
             <DialogDescription>
               Audit trail of background runs and execution outputs.
@@ -874,11 +874,11 @@ export default function AutomationPage() {
             {logsLoading ? (
               <div className="py-12 flex flex-col items-center justify-center gap-2 text-muted-foreground">
                 <RefreshCw className="w-6 h-6 animate-spin text-primary" />
-                <span className="text-xs">Loading execution logs...</span>
+                <span className="text-xs">Loading runs…</span>
               </div>
             ) : logs.length === 0 ? (
               <div className="py-12 text-center text-muted-foreground">
-                <p className="text-sm">No execution logs recorded yet.</p>
+                <p className="text-sm">This automation hasn&apos;t run yet.</p>
                 <p className="text-xs text-muted-foreground/70 mt-1">Run the workflow or wait for the scheduler to trigger it.</p>
               </div>
             ) : (

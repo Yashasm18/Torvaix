@@ -99,9 +99,9 @@ export default function IntelligencePage() {
         transition={{ duration: 0.3 }}
       >
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Intelligence</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Models</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Local models installed in Ollama and the model powering your workspace.
+            The models installed in Ollama, and the one Torvaix is using for chat.
           </p>
         </div>
         <Button onClick={load} disabled={loading} variant="outline" className="gap-2 rounded-lg border-border">

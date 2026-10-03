@@ -13,7 +13,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Send, User, Loader2, Shield, Search, Database, BookOpen, GitCompare, Mail, CheckCircle2, Paperclip, BrainCircuit, Terminal, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X } from "lucide-react";
+import { Send, User, Loader2, Shield, Search, Database, BookOpen, CheckCircle2, Paperclip, BrainCircuit, Terminal, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X } from "lucide-react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { useSystemStatus } from "@/hooks/use-system-status";
 import { useMemoryContextStore, type RetrievedMemory } from "@/store/memory-context-store";
@@ -274,13 +274,17 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     }
   }, [streamData, messages]);
 
+  const messageBox = useRef<HTMLTextAreaElement>(null);
+
   const quickActions = [
-    { icon: Terminal, text: "List files in directory", command: "ls -la" },
-    { icon: Search, text: "Search Deep Web", command: "Search for latest AI news" },
-    { icon: BookOpen, text: "Read Documentation", command: "Read the project documentation" },
-    { icon: Database, text: "Query Memory", command: "Recall what we discussed about databases" },
-    { icon: GitCompare, text: "Compare Models", command: "Compare local models vs cloud" },
-    { icon: Mail, text: "Draft Email", command: "Draft a project update email" },
+    // Each of these is something Torvaix can actually do, phrased so the router sends it to
+    // the right place. "Remember that " is left open for the user to finish.
+    { icon: Database, text: "Remember a fact", hint: "Saved to this workspace", command: "Remember that " },
+    { icon: BrainCircuit, text: "What do you remember?", hint: "Recall saved memories", command: "What do you remember about me?" },
+    { icon: Search, text: "Search the web", hint: "Live results", command: "Search the web for the latest news about local AI models" },
+    { icon: Terminal, text: "List workspace files", hint: "Runs after you approve", command: "List the files in this workspace folder" },
+    { icon: BookOpen, text: "Create a file", hint: "Written to the workspace", command: "Create a file named notes.md with a short to-do list" },
+    { icon: Cpu, text: "Summarise this repo", hint: "Scans the workspace folder", command: "Scan this repo and summarise its structure" },
   ];
 
   const banner = notice ?? (error ? `Couldn't get a response: ${friendlyError(error)}` : null);
@@ -381,9 +385,9 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
             <div className="w-20 h-20 bg-primary/10 border border-primary/20 text-primary rounded-2xl flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(0,212,170,0.15)]">
               <AppLogo size={40} animated={true} />
             </div>
-            <h2 className="text-2xl font-bold text-foreground mb-4">Start Your AI Journey</h2>
+            <h2 className="text-2xl font-bold text-foreground mb-3">What can I help with?</h2>
             <p className="text-muted-foreground mb-8 max-w-md">
-              I am your AI Operating System. I run locally and privately. How can I help you today?
+              Ask a question, or pick a starting point. Anything you ask me to remember stays in this workspace.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-w-3xl w-full">
               {quickActions.map((action, index) => (
@@ -392,15 +396,23 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                   className="flex items-center gap-3 p-4 bg-surface border border-border rounded-lg hover:bg-muted hover:border-primary/50 transition-all text-left group shadow-sm"
                   onClick={() => {
                     setInput(action.command);
+                    // Put the cursor in the box so the prompt can be sent or finished straight away.
+                    requestAnimationFrame(() => {
+                      const box = messageBox.current;
+                      if (!box) return;
+                      box.focus();
+                      box.setSelectionRange(action.command.length, action.command.length);
+                    });
                   }}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
                   whileHover={{ scale: 1.02 }}
                 >
-                  <action.icon className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-                  <span className="text-sm text-foreground transition-colors">
-                    {action.text}
+                  <action.icon className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-foreground">{action.text}</span>
+                    <span className="block text-xs text-muted-foreground truncate">{action.hint}</span>
                   </span>
                 </motion.button>
               ))}
@@ -620,6 +632,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
               onChange={handleInputChange}
               placeholder="Ask Torvaix..."
               aria-label="Message"
+              ref={messageBox}
               className="flex-1 min-h-[60px] max-h-48 resize-none bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 px-2 py-2"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

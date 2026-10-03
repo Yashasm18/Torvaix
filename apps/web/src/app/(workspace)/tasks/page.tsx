@@ -75,7 +75,6 @@ export default function TasksPage() {
   // Dispatch modal
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
   const [instructions, setInstructions] = useState("");
-  const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
   const [dispatching, setDispatching] = useState(false);
   const [lastDispatchedOutput, setLastDispatchedOutput] = useState<string | null>(null);
 
@@ -172,7 +171,6 @@ export default function TasksPage() {
         body: JSON.stringify({
           instructions: instructions.trim(),
           workspaceId,
-          priority,
         }),
       });
 
@@ -226,10 +224,10 @@ export default function TasksPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Terminal className="w-6 h-6 text-primary" />
-            Task & Execution Operations
+            Tasks
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Real-time tool executions, audit logs, and gated security clearances.
+            Every tool the agent has run, its output, and commands waiting for your approval.
           </p>
         </div>
 
@@ -249,7 +247,7 @@ export default function TasksPage() {
             className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg"
           >
             <Play className="w-4 h-4" />
-            Dispatch Task
+            New task
           </Button>
 
           <Dialog open={isNewTaskOpen} onOpenChange={setIsNewTaskOpen}>
@@ -257,41 +255,26 @@ export default function TasksPage() {
               <DialogHeader>
                 <DialogTitle className="text-foreground flex items-center gap-2">
                   <Play className="w-5 h-5 text-primary" />
-                  Dispatch Autonomous Task
+                  New task
                 </DialogTitle>
                 <DialogDescription className="text-muted-foreground">
-                  Send execution instructions directly to the Torvaix State Graph Orchestrator.
+                  Describe what you want done. The agent runs it now, and shell or Python commands wait for your approval.
                 </DialogDescription>
               </DialogHeader>
 
               <form onSubmit={handleDispatchTask} className="space-y-4 pt-2">
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
-                    Instructions / Prompt
+                    Instructions
                   </label>
                   <textarea
                     required
                     rows={4}
                     value={instructions}
                     onChange={(e) => setInstructions(e.target.value)}
-                    placeholder="e.g. Inspect the project directory, run repo_scan, or create a python script that tests memory..."
+                    placeholder="e.g. Create a file named report.md that summarises the files in this workspace."
                     className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
-                    Priority
-                  </label>
-                  <select
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value as any)}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
-                  >
-                    <option value="low">Low Priority</option>
-                    <option value="medium">Medium Priority</option>
-                    <option value="high">High Priority (Urgent)</option>
-                  </select>
                 </div>
 
                 {lastDispatchedOutput && (
@@ -309,7 +292,7 @@ export default function TasksPage() {
                     Close
                   </Button>
                   <Button type="submit" disabled={dispatching} className="bg-primary">
-                    {dispatching ? "Executing..." : "Run Task"}
+                    {dispatching ? "Running…" : "Run task"}
                   </Button>
                 </div>
               </form>
@@ -338,11 +321,11 @@ export default function TasksPage() {
             >
               <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm mb-3">
                 <Shield className="w-5 h-5 text-amber-400 animate-pulse" />
-                <span>Security Clearance Required ({pendingActions.length} Pending)</span>
+                <span>{pendingActions.length === 1 ? "1 command is" : `${pendingActions.length} commands are`} waiting for your approval</span>
               </div>
               <p className="text-xs text-muted-foreground mb-4">
-                The Execution Agent attempted an operation requiring human authorization.
-                Review the command parameters below before approving execution.
+                These run on your machine with your permissions. Read each one before you approve it;
+                an approval covers that one command only.
               </p>
 
               <div className="flex flex-col gap-3">
@@ -406,7 +389,7 @@ export default function TasksPage() {
           <div className="bg-surface/80 border border-border/80 rounded-xl p-4 flex flex-col">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5 font-mono">
               <Terminal className="w-3.5 h-3.5 text-primary" />
-              Total Tool Runs
+              Tool runs
             </span>
             <span className="text-2xl font-bold text-foreground mt-1">
               {executions.length}
@@ -416,7 +399,7 @@ export default function TasksPage() {
           <div className="bg-surface/80 border border-border/80 rounded-xl p-4 flex flex-col">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5 font-mono">
               <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
-              Successful
+              Succeeded
             </span>
             <span className="text-2xl font-bold text-green-400 mt-1">
               {executions.filter((e) => e.status === "success").length}
@@ -426,7 +409,7 @@ export default function TasksPage() {
           <div className="bg-surface/80 border border-border/80 rounded-xl p-4 flex flex-col">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5 font-mono">
               <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-              Errors
+              Failed
             </span>
             <span className="text-2xl font-bold text-red-400 mt-1">
               {executions.filter((e) => e.status === "error").length}
@@ -436,7 +419,7 @@ export default function TasksPage() {
           <div className="bg-surface/80 border border-border/80 rounded-xl p-4 flex flex-col">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5 font-mono">
               <Shield className="w-3.5 h-3.5 text-amber-400" />
-              Pending Gated
+              Awaiting approval
             </span>
             <span className="text-2xl font-bold text-amber-400 mt-1">
               {pendingActions.length}
@@ -456,7 +439,7 @@ export default function TasksPage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            All Logs ({executions.length})
+            All ({executions.length})
           </button>
           <button
             onClick={() => setSelectedFilter("success")}
@@ -466,7 +449,7 @@ export default function TasksPage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Success ({executions.filter((e) => e.status === "success").length})
+            Succeeded ({executions.filter((e) => e.status === "success").length})
           </button>
           <button
             onClick={() => setSelectedFilter("error")}
@@ -476,7 +459,7 @@ export default function TasksPage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Errors ({executions.filter((e) => e.status === "error").length})
+            Failed ({executions.filter((e) => e.status === "error").length})
           </button>
         </div>
 
@@ -484,7 +467,7 @@ export default function TasksPage() {
           <Search className="w-4 h-4 text-muted-foreground shrink-0" />
           <input
             type="text"
-            placeholder="Search executions by tool, command, output..."
+            placeholder="Search by tool, command or output…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
@@ -497,13 +480,13 @@ export default function TasksPage() {
         {filteredLogs.length === 0 ? (
           <div className="text-center py-16 border border-dashed border-border rounded-xl">
             <Terminal className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
-            <p className="text-sm text-muted-foreground">No execution logs found.</p>
+            <p className="text-sm text-muted-foreground">No tool runs yet.</p>
             <Button
               variant="link"
               onClick={() => setIsNewTaskOpen(true)}
               className="text-primary text-xs mt-1"
             >
-              Dispatch an execution task
+              Start a task
             </Button>
           </div>
         ) : (

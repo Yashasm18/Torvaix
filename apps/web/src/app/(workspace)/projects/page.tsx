@@ -239,7 +239,7 @@ export default function ProjectsPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md bg-card border-border">
+        <DialogContent className="sm:max-w-md bg-card border-border">
           <form onSubmit={handleCreate} className="space-y-4">
             <DialogHeader>
               <DialogTitle>New Project</DialogTitle>

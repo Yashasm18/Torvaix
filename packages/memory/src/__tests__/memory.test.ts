@@ -523,8 +523,33 @@ describe('MemoryStore — Automation Workflows & Logs', () => {
     store.seedDefaultAutomations(wsId);
     const seeded = store.listAutomations(wsId);
     expect(seeded.length).toBe(3);
-    expect(seeded.some(s => s.name.includes('Consolidation'))).toBe(true);
-    expect(seeded.some(s => s.name.includes('Graph Indexer'))).toBe(true);
+    expect(seeded.map(s => s.name).sort()).toEqual(['Daily research digest', 'Keep the knowledge graph up to date', 'Weekly memory themes']);
+    // The example agent task must not start running by itself.
+    expect(seeded.find(s => s.name === 'Daily research digest')?.status).toBe('paused');
+  });
+
+  it('renames untouched legacy default automations and leaves edited ones alone', () => {
+    const wsId = store.createWorkspace('Legacy WS');
+    const untouched = store.createAutomation({
+      workspaceId: wsId,
+      name: 'Autonomous Memory Consolidation',
+      description: 'Review recent conversation memories, deduplicate, and strengthen important connections in the knowledge graph.',
+      triggerType: 'manual', triggerConfig: {}, actionType: 'consolidate_memory', actionConfig: {}, status: 'active',
+    });
+    const edited = store.createAutomation({
+      workspaceId: wsId,
+      name: 'Workspace Knowledge Graph Indexer',
+      description: 'My own description',
+      triggerType: 'manual', triggerConfig: {}, actionType: 'synthesize_graph', actionConfig: {}, status: 'active',
+    });
+
+    store.seedDefaultAutomations(wsId); // workspace isn't empty: only the rename runs
+
+    expect(store.listAutomations(wsId).length).toBe(2);
+    expect(store.getAutomation(untouched.id)?.name).toBe('Weekly memory themes');
+    expect(store.getAutomation(untouched.id)?.description).toMatch(/doesn't change anything/);
+    expect(store.getAutomation(edited.id)?.name).toBe('Workspace Knowledge Graph Indexer');
+    expect(store.getAutomation(edited.id)?.description).toBe('My own description');
   });
 });
 

@@ -9,15 +9,27 @@ export interface TriggerConfigLike {
   filterPattern?: string
 }
 
+/** What each event means, in the words the Automations page uses when you pick one. */
+export const EVENT_LABELS: Record<string, string> = {
+  MEMORY_CREATED: "a memory is saved",
+  MEMORY_UPDATED: "a memory is edited",
+  MEMORY_DELETED: "a memory is deleted",
+  TASK_CREATED: "a task is started",
+  TASK_COMPLETED: "a task finishes",
+  AGENT_STARTED: "the agent starts a run",
+  AGENT_FINISHED: "the agent finishes a run",
+}
+
 /**
  * Human-readable trigger, matching what the scheduler actually does. The old labels showed
  * made-up defaults ("Daily at 09:00", "Weekly at 02:00") for workflows without a time and
  * never mentioned the weekday.
  */
 export function describeTrigger(triggerType: string, config: TriggerConfigLike = {}): string {
-  if (triggerType === "manual") return "Manual / On-Demand"
+  if (triggerType === "manual") return "Manual"
   if (triggerType === "event") {
-    return `Event: ${config.eventName || "Event"}${config.filterPattern ? ` ("${config.filterPattern}")` : ""}`
+    const what = (config.eventName && EVENT_LABELS[config.eventName]) || config.eventName || "an event happens"
+    return `When ${what}${config.filterPattern ? ` containing "${config.filterPattern}"` : ""}`
   }
 
   const frequency = config.frequency || "interval"
