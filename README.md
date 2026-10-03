@@ -50,7 +50,7 @@ ollama pull llama3.2
 ollama pull nomic-embed-text
 ```
 
-Any installed chat model works. If `TORVAIX_MODEL` isn't set, Torvaix uses an installed variant (for example `llama3.2:3b`). The **Intelligence** page shows which models are installed and what's missing.
+Any installed chat model works. If `TORVAIX_MODEL` isn't set, Torvaix uses an installed variant (for example `llama3.2:3b`). The **Models** page shows which models are installed and what's missing.
 
 ### 2. Install
 

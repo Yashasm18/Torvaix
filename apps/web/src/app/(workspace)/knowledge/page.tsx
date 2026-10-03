@@ -239,10 +239,10 @@ export default function KnowledgePage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Brain className="w-6 h-6 text-primary" />
-            Knowledge Base
+            Knowledge
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Autonomous memory consolidation and synthesized workspace intelligence.
+            What Torvaix remembers in this workspace, and the themes it finds across those memories.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -263,7 +263,7 @@ export default function KnowledgePage() {
             className="gap-2 rounded-lg border border-primary/20 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
           >
             <Sparkles className={`w-4 h-4 ${consolidating ? "animate-spin" : ""}`} />
-            {consolidating ? "Consolidating..." : "Consolidate Memory"}
+            {consolidating ? "Finding themes…" : "Find themes"}
           </Button>
 
           <Button
@@ -271,7 +271,7 @@ export default function KnowledgePage() {
             className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg"
           >
             <Plus className="w-4 h-4" />
-            Add Knowledge
+            Add memory
           </Button>
 
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
@@ -279,11 +279,11 @@ export default function KnowledgePage() {
               <DialogHeader>
                 <DialogTitle className="text-foreground flex items-center gap-2">
                   <Brain className="w-5 h-5 text-primary" />
-                  Add Memory to Workspace
+                  Add a memory
                 </DialogTitle>
                 <DialogDescription className="text-muted-foreground">
-                  Store a permanent fact, architecture pattern, or preference. It will be
-                  persisted in SQLite & vectorized in Qdrant.
+                  Save a fact, decision or preference. Torvaix can recall it in any chat in
+                  this workspace.
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddMemory} className="space-y-4 pt-2">
@@ -296,7 +296,7 @@ export default function KnowledgePage() {
                     rows={4}
                     value={newContent}
                     onChange={(e) => setNewContent(e.target.value)}
-                    placeholder="e.g. The database uses better-sqlite3 with WAL mode enabled for local concurrency..."
+                    placeholder="e.g. The API runs on port 8080 and deploys from the main branch."
                     className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
@@ -308,7 +308,7 @@ export default function KnowledgePage() {
                     type="text"
                     value={newSource}
                     onChange={(e) => setNewSource(e.target.value)}
-                    placeholder="e.g. Architecture Note, User Prompt, Config"
+                    placeholder="e.g. Meeting notes, Architecture, Preference"
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
@@ -322,7 +322,7 @@ export default function KnowledgePage() {
                     Cancel
                   </Button>
                   <Button type="submit" disabled={submitting} className="bg-primary">
-                    {submitting ? "Saving..." : "Save Memory"}
+                    {submitting ? "Saving…" : "Save memory"}
                   </Button>
                 </div>
               </form>
@@ -337,7 +337,7 @@ export default function KnowledgePage() {
           <div className="bg-surface/80 border border-border/80 rounded-xl p-4 flex flex-col">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5 font-mono">
               <Layers className="w-3.5 h-3.5 text-cyan-400" />
-              Total Memories
+              Memories
             </span>
             <span className="text-2xl font-bold text-foreground mt-1">
               {memories.length}
@@ -347,7 +347,7 @@ export default function KnowledgePage() {
           <div className="bg-surface/80 border border-border/80 rounded-xl p-4 flex flex-col">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5 font-mono">
               <Cpu className="w-3.5 h-3.5 text-primary" />
-              Synthesized Insights
+              Themes
             </span>
             <span className="text-2xl font-bold text-foreground mt-1">
               {insights.length}
@@ -357,7 +357,7 @@ export default function KnowledgePage() {
           <div className="bg-surface/80 border border-border/80 rounded-xl p-4 flex flex-col">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5 font-mono">
               <Activity className="w-3.5 h-3.5 text-purple-400" />
-              Avg Retrievals
+              Avg. recalls
             </span>
             <span className="text-2xl font-bold text-foreground mt-1">
               {health?.avgAccessCount ?? 0}
@@ -367,7 +367,7 @@ export default function KnowledgePage() {
           <div className="bg-surface/80 border border-border/80 rounded-xl p-4 flex flex-col">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5 font-mono">
               <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-              Retention Score
+              Recently used
             </span>
             <span className="text-2xl font-bold text-emerald-400 mt-1">
               {health?.recencyScore ?? 100}%
@@ -419,7 +419,7 @@ export default function KnowledgePage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Stored Memories ({filteredMemories.length})
+            Memories ({filteredMemories.length})
           </button>
           <button
             onClick={() => setActiveTab("insights")}
@@ -429,7 +429,7 @@ export default function KnowledgePage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Executive Insights ({filteredInsights.length})
+            Themes ({filteredInsights.length})
           </button>
         </div>
 
@@ -437,7 +437,7 @@ export default function KnowledgePage() {
           <Search className="w-4 h-4 text-muted-foreground shrink-0" />
           <input
             type="text"
-            placeholder="Search knowledge by text, source, tags..."
+            placeholder="Search memories and themes…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
@@ -450,7 +450,7 @@ export default function KnowledgePage() {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <RefreshCw className="w-6 h-6 animate-spin mb-2 text-primary" />
-            <p className="text-sm">Loading workspace intelligence...</p>
+            <p className="text-sm">Loading memories…</p>
           </div>
         ) : activeTab === "memories" ? (
           /* Memories List */
@@ -525,7 +525,7 @@ export default function KnowledgePage() {
             {filteredInsights.length === 0 ? (
               <div className="text-center py-12 border border-dashed border-border rounded-xl">
                 <Sparkles className="w-8 h-8 text-primary mx-auto mb-2 opacity-50" />
-                <p className="text-sm text-muted-foreground">No synthesized insights yet.</p>
+                <p className="text-sm text-muted-foreground">No themes yet. Add a few related memories, then choose Find themes.</p>
                 <Button
                   variant="link"
                   onClick={handleConsolidate}
@@ -579,7 +579,7 @@ export default function KnowledgePage() {
                         ))}
                       </div>
                       <span className="text-muted-foreground text-[11px]">
-                        Synthesized from {ins.supportingMemoryIds.length} source memories
+                        Based on {ins.supportingMemoryIds.length} {ins.supportingMemoryIds.length === 1 ? "memory" : "memories"}
                       </span>
                     </div>
                   </motion.div>

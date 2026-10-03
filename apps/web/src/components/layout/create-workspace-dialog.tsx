@@ -52,7 +52,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: { open: boolean; o
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-md bg-card border-border">
+      <DialogContent className="sm:max-w-md bg-card border-border">
         <form onSubmit={submit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>Create workspace</DialogTitle>

@@ -61,7 +61,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl bg-card border-border">
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto bg-card border-border">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
@@ -69,21 +69,21 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="general" className="flex flex-col md:flex-row gap-6 mt-4">
-          <TabsList className="flex flex-col h-auto bg-transparent items-start justify-start w-40 space-y-1">
-            <TabsTrigger value="general" className="w-full justify-start data-[state=active]:bg-muted">
+        <Tabs defaultValue="general" orientation="vertical" className="flex flex-col md:flex-row gap-6 mt-2">
+          <TabsList className="flex flex-row flex-wrap md:flex-col h-auto self-start shrink-0 bg-transparent items-stretch justify-start md:w-40 gap-1 p-0">
+            <TabsTrigger value="general" className="flex-none h-9 md:w-full justify-start px-3 data-[state=active]:bg-muted">
               <Monitor className="h-4 w-4 mr-2" /> General
             </TabsTrigger>
-            <TabsTrigger value="appearance" className="w-full justify-start data-[state=active]:bg-muted">
+            <TabsTrigger value="appearance" className="flex-none h-9 md:w-full justify-start px-3 data-[state=active]:bg-muted">
               <Moon className="h-4 w-4 mr-2" /> Appearance
             </TabsTrigger>
-            <TabsTrigger value="providers" className="w-full justify-start data-[state=active]:bg-muted">
+            <TabsTrigger value="providers" className="flex-none h-9 md:w-full justify-start px-3 data-[state=active]:bg-muted">
               <Key className="h-4 w-4 mr-2" /> Providers
             </TabsTrigger>
-            <TabsTrigger value="privacy" className="w-full justify-start data-[state=active]:bg-muted">
+            <TabsTrigger value="privacy" className="flex-none h-9 md:w-full justify-start px-3 data-[state=active]:bg-muted">
               <Shield className="h-4 w-4 mr-2" /> Privacy
             </TabsTrigger>
-            <TabsTrigger value="local" className="w-full justify-start data-[state=active]:bg-muted">
+            <TabsTrigger value="local" className="flex-none h-9 md:w-full justify-start px-3 data-[state=active]:bg-muted">
               <HardDrive className="h-4 w-4 mr-2" /> Local AI
             </TabsTrigger>
           </TabsList>
@@ -121,7 +121,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
 
             <TabsContent value="appearance" className="m-0 space-y-4">
               <h3 className="text-lg font-medium">Theme</h3>
-              <p className="text-sm text-muted-foreground">Select a theme for the Torvaix workspace.</p>
+              <p className="text-sm text-muted-foreground">Choose how Torvaix looks.</p>
               <div className="grid grid-cols-2 gap-4 mt-4">
                 {THEMES.map((t) => (
                   <button
@@ -164,12 +164,17 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
             <TabsContent value="privacy" className="m-0 space-y-4">
               <h3 className="text-lg font-medium">Privacy</h3>
               <div className="rounded-xl border border-border p-4 bg-muted/30 space-y-2 text-sm text-muted-foreground">
-                <p>Torvaix collects no telemetry. Nothing is sent anywhere except the model provider you configure.</p>
+                <p>Torvaix collects no telemetry.</p>
+                <p>
+                  Data leaves this computer only when you use a cloud model (your prompts and relevant memories go to that
+                  provider), when the agent searches the web, or when an OpenAI key is set and Ollama can&apos;t create
+                  embeddings. Pages also load one font stylesheet from Fontshare.
+                </p>
                 <p>
                   Memories, automations and execution logs live in <code className="font-mono">~/.torvaix/data</code> on this machine.
                   Workspaces, chats and projects are stored in this browser.
                 </p>
-                <p>With Ollama as the chat model, prompts never leave your computer.</p>
+                <p>With Ollama as the chat model and no web search, your prompts stay on this computer.</p>
               </div>
             </TabsContent>
 

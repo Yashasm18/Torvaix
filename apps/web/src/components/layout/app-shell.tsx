@@ -2,6 +2,8 @@
 
 import * as React from "react"
 import { motion } from "framer-motion"
+import { usePathname } from "next/navigation"
+import { pageTitle } from "@/lib/nav"
 import { AppSidebar } from "./app-sidebar"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import {
@@ -17,6 +19,7 @@ import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { useSystemStatus } from "@/hooks/use-system-status"
 import { KnowledgePulse } from "../knowledge-pulse"
+import { CommandPalette } from "../command-palette"
 
 const PULSE_PREF_KEY = "torvaix:knowledge-pulse-open"
 
@@ -31,7 +34,8 @@ function readPulsePreference(): boolean {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { workspaces, createWorkspace } = useDBStore();
-  const { workspaceId } = useActiveWorkspace();
+  const { workspace, workspaceId } = useActiveWorkspace();
+  const pathname = usePathname();
   const [isCreating, setIsCreating] = React.useState(false);
   const [workspaceName, setWorkspaceName] = React.useState("");
 
@@ -82,7 +86,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <BrainCircuit className="h-6 w-6 text-primary" />
           </div>
           <h2 className="text-2xl font-bold text-foreground mb-2">Welcome to Torvaix</h2>
-          <p className="text-muted-foreground mb-8">Workspaces keep chats, memories and files for each project separate. Name your first one to get started.</p>
+          <p className="text-muted-foreground mb-8">A workspace keeps the chats, memories and files for one project together, separate from the rest. Name your first one to get started.</p>
 
           <form
             className="w-full flex flex-col gap-4"
@@ -128,10 +132,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ? { dot: "bg-primary animate-pulse", label: "Connected" }
         : { dot: "bg-red-500", label: "Agent offline" };
 
-  const showSidePanel = isWide && pulseOpen;
+  // Knowledge Pulse describes the last chat turn, so it only belongs next to the chat. On every
+  // other page it was a third of the screen saying "waiting for the next knowledge event".
+  const onChat = pathname === "/" || pathname === "/chat" || (pathname?.startsWith("/chat/") ?? false);
+  const showSidePanel = isWide && pulseOpen && onChat;
 
   return (
     <SidebarProvider>
+      {/* The page switcher (⌘K). It was never mounted, so the sidebar button and shortcut did nothing. */}
+      <CommandPalette />
       <AppSidebar />
       <div className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden bg-background">
         <motion.header
@@ -142,13 +151,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         >
           <SidebarTrigger className="transition-transform hover:scale-105 active:scale-95" />
           <div className="h-4 w-px bg-border/50" />
-          <div className="font-semibold text-sm tracking-tight truncate">Torvaix Workspace</div>
+          <div className="flex items-center gap-2 min-w-0 text-sm tracking-tight">
+            {workspace?.name && (
+              <>
+                <span className="hidden sm:inline truncate max-w-[12rem] text-muted-foreground">{workspace.name}</span>
+                <span className="hidden sm:inline text-muted-foreground/50" aria-hidden>/</span>
+              </>
+            )}
+            <span className="font-semibold truncate">{pageTitle(pathname)}</span>
+          </div>
           <div className="ml-auto flex items-center gap-3">
             <div className="flex items-center gap-1.5" title={status && !status.agent ? "Start the agent server with npm run dev" : undefined}>
               <div className={`h-2 w-2 rounded-full ${connection.dot}`} />
               <span className="text-xs text-muted-foreground">{connection.label}</span>
             </div>
-            <button
+            {onChat && <button
               type="button"
               onClick={togglePulse}
               aria-label={showSidePanel ? "Hide Knowledge Pulse" : "Show Knowledge Pulse"}
@@ -156,7 +173,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
               {showSidePanel ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-            </button>
+            </button>}
           </div>
         </motion.header>
         <main className="flex-1 min-h-0 overflow-hidden animate-in fade-in duration-500">
