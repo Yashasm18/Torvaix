@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from app.api.memory_routes import router as memory_router
 import logging
 
@@ -13,14 +12,9 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Enable CORS for Next.js app communication
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], # For development; restrict in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS headers on purpose: only the agent server and the web app's server-side routes call
+# this service. Allowing every origin let any website the user visited send text here from
+# their browser.
 
 # Include routers
 app.include_router(memory_router)

@@ -72,26 +72,29 @@ def extract_intelligence(text: str) -> Dict[str, Any]:
     for token in doc:
         if token.dep_ in ("nsubj", "nsubjpass"):
             subject = token.text
-            verb = token.head.lemma_
             # Find the object of the verb
             for child in token.head.children:
-                if child.dep_ in ("dobj", "pobj", "attr", "prep"):
-                    target = child.text
-                    
-                    # If it's a preposition, get its object
-                    if child.dep_ == "prep":
-                        for prep_child in child.children:
-                            if prep_child.dep_ == "pobj":
-                                target = prep_child.text
-                                verb = f"{verb}_{child.lemma_}"
-                                break
-                    
-                    relationships.append({
-                        "source": subject,
-                        "relation": verb,
-                        "target": target
-                    })
-    
+                if child.dep_ not in ("dobj", "pobj", "attr", "prep"):
+                    continue
+                # Each object gets its own relation name. Reusing one variable made a later
+                # object inherit an earlier preposition ("work_at" then "work_at_with").
+                relation = token.head.lemma_
+                target = child.text
+
+                # For a preposition, the relation is verb_preposition and the target is its object.
+                if child.dep_ == "prep":
+                    objects = [c for c in child.children if c.dep_ == "pobj"]
+                    if not objects:
+                        continue  # nothing after the preposition: there is no target to link to
+                    target = objects[0].text
+                    relation = f"{relation}_{child.lemma_}"
+
+                relationships.append({
+                    "source": subject,
+                    "relation": relation,
+                    "target": target
+                })
+
     # Deduplicate relationships
     unique_rels = []
     seen_rels = set()
