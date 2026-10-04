@@ -10,7 +10,7 @@
  */
 
 import crypto from 'crypto';
-import { LLMClient, type LLMMessage, type LLMResponse } from '@torvaix/providers';
+import { LLMClient, type LLMMessage, type LLMResponse, type ProviderId } from '@torvaix/providers';
 import { MemoryStore } from '@torvaix/memory';
 import { getMcpClient } from '@torvaix/mcp';
 import { ingestKnowledgeGraph, findMentionedEntities, getNeighbors, type MLIntelligencePayload } from '@torvaix/graph';
@@ -81,6 +81,8 @@ export class AgentOrchestrator {
   private memoryStore: MemoryStore;
   private llm: LLMClient;
   private model: string;
+  /** Set when the user picked a provider for the model; otherwise it is looked up from the model id. */
+  private provider?: ProviderId;
   private readonly maxIterations = 10;
   /** Aborted when the user presses Stop or the client disconnects. */
   private signal?: AbortSignal;
@@ -91,12 +93,14 @@ export class AgentOrchestrator {
     options?: {
       llm?: LLMClient;
       model?: string;
+      provider?: ProviderId;
       maxContextChars?: number;
     }
   ) {
     this.memoryStore = memoryStore;
     this.llm = options?.llm ?? new LLMClient();
     this.model = options?.model ?? process.env.TORVAIX_MODEL ?? this.llm.getDefaultModel();
+    this.provider = options?.provider;
     this.maxContextChars = options?.maxContextChars ?? 12000;
   }
 
@@ -112,6 +116,7 @@ export class AgentOrchestrator {
         temperature: opts?.temperature ?? 0.1,
         maxTokens: opts?.maxTokens ?? 4096,
         signal: this.signal,
+        provider: this.provider,
       });
       const durationMs = performance.now() - start;
       // Trace the LLM call

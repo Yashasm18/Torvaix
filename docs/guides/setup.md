@@ -12,6 +12,14 @@ Local models are demanding. As a rough guide, a 3B model such as `llama3.2:3b` i
 
 ## Install and run
 
+On macOS and Linux the quickest way is the installer, which does the four commands below for you:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Yashasm18/Torvaix/main/install.sh | sh
+```
+
+Or by hand:
+
 ```bash
 git clone https://github.com/Yashasm18/Torvaix.git
 cd Torvaix
@@ -89,14 +97,16 @@ It reports whether SQLite, Qdrant and Ollama are reachable, and which chat model
 
 ## Configuration
 
-Everything is optional. Put settings in `.env` in the repository root (see `.env.example`); variables already set in your shell win. The full table is in the [README](../../README.md#configuration). The ones people usually change:
+Choose the chat model and add API keys for cloud providers in the app, under **Settings → Models & keys**. Use **Test** there to check a key and model before you rely on them.
+
+Everything else is optional. Put settings in `.env` in the repository root (see `.env.example`); variables already set in your shell win. The full table is in the [README](../../README.md#configuration). The ones people usually change:
 
 | Variable | Why |
 | --- | --- |
-| `TORVAIX_MODEL` | Use a specific chat model instead of the auto-selected installed one |
+| `TORVAIX_MODEL` | Use a specific chat model instead of the auto-selected installed one (a model chosen in Settings wins) |
 | `PORT` / `AGENT_PORT` | Run on other ports if 3000 or 3001 are taken. If you change `AGENT_PORT`, set `AGENT_SERVER_URL` to match. |
 | `TORVAIX_HOME` | Keep your data somewhere other than `~/.torvaix` |
-| `OPENAI_API_KEY` and friends | Enable cloud models |
+| `OPENAI_API_KEY` and friends | Enable cloud models without using Settings |
 
 ## Troubleshooting
 

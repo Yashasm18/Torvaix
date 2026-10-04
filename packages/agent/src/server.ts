@@ -25,7 +25,8 @@ import { closeAllMcpClients } from '@torvaix/mcp';
 import { checkBrowserRequest, parseList, DEFAULT_ALLOWED_ORIGINS } from './http-security';
 import { isValidEmail, validateWorkspaceId, validateMessages, validateText, clampCount, LIMITS } from './validation';
 import { MemoryStore, type AutomationRecord } from '@torvaix/memory';
-import { LLMClient, PROVIDERS, pickInstalledModel, resolveModel } from '@torvaix/providers';
+import { LLMClient, MODELS, PROVIDERS, isProviderId, pickInstalledModel, resolveModel, type ProviderId } from '@torvaix/providers';
+import { SettingsStore, API_KEY_ENV, keyHint, validateApiKey, validateModelId } from './settings';
 import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
 import { AutomationEngine, AutomationWorkflow, torvaixEvents } from '@torvaix/events';
 import rateLimit from 'express-rate-limit';
@@ -81,6 +82,39 @@ const wss = new WebSocketServer({
 const memoryDbPath = path.join(DATA_DIR, 'torvaix.db');
 const memoryStore = new MemoryStore(memoryDbPath);
 const llmClient = new LLMClient();
+
+// ── Settings changed from the app: API keys and the chat model ──
+
+const settings = new SettingsStore(path.join(DATA_DIR, 'settings.json'));
+type CloudProvider = keyof typeof API_KEY_ENV;
+const CLOUD_PROVIDERS = Object.keys(API_KEY_ENV) as CloudProvider[];
+const envApiKey = (provider: CloudProvider) => process.env[API_KEY_ENV[provider]]?.trim() || undefined;
+
+// A key saved in the app wins over one in .env; removing it falls back to .env.
+for (const provider of CLOUD_PROVIDERS) {
+  const saved = settings.getApiKey(provider);
+  if (saved) llmClient.setApiKey(provider, saved);
+}
+
+/** Installed Ollama model picked automatically; refreshed by probeOllama(). */
+let autoModel = llmClient.getDefaultModel();
+
+/**
+ * The chat model in use. A model chosen in Settings wins, then TORVAIX_MODEL, then whichever
+ * suitable model Ollama has installed.
+ */
+function currentModel(): { id: string; provider: ProviderId; source: 'saved' | 'env' | 'auto' } {
+  const saved = settings.getModel();
+  if (saved) return { ...saved, source: 'saved' };
+  const fromEnv = process.env.TORVAIX_MODEL?.trim();
+  if (fromEnv) return { id: fromEnv, provider: resolveModel(fromEnv).provider, source: 'env' };
+  return { id: autoModel, provider: 'ollama', source: 'auto' };
+}
+
+function newOrchestrator(): AgentOrchestrator {
+  const model = currentModel();
+  return new AgentOrchestrator(memoryStore, { llm: llmClient, model: model.id, provider: model.provider });
+}
 
 // ── Background Automation Engine ──
 
@@ -172,7 +206,7 @@ automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
       ? actionConfig.prompt
       : `Execute background automation: ${workflow.name}`;
     // Same model as chat, so background tasks use the auto-selected installed model too.
-    const agent = new AgentOrchestrator(memoryStore, { llm: llmClient, model: chatModel });
+    const agent = newOrchestrator();
     const finalState = await agent.run({
       workspaceId,
       instructions: prompt,
@@ -298,12 +332,12 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
 // Health check (no auth required)
 app.get('/api/health', async (_req, res) => {
   const [qdrantOk, ollamaOk] = await Promise.all([memoryStore.initQdrant(), probeOllama()]);
-  const model = chatModel;
+  const model = currentModel();
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     services: { sqlite: true, qdrant: qdrantOk, ollama: ollamaOk },
-    model: { id: model, provider: resolveModel(model).provider },
+    model: { id: model.id, provider: model.provider, source: model.source },
     embeddings: memoryStore.getEmbedSource(),
     ollamaUrl: llmClient.getOllamaUrl(),
     // Only readiness booleans; keys never leave the server.
@@ -311,10 +345,6 @@ app.get('/api/health', async (_req, res) => {
     version: '0.1.0',
   });
 });
-
-// Chat model used by the orchestrator. TORVAIX_MODEL always wins; without it we match the
-// default against what's installed, so a machine that pulled `llama3.2:3b` works out of the box.
-let chatModel = process.env.TORVAIX_MODEL ?? llmClient.getDefaultModel();
 
 /** Check Ollama is up and refresh the auto-selected chat model from its installed tags. */
 async function probeOllama(): Promise<boolean> {
@@ -324,9 +354,9 @@ async function probeOllama(): Promise<boolean> {
     if (!process.env.TORVAIX_MODEL) {
       const { models = [] } = (await r.json()) as { models?: { name: string }[] };
       const picked = pickInstalledModel(llmClient.getDefaultModel(), models.map(m => m.name));
-      if (picked !== chatModel) {
-        console.log(`[Model] Using installed Ollama model "${picked}" (set TORVAIX_MODEL to override)`);
-        chatModel = picked;
+      if (picked !== autoModel) {
+        console.log(`[Model] Using installed Ollama model "${picked}" (choose another in Settings, or set TORVAIX_MODEL)`);
+        autoModel = picked;
       }
     }
     return true;
@@ -365,6 +395,110 @@ app.get('/api/system/models', requireAuth, async (_req, res) => {
     res.json({ success: true, reachable: true, ollamaUrl: base, models });
   } catch (error: any) {
     res.json({ success: false, reachable: false, ollamaUrl: base, models: [], error: error.message });
+  }
+});
+
+// ── Settings: API keys and chat model ──
+
+function providerStatus() {
+  return PROVIDERS.filter(p => p.id !== 'ollama').map(p => {
+    const id = p.id as CloudProvider;
+    const saved = settings.getApiKey(id);
+    const key = saved ?? envApiKey(id);
+    return {
+      id,
+      name: p.name,
+      ready: !!key,
+      // Where the key in use comes from. The key itself never leaves the server.
+      source: saved ? 'saved' : key ? 'env' : null,
+      hint: key ? keyHint(key) : null,
+      envVar: API_KEY_ENV[id],
+    };
+  });
+}
+
+function settingsPayload() {
+  return {
+    success: true,
+    model: currentModel(),
+    providers: providerStatus(),
+    suggestedModels: MODELS.filter(m => !/embed/i.test(m.id)).map(m => ({ id: m.id, name: m.name, provider: m.provider, description: m.description })),
+  };
+}
+
+app.get('/api/settings', requireAuth, (_req, res) => {
+  res.json(settingsPayload());
+});
+
+app.put('/api/settings/providers/:id', requireAuth, (req, res) => {
+  const id = req.params.id as string;
+  if (!isProviderId(id) || id === 'ollama') { res.status(404).json({ error: 'Unknown provider' }); return; }
+  const invalid = validateApiKey(req.body?.apiKey);
+  if (invalid) { res.status(400).json({ error: invalid }); return; }
+  try {
+    settings.setApiKey(id, req.body.apiKey);
+    llmClient.setApiKey(id, req.body.apiKey);
+    res.json(settingsPayload());
+  } catch (error: any) {
+    res.status(500).json({ error: 'Could not save the API key', details: error.message });
+  }
+});
+
+app.delete('/api/settings/providers/:id', requireAuth, (req, res) => {
+  const id = req.params.id as string;
+  if (!isProviderId(id) || id === 'ollama') { res.status(404).json({ error: 'Unknown provider' }); return; }
+  try {
+    settings.removeApiKey(id);
+    llmClient.setApiKey(id, envApiKey(id)); // back to the key from .env, if there is one
+    // A chat model that now has no key would fail on the next message; go back to automatic.
+    if (settings.getModel()?.provider === id && !llmClient.isProviderReady(id)) settings.setModel(undefined);
+    res.json(settingsPayload());
+  } catch (error: any) {
+    res.status(500).json({ error: 'Could not remove the API key', details: error.message });
+  }
+});
+
+/** Checks a `{ provider, model }` pair from the client. Returns the choice or an error message. */
+function parseModelChoice(body: any): { provider: ProviderId; id: string } | string {
+  const { provider, model } = body ?? {};
+  if (!isProviderId(provider)) return 'provider must be one of: ' + PROVIDERS.map(p => p.id).join(', ');
+  const invalid = validateModelId(model);
+  if (invalid) return invalid;
+  if (!llmClient.isProviderReady(provider)) return `Add an API key for ${provider} first`;
+  return { provider, id: (model as string).trim() };
+}
+
+// `{ auto: true }` goes back to automatic selection; otherwise `{ provider, model }`.
+app.put('/api/settings/model', requireAuth, (req, res) => {
+  try {
+    if (req.body?.auto === true) {
+      settings.setModel(undefined);
+    } else {
+      const choice = parseModelChoice(req.body);
+      if (typeof choice === 'string') { res.status(400).json({ error: choice }); return; }
+      settings.setModel(choice);
+    }
+    res.json(settingsPayload());
+  } catch (error: any) {
+    res.status(500).json({ error: 'Could not save the model', details: error.message });
+  }
+});
+
+// Sends one tiny request, so a wrong key or model id shows up here and not in the middle of a chat.
+app.post('/api/settings/test', requireAuth, agentLimiter, async (req, res) => {
+  const choice = req.body?.provider === undefined ? currentModel() : parseModelChoice(req.body);
+  if (typeof choice === 'string') { res.status(400).json({ error: choice }); return; }
+  const started = Date.now();
+  try {
+    await llmClient.complete(choice.id, [{ role: 'user', content: 'Reply with the single word: ok' }], {
+      provider: choice.provider,
+      maxTokens: 16,
+      temperature: 0,
+      signal: AbortSignal.timeout(30_000),
+    });
+    res.json({ success: true, ok: true, model: choice.id, provider: choice.provider, ms: Date.now() - started });
+  } catch (error: any) {
+    res.json({ success: true, ok: false, model: choice.id, provider: choice.provider, error: String(error?.message ?? error).slice(0, 500) });
   }
 });
 
@@ -500,10 +634,7 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
       res.setHeader('Transfer-Encoding', 'chunked');
     }
 
-    const orchestrator = new AgentOrchestrator(memoryStore, {
-      llm: llmClient,
-      model: chatModel,
-    });
+    const orchestrator = newOrchestrator();
 
     // Resuming an approved action is handled inside the orchestrator, which verifies the
     // approval and claims it once. Never grant tool approval here from a bare id.
@@ -639,10 +770,7 @@ app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest,
       return;
     }
 
-    const orchestrator = new AgentOrchestrator(memoryStore, {
-      llm: llmClient,
-      model: chatModel,
-    });
+    const orchestrator = newOrchestrator();
 
     const taskId = crypto.randomUUID();
     const taskText = typeof instructions === 'string' && instructions.trim() ? instructions : 'Resume an approved action';

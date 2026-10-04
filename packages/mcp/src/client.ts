@@ -68,9 +68,12 @@ class McpClientManager {
     // Clean up any stale connection
     await this._cleanup();
 
+    // Start the tool server with this Node binary and tsx's own entry file. Going through `npx`
+    // needed a shell to find `npx.cmd` on Windows (so tools never started there) and added a
+    // second or two to the first tool call everywhere else.
     this.transport = new StdioClientTransport({
-      command: 'npx',
-      args: ['tsx', this.serverPath],
+      command: process.execPath,
+      args: [require.resolve('tsx/cli'), this.serverPath],
       env: {
         ...process.env,
         TORVAIX_WORKSPACE_PATH: this.workspacePath,

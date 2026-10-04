@@ -8,6 +8,7 @@ import { MessageSquare, Terminal, Search, Star, Database, Sparkles, Shield, Book
 import { HeroBackground } from "@/components/ui/hero-background"
 import { AppLogo } from "@/components/ui/app-logo"
 import { CustomerReviews } from "@/components/marketing/customer-reviews"
+import { InstallSteps } from "@/components/marketing/install-steps"
 
 /* ── Inline GitHub SVG icon (not available in lucide-react) ── */
 function GithubIcon({ className }: { className?: string }) {
@@ -192,7 +193,6 @@ console.log(results[0].content);`;
 
 export default function LandingPage() {
   const [terminalState, setTerminalState] = useState<'open' | 'minimized' | 'closed'>('open');
-  const [isCopied, setIsCopied] = useState(false);
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
@@ -574,59 +574,7 @@ export default function LandingPage() {
             Run your own models, own your memory, and work with intelligent agents inside a connected knowledge workspace.
           </p>
 
-          {/* Prerequisites */}
-          <div className="flex flex-col items-center mb-8">
-            <span className="text-[10px] text-slate-500 font-mono mb-3 uppercase tracking-[0.15em]">Bring your own stack</span>
-            <div className="flex flex-wrap justify-center gap-2">
-              {['Node.js 20+', 'Ollama', 'Docker'].map(req => (
-                <span key={req} className="px-3 py-1.5 bg-[#0d1117] border border-white/5 rounded-md text-xs font-mono text-slate-400">
-                  {req}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="relative bg-[#0d1117] border border-white/10 rounded-xl p-5 md:p-6 mb-10 text-left font-mono text-sm overflow-x-auto mx-auto max-w-3xl flex items-start justify-between group shadow-inner">
-            <div className="text-slate-300 pr-24 whitespace-pre font-jetbrains leading-[1.8] flex flex-col gap-1">
-              <div><span className="text-[#fca5a5]">$</span> git clone https://github.com/Yashasm18/Torvaix.git</div>
-              <div><span className="text-[#fca5a5]">$</span> cd Torvaix</div>
-              <div><span className="text-[#fca5a5]">$</span> npm install</div>
-              <div><span className="text-[#fca5a5]">$</span> docker compose up -d</div>
-              <div><span className="text-[#fca5a5]">$</span> ollama serve</div>
-              <div><span className="text-[#fca5a5]">$</span> npm run dev</div>
-            </div>
-            <button 
-              onClick={async () => {
-                const commands = "git clone https://github.com/Yashasm18/Torvaix.git\ncd Torvaix\nnpm install\ndocker compose up -d\nollama serve\nnpm run dev";
-                let copied = false;
-                try {
-                  await navigator.clipboard.writeText(commands);
-                  copied = true;
-                } catch {
-                  // Clipboard API is blocked in insecure contexts, iframes and some browsers.
-                  const textarea = document.createElement("textarea");
-                  textarea.value = commands;
-                  textarea.setAttribute("readonly", "");
-                  textarea.style.position = "fixed";
-                  textarea.style.opacity = "0";
-                  document.body.appendChild(textarea);
-                  textarea.select();
-                  copied = document.execCommand("copy");
-                  document.body.removeChild(textarea);
-                }
-                if (!copied) return;
-                setIsCopied(true);
-                setTimeout(() => setIsCopied(false), 2000);
-              }}
-              className={`absolute top-4 right-4 md:top-6 md:right-6 border rounded-md px-4 py-2 text-xs transition-all duration-300 ${
-                isCopied 
-                  ? 'bg-[#00D4AA]/10 border-[#00D4AA]/50 text-[#00D4AA] shadow-[0_0_15px_rgba(0,212,170,0.4)]' 
-                  : 'bg-white/5 hover:bg-white/10 text-slate-400 border-white/20 hover:text-white'
-              }`}
-            >
-              {isCopied ? 'Copied!' : 'Copy'}
-            </button>
-          </div>
+          <InstallSteps />
 
           <a href="https://github.com/Yashasm18/Torvaix" target="_blank" rel="noopener noreferrer" className="inline-block mb-2">
             <Button className="bg-[#fca5a5] hover:bg-[#fca5a5]/90 text-[#11161d] border-0 rounded-lg px-8 py-6 text-base font-bold transition-all shadow-lg hover:-translate-y-0.5">
@@ -650,7 +598,6 @@ export default function LandingPage() {
           <div className="flex items-center gap-3">
             <AppLogo size={20} animated={false} />
             <span className="text-sm font-semibold text-slate-400">&copy; {new Date().getFullYear()} Torvaix</span>
-            <span className="text-xs text-slate-600 font-mono">v0.1.0</span>
           </div>
 
           <div className="flex flex-col md:items-end gap-2 text-xs text-slate-600 font-mono">

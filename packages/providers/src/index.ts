@@ -48,6 +48,17 @@ export interface LLMOptions {
   topP?: number;
   /** Cancels the request, e.g. when the user presses Stop. */
   signal?: AbortSignal;
+  /**
+   * Which provider serves the model. Needed for ids outside the built-in list, which would
+   * otherwise be taken for local Ollama models (e.g. a newly released cloud model).
+   */
+  provider?: ProviderId;
+}
+
+export const PROVIDER_IDS: readonly ProviderId[] = ['ollama', 'openai', 'anthropic', 'google', 'groq', 'openrouter'];
+
+export function isProviderId(value: unknown): value is ProviderId {
+  return typeof value === 'string' && (PROVIDER_IDS as readonly string[]).includes(value);
 }
 
 export const PROVIDERS = [
@@ -65,7 +76,8 @@ export const MODELS: ModelInfo[] = [
   { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', contextWindow: 128000, description: 'Fast, affordable, very capable' },
   { id: 'o3-mini', name: 'o3 Mini', provider: 'openai', contextWindow: 200000, description: 'Reasoning-optimized' },
   // Anthropic
-  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'anthropic', contextWindow: 200000, description: 'Best for coding and analysis' },
+  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', provider: 'anthropic', contextWindow: 200000, description: 'Balanced: strong at coding and analysis' },
+  { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', provider: 'anthropic', contextWindow: 200000, description: 'Most capable, for hard problems' },
   { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', provider: 'anthropic', contextWindow: 200000, description: 'Fast, efficient' },
   // Google
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'google', contextWindow: 2000000, description: 'Largest context window' },
@@ -92,13 +104,15 @@ export const getModelById = (modelId: string) => MODELS.find(m => m.id === model
  * Ollama tags (e.g. `llama3.2:3b`, `qwen2.5-coder`), since local models are whatever the
  * user has pulled rather than a fixed list.
  */
-export function resolveModel(modelId: string): ModelInfo {
-  return getModelById(modelId) ?? {
+export function resolveModel(modelId: string, provider?: ProviderId): ModelInfo {
+  const known = getModelById(modelId);
+  if (known && (!provider || known.provider === provider)) return known;
+  return {
     id: modelId,
     name: modelId,
-    provider: 'ollama',
+    provider: provider ?? 'ollama',
     contextWindow: 0,
-    description: 'Local Ollama model',
+    description: provider && provider !== 'ollama' ? 'Custom model' : 'Local Ollama model',
   };
 }
 
@@ -117,6 +131,29 @@ export function pickInstalledModel(preferred: string, installed: string[]): stri
     installed.find(name => !/embed/i.test(name)) ??
     preferred
   );
+}
+
+/**
+ * A provider's error reply in words the user can act on. Providers answer with JSON such as
+ * `{"error":{"message":"invalid x-api-key"}}`; showing that raw in the chat helped nobody.
+ */
+export function describeHttpError(provider: string, status: number, body: string): string {
+  let detail = body.trim();
+  try {
+    const parsed = JSON.parse(body);
+    const message = parsed?.error?.message ?? parsed?.error ?? parsed?.message;
+    if (typeof message === 'string' && message) detail = message;
+  } catch {
+    // not JSON: keep the text
+  }
+  detail = detail.slice(0, 300);
+
+  if (status === 401 || status === 403) {
+    return `${provider} rejected the API key (HTTP ${status}). Check it in Settings → Models & keys.`;
+  }
+  if (status === 404) return `${provider} doesn't have that model (HTTP 404). Check the model id. ${detail}`.trim();
+  if (status === 429) return `${provider} is rate limiting this key, or it is out of credit (HTTP 429). ${detail}`.trim();
+  return `${provider} error ${status}: ${detail}`;
 }
 
 // ── Provider Configuration ──
@@ -152,7 +189,7 @@ export class LLMClient {
   async complete(modelId: string, messages: LLMMessage[], opts: LLMOptions = {}): Promise<LLMResponse> {
     const id = modelId || this.defaultModel;
     if (!id) throw new Error('No model specified');
-    const model = resolveModel(id);
+    const model = resolveModel(id, opts.provider);
 
     const provider = model.provider;
 
@@ -178,6 +215,12 @@ export class LLMClient {
     return !!this.apiKeys[providerId];
   }
 
+  /** Use (or, with an empty value, stop using) an API key without restarting. */
+  setApiKey(providerId: ProviderId, key: string | undefined): void {
+    if (providerId === 'ollama') return;
+    this.apiKeys[providerId] = key?.trim() ?? '';
+  }
+
   /** Get the default model ID. */
   getDefaultModel(): string {
     return this.defaultModel;
@@ -192,7 +235,7 @@ export class LLMClient {
 
   private async _callOpenAI(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
     const key = this.apiKeys.openai;
-    if (!key) throw new Error('OpenAI API key not configured. Set OPENAI_API_KEY env var.');
+    if (!key) throw new Error('No OpenAI API key yet. Add one in Settings → Models & keys, or set OPENAI_API_KEY in .env.');
 
     const body = {
       model,
@@ -209,7 +252,7 @@ export class LLMClient {
       body: JSON.stringify(body),
     });
 
-    if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new Error(describeHttpError('OpenAI', res.status, await res.text()));
     const data = await res.json();
     return {
       text: data.choices?.[0]?.message?.content ?? '',
@@ -224,7 +267,7 @@ export class LLMClient {
 
   private async _callAnthropic(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
     const key = this.apiKeys.anthropic;
-    if (!key) throw new Error('Anthropic API key not configured. Set ANTHROPIC_API_KEY env var.');
+    if (!key) throw new Error('No Anthropic API key yet. Add one in Settings → Models & keys, or set ANTHROPIC_API_KEY in .env.');
 
     const systemMsg = messages.find(m => m.role === 'system');
     const apiMessages = messages.filter(m => m.role !== 'system').map(m => ({
@@ -251,7 +294,7 @@ export class LLMClient {
       body: JSON.stringify(body),
     });
 
-    if (!res.ok) throw new Error(`Anthropic error ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new Error(describeHttpError('Anthropic', res.status, await res.text()));
     const data = await res.json();
     return {
       text: data.content?.[0]?.text ?? '',
@@ -266,7 +309,7 @@ export class LLMClient {
 
   private async _callGoogle(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
     const key = this.apiKeys.google;
-    if (!key) throw new Error('Google API key not configured. Set GOOGLE_API_KEY env var.');
+    if (!key) throw new Error('No Google API key yet. Add one in Settings → Models & keys, or set GOOGLE_API_KEY in .env.');
 
     const systemMsg = messages.find(m => m.role === 'system');
     const contents = messages
@@ -285,16 +328,17 @@ export class LLMClient {
     };
 
     const res = await this._fetchWithTimeout(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+      // The key goes in a header, not the URL, so it can't end up in logs or error messages.
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: 'POST',
-      signal: opts.signal,
-        headers: { 'Content-Type': 'application/json' },
+        signal: opts.signal,
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify(body),
       }
     );
 
-    if (!res.ok) throw new Error(`Google error ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new Error(describeHttpError('Google', res.status, await res.text()));
     const data = await res.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
     const usage = data.usageMetadata;
@@ -311,7 +355,7 @@ export class LLMClient {
 
   private async _callGroq(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
     const key = this.apiKeys.groq;
-    if (!key) throw new Error('Groq API key not configured. Set GROQ_API_KEY env var.');
+    if (!key) throw new Error('No Groq API key yet. Add one in Settings → Models & keys, or set GROQ_API_KEY in .env.');
 
     const res = await this._fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -326,7 +370,7 @@ export class LLMClient {
       }),
     });
 
-    if (!res.ok) throw new Error(`Groq error ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new Error(describeHttpError('Groq', res.status, await res.text()));
     const data = await res.json();
     return {
       text: data.choices?.[0]?.message?.content ?? '',
@@ -341,7 +385,7 @@ export class LLMClient {
 
   private async _callOpenRouter(model: string, messages: LLMMessage[], opts: LLMOptions): Promise<LLMResponse> {
     const key = this.apiKeys.openrouter;
-    if (!key) throw new Error('OpenRouter API key not configured. Set OPENROUTER_API_KEY env var.');
+    if (!key) throw new Error('No OpenRouter API key yet. Add one in Settings → Models & keys, or set OPENROUTER_API_KEY in .env.');
 
     const res = await this._fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -361,7 +405,7 @@ export class LLMClient {
       }),
     });
 
-    if (!res.ok) throw new Error(`OpenRouter error ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new Error(describeHttpError('OpenRouter', res.status, await res.text()));
     const data = await res.json();
     return {
       text: data.choices?.[0]?.message?.content ?? '',
