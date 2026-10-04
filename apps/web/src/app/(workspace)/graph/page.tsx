@@ -62,7 +62,7 @@ export default function GraphPage() {
 
         const nodes: Node[] = data.nodes.map((n: any) => ({
           ...n,
-          val: n.importance * 2, // Scale size based on importance
+          val: (n.importance ?? 5) * 2, // Scale size based on importance
           color: TYPE_COLORS[n.type] || TYPE_COLORS.UNKNOWN
         }));
 
@@ -217,7 +217,7 @@ export default function GraphPage() {
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Importance Score</h3>
                 <p className="text-sm font-mono bg-muted/50 p-2 rounded-md border border-border/50">
-                  {selectedNode.importance.toFixed(2)}
+                  {(selectedNode.importance ?? 5).toFixed(2)}
                 </p>
               </div>
 

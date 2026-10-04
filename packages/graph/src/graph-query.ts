@@ -55,6 +55,37 @@ export function queryGraph(query: string, workspaceId: string = DEFAULT_GRAPH_WO
   `).all(workspaceId, term, term, term) as GraphNode[];
 }
 
+/**
+ * Entities of this workspace's graph that are named in `text`, longest name first.
+ *
+ * `queryGraph` answers "which entities match this search term". Chat needs the opposite: which
+ * known entities does this message mention. Passing a whole message to `queryGraph` looked for
+ * an entity whose name contains the entire message, so it never found anything.
+ */
+export function findMentionedEntities(
+  text: string,
+  workspaceId: string = DEFAULT_GRAPH_WORKSPACE,
+  limit = 3
+): GraphNode[] {
+  const words = text.split(/\s+/).filter(Boolean).slice(0, 200);
+  const candidates = new Set<string>();
+  for (let i = 0; i < words.length; i++) {
+    for (let n = 1; n <= 3 && i + n <= words.length; n++) {
+      const id = slugify(words.slice(i, i + n).join(' ')).replace(/^-+|-+$/g, '');
+      if (id.length >= 3) candidates.add(id);
+    }
+  }
+  if (candidates.size === 0) return [];
+
+  const ids = Array.from(candidates);
+  return db.prepare(`
+    SELECT * FROM nodes
+    WHERE workspaceId = ? AND id IN (${ids.map(() => '?').join(',')})
+    ORDER BY LENGTH(id) DESC, importance DESC, degree DESC
+    LIMIT ?
+  `).all(workspaceId, ...ids, limit) as GraphNode[];
+}
+
 export function queryGraphFiltered(options: QueryGraphOptions = {}): { nodes: GraphNode[]; total: number } {
   const { search, type, minImportance, limit = 50, offset = 0, workspaceId = DEFAULT_GRAPH_WORKSPACE } = options;
 

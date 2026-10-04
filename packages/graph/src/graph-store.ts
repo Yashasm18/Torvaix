@@ -113,6 +113,10 @@ try {
   db.pragma('foreign_keys = ON');
 }
 
+// Nodes written without a score by earlier versions: give them the column default, so sorting,
+// the importance filter and the graph view treat them like any other node.
+db.exec('UPDATE nodes SET importance = 5.0 WHERE importance IS NULL');
+
 // Performance indexes (workspace first: every query filters by it)
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_nodes_workspace_type ON nodes(workspaceId, type);
