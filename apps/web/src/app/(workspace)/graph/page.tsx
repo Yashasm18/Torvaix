@@ -1,11 +1,10 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from 'react';
-import type { ForceGraphMethods } from 'react-force-graph-2d';
 import dynamic from 'next/dynamic';
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 import { useTheme } from 'next-themes';
-import { countConnections } from '@/lib/graph';
+import { countConnections, fitZoom, linkEndpointId, nodeRadius, relationLabel, shortLabel } from '@/lib/graph';
 import { useActiveWorkspace } from '@/hooks/use-active-workspace';
 
 interface Node {
@@ -13,7 +12,7 @@ interface Node {
   name: string;
   type: string;
   importance: number;
-  val: number; // for graph sizing
+  radius: number; // on the canvas, in graph units
   color?: string;
 }
 
@@ -62,7 +61,7 @@ export default function GraphPage() {
 
         const nodes: Node[] = data.nodes.map((n: any) => ({
           ...n,
-          val: (n.importance ?? 5) * 2, // Scale size based on importance
+          radius: nodeRadius(n.importance),
           color: TYPE_COLORS[n.type] || TYPE_COLORS.UNKNOWN
         }));
 
@@ -87,6 +86,35 @@ export default function GraphPage() {
       cancelled = true;
     };
   }, [workspaceId]);
+
+  // Layout settings and the first fit are applied once per loaded graph. They can't be set in
+  // an effect: the graph component is loaded on demand and may not exist yet when data arrives.
+  const configuredFor = useRef<object | null>(null);
+  const fittedFor = useRef<object | null>(null);
+
+  const configureLayout = () => {
+    const fg = fgRef.current;
+    if (!fg || configuredFor.current === graphData) return;
+    configuredFor.current = graphData;
+    const radiusOf = (end: unknown) => graphData.nodes.find((n) => n.id === linkEndpointId(end))?.radius ?? nodeRadius(5);
+    // The default link length (30) is shorter than two node circles, so connected nodes sat
+    // on top of each other and hid both the link and the labels.
+    fg.d3Force('link')?.distance((link: Link) => radiusOf(link.source) + radiusOf(link.target) + 80);
+    fg.d3Force('charge')?.strength(-260);
+    fg.d3ReheatSimulation();
+  };
+
+  const fitToView = () => {
+    const fg = fgRef.current;
+    if (!fg || fittedFor.current === graphData || graphData.nodes.length === 0) return;
+    fittedFor.current = graphData;
+    const box = fg.getGraphBbox();
+    if (!box) return;
+    const [minX, maxX] = box.x;
+    const [minY, maxY] = box.y;
+    fg.centerAt((minX + maxX) / 2, (minY + maxY) / 2, 400);
+    fg.zoom(fitZoom(dimensions, { width: maxX - minX, height: maxY - minY }), 400);
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -153,42 +181,79 @@ export default function GraphPage() {
             width={dimensions.width}
             height={dimensions.height}
             graphData={graphData}
-            nodeLabel="name"
+            nodeLabel={(node) => `${(node as Node).name} (${(node as Node).type.toLowerCase()})`}
             nodeColor={node => (node as Node).color || '#fff'}
-            nodeRelSize={4}
-            linkColor={() => isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}
-            linkDirectionalParticles={2}
-            linkDirectionalParticleWidth={1.5}
-            linkDirectionalParticleSpeed={d => (d as Link).confidence * 0.01}
+            linkColor={() => isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)'}
+            linkWidth={1}
+            linkDirectionalArrowLength={4}
+            linkDirectionalArrowRelPos={0.5}
+            cooldownTicks={140}
+            onEngineTick={configureLayout}
+            onEngineStop={fitToView}
             onNodeClick={(node) => {
               setSelectedNode(node as Node);
               // Center camera on clicked node
               if (fgRef.current) {
-                fgRef.current.centerAt(node.x, node.y, 1000);
-                fgRef.current.zoom(8, 2000);
+                fgRef.current.centerAt(node.x, node.y, 600);
+                fgRef.current.zoom(2.5, 600);
               }
             }}
             nodeCanvasObject={(node, ctx, globalScale) => {
-              const label = (node as Node).name;
-              const fontSize = 12/globalScale;
+              const n = node as Node;
+              if (typeof node.x !== 'number' || typeof node.y !== 'number') return;
+
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, n.radius, 0, 2 * Math.PI, false);
+              ctx.fillStyle = n.color || '#fff';
+              ctx.fill();
+              if (selectedNode?.id === n.id) {
+                ctx.lineWidth = 2 / globalScale;
+                ctx.strokeStyle = isDark ? '#fff' : '#000';
+                ctx.stroke();
+              }
+
+              // The name goes under the circle. It used to be drawn first, at the centre, and
+              // the circle was then painted over it.
+              const label = shortLabel(n.name);
+              const fontSize = 12 / globalScale;
               ctx.font = `${fontSize}px Inter, sans-serif`;
               const textWidth = ctx.measureText(label).width;
-              const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2); 
-  
-              ctx.fillStyle = isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)';
-              if (node.x && node.y) {
-                ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2 + 8, bckgDimensions[0], bckgDimensions[1]);
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = (node as Node).color || (isDark ? '#fff' : '#000');
-                ctx.fillText(label, node.x, node.y + 8);
-                
-                // Draw node circle
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, (node as Node).val, 0, 2 * Math.PI, false);
-                ctx.fillStyle = (node as Node).color || '#fff';
-                ctx.fill();
-              }
+              const labelY = node.y + n.radius + fontSize * 0.9;
+              ctx.fillStyle = isDark ? 'rgba(10, 14, 26, 0.75)' : 'rgba(255, 255, 255, 0.8)';
+              ctx.fillRect(node.x - textWidth / 2 - fontSize * 0.3, labelY - fontSize * 0.65, textWidth + fontSize * 0.6, fontSize * 1.3);
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillStyle = isDark ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.88)';
+              ctx.fillText(label, node.x, labelY);
+            }}
+            nodePointerAreaPaint={(node, color, ctx) => {
+              if (typeof node.x !== 'number' || typeof node.y !== 'number') return;
+              ctx.fillStyle = color;
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, (node as Node).radius + 2, 0, 2 * Math.PI, false);
+              ctx.fill();
+            }}
+            linkCanvasObjectMode={() => 'after'}
+            linkCanvasObject={(link, ctx, globalScale) => {
+              // How two things are related, written on the link once it's large enough to read.
+              const source = link.source as { x?: number; y?: number } | string | undefined;
+              const target = link.target as { x?: number; y?: number } | string | undefined;
+              if (!source || !target || typeof source === 'string' || typeof target === 'string') return;
+              if (typeof source.x !== 'number' || typeof source.y !== 'number' || typeof target.x !== 'number' || typeof target.y !== 'number') return;
+              const text = relationLabel((link as Link).relation);
+              if (!text || globalScale < 0.7) return;
+
+              const fontSize = 10 / globalScale;
+              ctx.font = `${fontSize}px Inter, sans-serif`;
+              const x = (source.x + target.x) / 2;
+              const y = (source.y + target.y) / 2 - fontSize;
+              const width = ctx.measureText(text).width;
+              ctx.fillStyle = isDark ? 'rgba(10, 14, 26, 0.75)' : 'rgba(255, 255, 255, 0.8)';
+              ctx.fillRect(x - width / 2 - fontSize * 0.3, y - fontSize * 0.65, width + fontSize * 0.6, fontSize * 1.3);
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillStyle = isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)';
+              ctx.fillText(text, x, y);
             }}
           />
         </div>
