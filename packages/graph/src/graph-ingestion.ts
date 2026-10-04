@@ -4,6 +4,9 @@ import type { MLIntelligencePayload } from './types';
 
 export type { MLIntelligencePayload };
 
+/** Importance of a node when the source doesn't score it (same as the column default). */
+const DEFAULT_IMPORTANCE = 5;
+
 /**
  * Slugs a string to be used as a deterministic node ID.
  * E.g. "React 19" -> "react-19"
@@ -27,6 +30,11 @@ export function ingestKnowledgeGraph(
 ) {
   const reinforce = options.reinforce ?? true;
   const affectedNodeIds = new Set<string>();
+  // Payloads without a score (e.g. links from the graph indexer) used to write NULL here, which
+  // also erased the score of any existing node they touched (SQLite's MAX(x, NULL) is NULL).
+  const importance = typeof payload.importance === 'number' && Number.isFinite(payload.importance)
+    ? payload.importance
+    : DEFAULT_IMPORTANCE;
 
   // Transaction for atomic safety
   const transaction = db.transaction(() => {
@@ -43,6 +51,7 @@ export function ingestKnowledgeGraph(
 
     // 1. Insert all explicitly extracted entities
     for (const ent of payload.entities || []) {
+      if (typeof ent?.text !== 'string') continue;
       const nodeId = slugify(ent.text);
       if (!nodeId) continue;
       affectedNodeIds.add(nodeId);
@@ -51,8 +60,8 @@ export function ingestKnowledgeGraph(
         id: nodeId,
         workspaceId,
         name: ent.text,
-        type: ent.type.toUpperCase(),
-        importance: payload.importance ?? 5,
+        type: typeof ent.type === 'string' && ent.type ? ent.type.toUpperCase() : 'UNKNOWN',
+        importance,
         metadata: JSON.stringify({ source_category: payload.category, tags: payload.tags })
       });
     }
@@ -68,6 +77,7 @@ export function ingestKnowledgeGraph(
 
     // 2. Insert relationships
     for (const rel of payload.relationships || []) {
+      if (typeof rel?.source !== 'string' || typeof rel.target !== 'string' || typeof rel.relation !== 'string') continue;
       const sourceId = slugify(rel.source);
       const targetId = slugify(rel.target);
       if (!sourceId || !targetId) continue;
@@ -80,7 +90,7 @@ export function ingestKnowledgeGraph(
         workspaceId,
         name: rel.source,
         type: 'UNKNOWN',
-        importance: payload.importance,
+        importance,
         metadata: JSON.stringify({ inferred: true })
       });
 
@@ -89,7 +99,7 @@ export function ingestKnowledgeGraph(
         workspaceId,
         name: rel.target,
         type: 'UNKNOWN',
-        importance: payload.importance,
+        importance,
         metadata: JSON.stringify({ inferred: true })
       });
 

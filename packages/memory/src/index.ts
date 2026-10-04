@@ -119,6 +119,23 @@ export function extractKeywords(query: string): string[] {
   return Array.from(new Set(words));
 }
 
+/**
+ * Automation trigger/action settings are stored as a JSON object. Anything else (a bare string,
+ * an array, broken JSON) becomes `{}`: one such row used to make every later read throw, which
+ * broke the Automations page and stopped the scheduler for all workspaces.
+ */
+export function toConfigJson(value: unknown): string {
+  let parsed = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      parsed = null;
+    }
+  }
+  return JSON.stringify(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {});
+}
+
 /** How long a Qdrant/Ollama availability check is trusted before it is repeated. */
 const SERVICE_RECHECK_MS = 30_000;
 
@@ -322,6 +339,19 @@ export class MemoryStore {
 
     // Ensure default workspace exists to avoid FOREIGN KEY constraints failing
     this.db.exec(`INSERT OR IGNORE INTO workspaces (id, name) VALUES ('default', 'Default Workspace');`);
+
+    // Repair automation settings saved by versions that stored whatever the client sent.
+    const fixConfig = this.db.prepare('UPDATE automations SET triggerConfig = ?, actionConfig = ? WHERE id = ?');
+    const rows = this.db.prepare('SELECT id, triggerConfig, actionConfig FROM automations').all() as {
+      id: string; triggerConfig: string; actionConfig: string;
+    }[];
+    for (const row of rows) {
+      const triggerConfig = toConfigJson(row.triggerConfig);
+      const actionConfig = toConfigJson(row.actionConfig);
+      if (triggerConfig !== row.triggerConfig || actionConfig !== row.actionConfig) {
+        fixConfig.run(triggerConfig, actionConfig, row.id);
+      }
+    }
   }
 
   // ── Qdrant ──
@@ -869,6 +899,7 @@ export class MemoryStore {
     const path = require('path');
     const fs = require('fs');
 
+    this.ensureWorkspaceRow(id);
     const workspace = this.getWorkspace(id);
     let settings: any = {};
     try {
@@ -897,6 +928,16 @@ export class MemoryStore {
     return workspacePath;
   }
 
+  /**
+   * Pending actions, execution logs, automations and conversations reference `workspaces(id)`.
+   * The web app creates workspaces in the browser and registers them here afterwards, so a
+   * workspace made while the agent was offline (or after its data folder was reset) had no row,
+   * and those writes failed with "FOREIGN KEY constraint failed".
+   */
+  private ensureWorkspaceRow(id: string): void {
+    this.db.prepare("INSERT OR IGNORE INTO workspaces (id, name) VALUES (?, 'Workspace')").run(id);
+  }
+
   getWorkspace(id: string): Workspace | undefined {
     const stmt = this.db.prepare('SELECT * FROM workspaces WHERE id = ?');
     return stmt.get(id) as Workspace | undefined;
@@ -911,6 +952,7 @@ export class MemoryStore {
 
   createConversation(workspaceId: string, title: string): string {
     const id = randomUUID();
+    this.ensureWorkspaceRow(workspaceId);
     const stmt = this.db.prepare('INSERT INTO conversations (id, workspaceId, title) VALUES (?, ?, ?)');
     stmt.run(id, workspaceId, title);
     return id;
@@ -925,6 +967,7 @@ export class MemoryStore {
 
   createPendingAction(workspaceId: string, action: string, params: any): string {
     const id = randomUUID();
+    this.ensureWorkspaceRow(workspaceId);
     const stmt = this.db.prepare('INSERT INTO pending_actions (id, workspaceId, action, params) VALUES (?, ?, ?, ?)');
     stmt.run(id, workspaceId, action, JSON.stringify(params));
     return id;
@@ -963,6 +1006,7 @@ export class MemoryStore {
 
   logExecution(workspaceId: string, action: string, params: any, result: any, status: string) {
     const id = randomUUID();
+    this.ensureWorkspaceRow(workspaceId);
     const stmt = this.db.prepare('INSERT INTO execution_logs (id, workspaceId, action, params, result, status) VALUES (?, ?, ?, ?, ?, ?)');
     stmt.run(id, workspaceId, action, JSON.stringify(params), JSON.stringify(result), status);
     return id;
@@ -1001,10 +1045,11 @@ export class MemoryStore {
   }): AutomationRecord {
     const id = params.id || randomUUID();
     const description = params.description || '';
-    const triggerConfig = typeof params.triggerConfig === 'string' ? params.triggerConfig : JSON.stringify(params.triggerConfig || {});
-    const actionConfig = typeof params.actionConfig === 'string' ? params.actionConfig : JSON.stringify(params.actionConfig || {});
+    const triggerConfig = toConfigJson(params.triggerConfig);
+    const actionConfig = toConfigJson(params.actionConfig);
     const status = params.status || 'active';
     const now = new Date().toISOString();
+    this.ensureWorkspaceRow(params.workspaceId);
 
     const stmt = this.db.prepare(`
       INSERT INTO automations (id, workspaceId, name, description, triggerType, triggerConfig, actionType, actionConfig, status, runCount, createdAt, updatedAt)
@@ -1053,12 +1098,12 @@ export class MemoryStore {
     if (updates.triggerType !== undefined) { fields.push('triggerType = ?'); values.push(updates.triggerType); }
     if (updates.triggerConfig !== undefined) {
       fields.push('triggerConfig = ?');
-      values.push(typeof updates.triggerConfig === 'string' ? updates.triggerConfig : JSON.stringify(updates.triggerConfig));
+      values.push(toConfigJson(updates.triggerConfig));
     }
     if (updates.actionType !== undefined) { fields.push('actionType = ?'); values.push(updates.actionType); }
     if (updates.actionConfig !== undefined) {
       fields.push('actionConfig = ?');
-      values.push(typeof updates.actionConfig === 'string' ? updates.actionConfig : JSON.stringify(updates.actionConfig));
+      values.push(toConfigJson(updates.actionConfig));
     }
     if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
     if (updates.lastRunAt !== undefined) { fields.push('lastRunAt = ?'); values.push(updates.lastRunAt); }

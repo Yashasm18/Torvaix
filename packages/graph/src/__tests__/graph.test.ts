@@ -4,6 +4,7 @@ import {
   getNeighbors,
   findPath,
   queryGraph,
+  findMentionedEntities,
   queryGraphFiltered,
   getEgoGraph,
   getGraphStats,
@@ -290,5 +291,60 @@ describe('ingestKnowledgeGraph without reinforcement', () => {
     ingestKnowledgeGraph(payload, 'ws-reinforce');
     const edge = db.prepare("SELECT frequency FROM edges WHERE workspaceId = 'ws-reinforce'").get() as { frequency: number };
     expect(edge.frequency).toBe(2);
+  });
+});
+
+describe('node importance', () => {
+  beforeEach(() => {
+    db.exec('DELETE FROM edges');
+    db.exec('DELETE FROM nodes');
+  });
+
+  it('defaults to 5 for links that come without a score', () => {
+    // The graph indexer writes relationships only. Their nodes were saved with NULL importance,
+    // which crashed the graph view when one was selected.
+    ingestKnowledgeGraph({ relationships: [{ source: 'Database', relation: 'RELATED_TO', target: 'Postgres' }] }, 'ws-imp');
+    const rows = db.prepare("SELECT importance FROM nodes WHERE workspaceId = 'ws-imp'").all() as { importance: number | null }[];
+    expect(rows.map(r => r.importance)).toEqual([5, 5]);
+  });
+
+  it('is not erased when a scored entity is mentioned again by an unscored link', () => {
+    ingestKnowledgeGraph({ importance: 9, entities: [{ text: 'Postgres', type: 'TECHNOLOGY' }] }, 'ws-imp');
+    ingestKnowledgeGraph({ relationships: [{ source: 'Database', relation: 'RELATED_TO', target: 'Postgres' }] }, 'ws-imp');
+    const node = db.prepare("SELECT importance, type FROM nodes WHERE workspaceId = 'ws-imp' AND id = 'postgres'").get() as { importance: number; type: string };
+    expect(node).toEqual({ importance: 9, type: 'TECHNOLOGY' });
+  });
+
+  it('skips malformed entities and relationships instead of failing the whole write', () => {
+    const payload = {
+      entities: [{ text: 'Redis' }, { type: 'TECHNOLOGY' }, null],
+      relationships: [{ source: 'Redis', target: 'Cache' }, { source: 'Redis', relation: 'USED_FOR', target: 'Cache' }],
+    } as unknown as MLIntelligencePayload;
+    ingestKnowledgeGraph(payload, 'ws-imp');
+    expect(getAllNodesAndEdges('ws-imp').nodes.map(n => n.name).sort()).toEqual(['Cache', 'Redis']);
+    expect(getAllNodesAndEdges('ws-imp').edges).toHaveLength(1);
+  });
+});
+
+describe('findMentionedEntities', () => {
+  beforeEach(() => {
+    db.exec('DELETE FROM edges');
+    db.exec('DELETE FROM nodes');
+    ingestKnowledgeGraph({
+      entities: [{ text: 'Next.js', type: 'TECHNOLOGY' }, { text: 'React 19', type: 'TECHNOLOGY' }, { text: 'Postgres', type: 'TECHNOLOGY' }],
+      relationships: [{ source: 'Next.js', relation: 'BUILT_ON', target: 'React 19' }],
+    }, 'ws-chat');
+  });
+
+  it('finds the entities a chat message names, which a search for the whole message never did', () => {
+    const message = 'Should I upgrade to React 19 before moving the app to Next.js?';
+    expect(queryGraph(message, 'ws-chat')).toEqual([]);
+    expect(findMentionedEntities(message, 'ws-chat').map(n => n.name).sort()).toEqual(['Next.js', 'React 19']);
+  });
+
+  it('matches whole words only and stays inside the workspace', () => {
+    expect(findMentionedEntities('nextjsx and postgresql are different words', 'ws-chat')).toEqual([]);
+    expect(findMentionedEntities('Tell me about Postgres', 'another-workspace')).toEqual([]);
+    expect(findMentionedEntities('   ', 'ws-chat')).toEqual([]);
   });
 });

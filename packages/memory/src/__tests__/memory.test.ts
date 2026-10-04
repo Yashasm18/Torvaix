@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryStore, extractKeywords } from '../index';
+import { MemoryStore, extractKeywords, toConfigJson } from '../index';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -629,6 +629,75 @@ describe('memory events carry their workspace', () => {
     } finally {
       eventBus.off('MEMORY_UPDATED', onUpdated);
       eventBus.off('MEMORY_DELETED', onDeleted);
+    }
+  });
+});
+
+describe('workspaces the server has not seen yet', () => {
+  it('accepts tool approvals, logs, automations and conversations for them', () => {
+    // The web app creates workspaces in the browser; one made while the agent was offline has no
+    // row here. These writes used to fail with "FOREIGN KEY constraint failed".
+    const store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+    const ws = 'made-while-offline';
+
+    const pendingId = store.createPendingAction(ws, 'bash', { command: 'ls' });
+    store.logExecution(ws, 'read_file', { filePath: 'a.txt' }, 'ok', 'success');
+    store.createConversation(ws, 'First chat');
+    store.seedDefaultAutomations(ws);
+
+    expect(store.getPendingAction(pendingId)?.workspaceId).toBe(ws);
+    expect(store.listExecutionLogs(ws)).toHaveLength(1);
+    expect(store.listAutomations(ws)).toHaveLength(3);
+    expect(store.getWorkspace(ws)).toBeTruthy();
+  });
+
+  it('gives them a tool folder that stays the same between runs', () => {
+    const store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+    const first = store.ensureWorkspacePath('made-while-offline-2');
+    expect(store.ensureWorkspacePath('made-while-offline-2')).toBe(first);
+    expect(JSON.parse(store.getWorkspace('made-while-offline-2')!.settings).path).toBe(first);
+  });
+});
+
+describe('automation settings are always stored as JSON objects', () => {
+  it('turns strings, lists and broken JSON into an empty object', () => {
+    expect(toConfigJson({ frequency: 'daily' })).toBe('{"frequency":"daily"}');
+    expect(toConfigJson('{"frequency":"daily"}')).toBe('{"frequency":"daily"}');
+    for (const bad of ['not json', '"text"', '[1,2]', [1, 2], 5, null, undefined]) {
+      expect(toConfigJson(bad)).toBe('{}');
+    }
+  });
+
+  it('never saves settings that cannot be read back', () => {
+    const store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+    const created = store.createAutomation({
+      workspaceId: 'default', name: 'bad', triggerType: 'manual', actionType: 'consolidate_memory',
+      triggerConfig: 'not json', actionConfig: 'oops',
+    });
+    expect(JSON.parse(created.triggerConfig)).toEqual({});
+    expect(JSON.parse(created.actionConfig)).toEqual({});
+
+    store.updateAutomation(created.id, { triggerConfig: 'still not json', actionConfig: ['x'] });
+    const updated = store.getAutomation(created.id)!;
+    expect(JSON.parse(updated.triggerConfig)).toEqual({});
+    expect(JSON.parse(updated.actionConfig)).toEqual({});
+  });
+
+  it('repairs rows saved by an earlier version when the database is opened', () => {
+    const dbPath = path.join(os.tmpdir(), `torvaix-repair-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    try {
+      const first = new MemoryStore(dbPath, { qdrantUrl: 'http://127.0.0.1:1' });
+      const { id } = first.createAutomation({ workspaceId: 'default', name: 'old', triggerType: 'manual', actionType: 'consolidate_memory' });
+      (first as any).db.prepare("UPDATE automations SET triggerConfig = 'not json', actionConfig = 'oops' WHERE id = ?").run(id);
+      first.close();
+
+      const reopened = new MemoryStore(dbPath, { qdrantUrl: 'http://127.0.0.1:1' });
+      const row = reopened.getAutomation(id)!;
+      expect(row.triggerConfig).toBe('{}');
+      expect(row.actionConfig).toBe('{}');
+      reopened.close();
+    } finally {
+      for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(dbPath + suffix); } catch { /* ignore */ } }
     }
   });
 });

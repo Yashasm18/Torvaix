@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || 'http://localhost:3001';
+import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse } from '@/lib/agent-proxy';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,15 +21,12 @@ export async function PUT(
       body: JSON.stringify({ content }),
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      return NextResponse.json({ error: err }, { status: res.status });
-    }
+    if (!res.ok) return agentErrorResponse(res);
 
     return NextResponse.json(await res.json());
   } catch (error: any) {
     console.error('API /api/memory/[id] PUT error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+    return agentFailureResponse(error);
   }
 }
 
@@ -44,14 +40,11 @@ export async function DELETE(
       method: 'DELETE',
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      return NextResponse.json({ error: err }, { status: res.status });
-    }
+    if (!res.ok) return agentErrorResponse(res);
 
     return NextResponse.json(await res.json());
   } catch (error: any) {
     console.error('API /api/memory/[id] DELETE error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+    return agentFailureResponse(error);
   }
 }

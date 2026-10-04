@@ -31,11 +31,17 @@ const FREQUENCIES = ['interval', 'hourly', 'daily', 'weekly'];
  * Unknown values used to be stored and then "succeed" without doing anything, or never fire.
  */
 export function validateAutomationInput(
-  input: { triggerType?: unknown; triggerConfig?: unknown; actionType?: unknown; status?: unknown },
+  input: { triggerType?: unknown; triggerConfig?: unknown; actionType?: unknown; actionConfig?: unknown; status?: unknown },
   events: readonly string[] = DEFAULT_EVENTS
 ): string | null {
   const { triggerType, actionType, status } = input;
-  const config = (input.triggerConfig && typeof input.triggerConfig === 'object' ? input.triggerConfig : {}) as Record<string, unknown>;
+  // Settings are stored as JSON objects. A string or list here used to be saved as-is and made
+  // every later read of the automation fail.
+  for (const field of ['triggerConfig', 'actionConfig'] as const) {
+    if (input[field] !== undefined && !isPlainObject(input[field])) return `${field} must be an object`;
+  }
+  const config = (input.triggerConfig ?? {}) as Record<string, unknown>;
+  const action = (input.actionConfig ?? {}) as Record<string, unknown>;
 
   if (typeof triggerType !== 'string' || !TRIGGER_TYPES.includes(triggerType)) {
     return `triggerType must be one of: ${TRIGGER_TYPES.join(', ')}`;
@@ -53,7 +59,14 @@ export function validateAutomationInput(
       (typeof config.frequency !== 'string' || !FREQUENCIES.includes(config.frequency))) {
     return `frequency must be one of: ${FREQUENCIES.join(', ')}`;
   }
+  if (action.prompt !== undefined && (typeof action.prompt !== 'string' || action.prompt.length > LIMITS.instructionsChars)) {
+    return `prompt must be text of at most ${LIMITS.instructionsChars.toLocaleString('en-US')} characters`;
+  }
   return null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 // ── Request input limits ──

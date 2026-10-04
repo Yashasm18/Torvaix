@@ -110,6 +110,14 @@ describe('validateAutomationInput', () => {
     expect(validateAutomationInput({ ...ok, triggerConfig: { frequency: 'custom' } })).toMatch(/frequency/);
     expect(validateAutomationInput({ ...ok, status: 'running' })).toMatch(/status/);
   });
+  it('rejects settings that are not objects, which used to break every later read of the automation', () => {
+    for (const bad of ['not json', ['a'], 5, null]) {
+      expect(validateAutomationInput({ ...ok, triggerConfig: bad })).toMatch(/triggerConfig must be an object/);
+      expect(validateAutomationInput({ ...ok, actionConfig: bad })).toMatch(/actionConfig must be an object/);
+    }
+    expect(validateAutomationInput({ ...ok, actionConfig: { prompt: 'Summarise the news' } })).toBeNull();
+    expect(validateAutomationInput({ ...ok, actionType: 'agent_task', actionConfig: { prompt: { a: 1 } } })).toMatch(/prompt/);
+  });
 });
 
 describe('request input validation', () => {

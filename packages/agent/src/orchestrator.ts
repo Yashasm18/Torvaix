@@ -13,7 +13,7 @@ import crypto from 'crypto';
 import { LLMClient, type LLMMessage, type LLMResponse } from '@torvaix/providers';
 import { MemoryStore } from '@torvaix/memory';
 import { getMcpClient } from '@torvaix/mcp';
-import { ingestKnowledgeGraph, queryGraph, getNeighbors, type MLIntelligencePayload } from '@torvaix/graph';
+import { ingestKnowledgeGraph, findMentionedEntities, getNeighbors, type MLIntelligencePayload } from '@torvaix/graph';
 import { TraceCollector } from './trace';
 import { keywordRoute } from './routing';
 
@@ -58,6 +58,23 @@ export interface AgentState {
   trace?: TraceCollector;
   final?: boolean;
   pulse: KnowledgePulseData;
+}
+
+/** Most of a tool result the model sees when planning its next step. The user still gets all of it. */
+const MAX_TOOL_CONTEXT_CHARS = 6000;
+/** Knowledge-graph relationships added to a chat prompt, at most. */
+const MAX_GRAPH_RELATIONS = 8;
+
+/**
+ * Shortens a long tool result for the model's context, keeping the start and the end (where
+ * errors and totals usually are). A large file or command output used to go into the prompt
+ * whole, pushing the task and the reply format out of a local model's context window.
+ */
+export function clipForModel(text: string, max = MAX_TOOL_CONTEXT_CHARS): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.75);
+  const tail = max - head;
+  return `${text.slice(0, head)}\n… [${text.length - max} characters left out] …\n${text.slice(-tail)}`;
 }
 
 export class AgentOrchestrator {
@@ -126,24 +143,62 @@ export class AgentOrchestrator {
 
   // ── Message History Management ──
 
+  /**
+   * The most recent messages that fit the context budget (~4 characters per token). Tool results
+   * are kept as system messages, so every role counts towards the budget; they used to be exempt
+   * and a few long results could grow the prompt without limit.
+   */
   private trimMessages(messages: AgentState['messages']): AgentState['messages'] {
-    const systemMsgs = messages.filter(m => m.role === 'system');
-    const chatMsgs = messages.filter(m => m.role !== 'system');
-
-    // Estimate: ~4 chars per token
-    const maxChars = this.maxContextChars - systemMsgs.reduce((s, m) => s + m.content.length, 0);
     let totalChars = 0;
-    const keep: typeof chatMsgs = [];
+    const keep: AgentState['messages'] = [];
 
-    // Keep most recent messages that fit
-    for (let i = chatMsgs.length - 1; i >= 0; i--) {
-      const msgChars = chatMsgs[i].content.length;
-      if (totalChars + msgChars > maxChars && keep.length > 0) break;
-      keep.unshift(chatMsgs[i]);
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msgChars = messages[i].content.length;
+      if (totalChars + msgChars > this.maxContextChars && keep.length > 0) break;
+      keep.unshift(messages[i]);
       totalChars += msgChars;
     }
 
-    return [...systemMsgs, ...keep];
+    return keep;
+  }
+
+  /**
+   * Runs one tool call and reports it everywhere a call is recorded: the chat stream, the
+   * execution log, the trace, and the history the model plans its next step from. Approved
+   * actions and ordinary steps both go through here, so a command that fails is recorded as a
+   * failure either way (an approved one used to be logged as a success).
+   */
+  private async runTool(
+    state: AgentState,
+    mcp: ReturnType<typeof getMcpClient>,
+    tool: string,
+    args: Record<string, any>,
+    onStreamChunk?: (chunk: string) => void
+  ): Promise<{ ok: boolean; text: string }> {
+    const toolCallId = crypto.randomUUID();
+    onStreamChunk?.(`9:${JSON.stringify({ toolCallId, toolName: tool, args })}\n`);
+
+    const started = performance.now();
+    let ok = true;
+    let text: string;
+    try {
+      const result = await mcp.callTool(tool, args);
+      const output = (result.content ?? []).map(c => c.text).filter(Boolean).join('\n');
+      if (result.isError) throw new Error(output || 'Unknown tool error');
+      text = output || 'Tool executed, no output.';
+    } catch (e: any) {
+      ok = false;
+      text = `Tool execution failed: ${e.message}`;
+      state.trace!.recordError('tool_call', e.message, { tool });
+    }
+
+    this.memoryStore.logExecution(state.workspaceId, tool, args, text, ok ? 'success' : 'error');
+    state.trace!.recordToolCall(tool, performance.now() - started, ok ? 'success' : 'error', ok ? {} : { error: text });
+    onStreamChunk?.(`a:${JSON.stringify({ toolCallId, result: { output: text } })}\n`);
+
+    this.lastToolOutput = text;
+    state.messages.push({ role: 'system', content: ok ? `Tool ${tool} Result: ${clipForModel(text)}` : clipForModel(text) });
+    return { ok, text };
   }
 
   // ── State Graph Nodes ──
@@ -298,17 +353,17 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
         }));
       }
 
-      // Hybrid Graph Context Enrichment
-      const graphNodes = queryGraph(state.instructions, state.workspaceId);
-      if (graphNodes.length > 0) {
-        const primaryEntity = graphNodes[0];
-        const neighbors = getNeighbors(primaryEntity.name, state.workspaceId);
-        if (neighbors.length > 0) {
-          const relLines = neighbors.map(n => 
-            `- ${primaryEntity.name} ${n.direction === 'OUT' ? '→' : '←'} ${n.relation} ${n.direction === 'OUT' ? '→' : '←'} ${n.node.name} (${n.node.type})`
-          ).join('\n');
-          memoryContext += `\n\nKnowledge Graph relationships for context:\n${relLines}`;
+      // Relationships from the knowledge graph for the entities this message mentions.
+      const relLines = new Set<string>();
+      for (const entity of findMentionedEntities(state.instructions, state.workspaceId)) {
+        for (const n of getNeighbors(entity.name, state.workspaceId)) {
+          if (relLines.size >= MAX_GRAPH_RELATIONS) break;
+          const arrow = n.direction === 'OUT' ? '→' : '←';
+          relLines.add(`- ${entity.name} ${arrow} ${n.relation} ${arrow} ${n.node.name} (${n.node.type})`);
         }
+      }
+      if (relLines.size > 0) {
+        memoryContext += `\n\nKnowledge Graph relationships for context:\n${Array.from(relLines).join('\n')}`;
       }
     } catch (e: any) {
       state.trace!.recordError('conversation', `memory recall failed: ${e.message}`);
@@ -514,6 +569,8 @@ ${structure}
 
   // NODE: Execution (Tool Calling via MCP)
   private lastToolCall: { tool: string; argsHash: string } | null = null;
+  /** Full text of the most recent tool result, for replies that hand it straight to the user. */
+  private lastToolOutput: string | null = null;
 
   private async nodeExecution(state: AgentState, workspacePath: string, onStreamChunk?: (chunk: string) => void): Promise<AgentState> {
     console.log('[Execution Agent] Planning execution...');
@@ -534,46 +591,16 @@ ${structure}
         // The approval covers this one call only. Anything the agent wants to run next needs its
         // own approval; it used to grant the tool for the rest of the run without asking again.
         state.trace!.recordApproval(pending.action, true, { resumed: true });
-        this.lastToolCall = { tool: pending.action, argsHash: JSON.stringify(JSON.parse(pending.params)) };
+        const approvedArgs = JSON.parse(pending.params);
+        this.lastToolCall = { tool: pending.action, argsHash: JSON.stringify(approvedArgs) };
 
-        const toolCallId = crypto.randomUUID();
-        if (onStreamChunk) {
-          onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: pending.action, args: JSON.parse(pending.params) })}\n`);
-        }
-
-        const toolStart = performance.now();
-        try {
-          const result = await mcp.callTool(pending.action, JSON.parse(pending.params));
-          const resultText = result.content?.[0]?.text ?? 'Tool executed, no output.';
-          const durationMs = performance.now() - toolStart;
-
-          this.memoryStore.logExecution(state.workspaceId, pending.action, JSON.parse(pending.params), resultText, 'success');
-          state.trace!.recordToolCall(pending.action, durationMs, 'success');
-
-          if (onStreamChunk) {
-            onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
-          }
-          // Same label as the main loop, so a repeated request for this call returns this output.
-          state.messages.push({ role: 'system', content: `Tool ${pending.action} Result: ${resultText}` });
-        } catch (e: any) {
-          const durationMs = performance.now() - toolStart;
-          const errorText = `Tool execution failed: ${e.message}`;
-          this.memoryStore.logExecution(state.workspaceId, pending.action, JSON.parse(pending.params), errorText, 'error');
-          state.trace!.recordToolCall(pending.action, durationMs, 'error', { error: e.message });
-          state.trace!.recordError('tool_call', e.message, { tool: pending.action });
-
-          if (onStreamChunk) {
-            onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: errorText } })}\n`);
-          }
-          state.messages.push({ role: 'system', content: errorText });
-        }
+        const { text } = await this.runTool(state, mcp, pending.action, approvedArgs, onStreamChunk);
 
         state.pendingActionId = undefined;
         if (!state.instructions.trim()) {
           // Resumed on its own (approved from the Tasks page): nothing further was asked,
           // so report the tool's result instead of planning new steps.
-          const last = state.messages[state.messages.length - 1];
-          state.output = last ? last.content.replace(/^Tool \S+ Result: /, '') : 'Action executed.';
+          state.output = text;
           state.final = true;
           state.nextNode = 'end';
           return state;
@@ -679,26 +706,44 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       const decision = JSON.parse(extractedJson);
 
       if (decision.done === true || !decision.tool) {
-        state.output = decision.message ?? 'Execution completed.';
+        // Small models sometimes put an object or a list in "message"; the chat expects text.
+        const message = decision.message;
+        state.output = typeof message === 'string' && message.trim()
+          ? message
+          : message != null && typeof message !== 'string' ? JSON.stringify(message, null, 2) : 'Execution completed.';
         state.nextNode = 'end';
         endTrace({ done: true });
         return state;
       }
 
-      const tool = decision.tool as string;
+      const tool = String(decision.tool);
       const isDangerous = tool === 'bash' || tool === 'python';
+      const args: Record<string, any> =
+        decision.args && typeof decision.args === 'object' && !Array.isArray(decision.args) ? decision.args : {};
+
+      // A command to approve must actually contain the command. Without this check the user was
+      // shown an empty approval card, and approving it ran nothing.
+      const required = tool === 'bash' ? 'command' : tool === 'python' ? 'code' : null;
+      if (required && (typeof args[required] !== 'string' || !args[required].trim())) {
+        const notice = `The ${tool} tool needs a non-empty "${required}" string in "args". Nothing was run.`;
+        const repeated = state.messages[state.messages.length - 1]?.content === notice;
+        if (repeated) {
+          state.output = `I couldn't work out the ${required} to run. Try describing the step in more detail.`;
+          state.nextNode = 'end';
+        } else {
+          state.messages.push({ role: 'system', content: notice });
+          state.nextNode = 'execution';
+        }
+        endTrace({ tool, status: 'invalid_args' });
+        return state;
+      }
 
       // ── Duplicate tool call detection ──
-      const argsHash = JSON.stringify(decision.args || {});
+      const argsHash = JSON.stringify(args);
       if (this.lastToolCall && this.lastToolCall.tool === tool && this.lastToolCall.argsHash === argsHash) {
         console.log(`[FINAL BREAK] Duplicate tool call detected: ${tool} with same args. Forcing synthesis.`);
         // Force the LLM to synthesize from existing context
-        const lastResult = state.messages.filter(m => m.content.startsWith(`Tool ${tool} Result:`)).pop();
-        if (lastResult) {
-          state.output = lastResult.content.replace(`Tool ${tool} Result: `, '');
-        } else {
-          state.output = 'The requested information was already retrieved. Please check the results above.';
-        }
+        state.output = this.lastToolOutput ?? 'The requested information was already retrieved. Please check the results above.';
         state.final = true;
         state.nextNode = 'end';
         this.lastToolCall = null;
@@ -711,7 +756,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       if (isDangerous) {
         console.log(`[Execution Agent] Pausing for security confirmation on ${tool}`);
         state.trace!.recordApproval(tool, false);
-        const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, decision.args);
+        const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, args);
         state.pendingActionId = pendingId;
         state.output = `Security Confirmation Required for ${tool}. Please approve.`;
         endTrace({ tool, status: 'awaiting_approval' });
@@ -726,41 +771,16 @@ Reply with ONLY ONE JSON object. Nothing else.`;
 
       // Execute tool
       console.log(`[Execution Agent] Executing tool: ${tool}`);
-      const toolCallId = crypto.randomUUID();
+      const previousFailed = state.messages[state.messages.length - 1]?.content.startsWith('Tool execution failed:') ?? false;
+      const { ok, text } = await this.runTool(state, mcp, tool, args, onStreamChunk);
 
-      if (onStreamChunk) {
-        onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: tool, args: decision.args })}\n`);
-      }
-
-      const toolStart = performance.now();
-      try {
-        const result = await mcp.callTool(tool, decision.args);
-        
-        if ((result as any).isError) {
-            throw new Error(result.content?.[0]?.text ?? 'Unknown tool error');
-        }
-
-        const resultText = result.content?.[0]?.text ?? 'Tool executed, no output.';
-        const durationMs = performance.now() - toolStart;
-
-        this.memoryStore.logExecution(state.workspaceId, tool, decision.args, resultText, 'success');
-        state.trace!.recordToolCall(tool, durationMs, 'success');
-
-        if (onStreamChunk) {
-          onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
-        }
-        state.messages.push({ role: 'system', content: `Tool ${tool} Result: ${resultText}` });
+      if (ok) {
         endTrace({ tool, status: 'completed' });
-
-        // write_file no longer terminates execution, so the agent can write a file and then run it.
-        if (tool === 'write_file') {
-          console.log('[STEP] write_file complete, continuing execution...');
-        }
 
         // Terminal condition for repo_scan (belt-and-suspenders, primary path is nodeRepoAnalysis)
         if (tool === 'repo_scan') {
           console.log('[FINAL BREAK] repo_scan complete (execution fallback)');
-          state.output = resultText;
+          state.output = text;
           state.final = true;
           state.nextNode = 'end';
           return state;
@@ -771,25 +791,12 @@ Reply with ONLY ONE JSON object. Nothing else.`;
           console.log('[WEB_SEARCH] Results received, forcing synthesis on next iteration.');
           state.messages.push({ role: 'system', content: 'SYSTEM: web_search results are above. You MUST now respond with {"done": true, "message": "..."} containing a summary. Do NOT call web_search again.' });
         }
+      } else {
+        endTrace({ tool, status: 'error', error: text });
 
-      } catch (e: any) {
-        const durationMs = performance.now() - toolStart;
-        const errorText = `Tool execution failed: ${e.message}`;
-        this.memoryStore.logExecution(state.workspaceId, tool, decision.args, errorText, 'error');
-        state.trace!.recordToolCall(tool, durationMs, 'error', { error: e.message });
-        state.trace!.recordError('tool_call', e.message, { tool });
-
-        if (onStreamChunk) {
-          onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: errorText } })}\n`);
-        }
-        
-        const prevMsg = state.messages.length > 0 ? state.messages[state.messages.length - 1] : null;
-        state.messages.push({ role: 'system', content: errorText });
-        endTrace({ tool, status: 'error', error: e.message });
-
-        if (prevMsg && prevMsg.content.startsWith('Tool execution failed:')) {
+        if (previousFailed) {
           console.log('[FINAL BREAK] Repeated tool failure. Aborting execution.');
-          state.output = `Execution aborted due to repeated tool failures: ${e.message}`;
+          state.output = `Execution aborted due to repeated tool failures: ${text.replace(/^Tool execution failed: /, '')}`;
           state.final = true;
           state.nextNode = 'end';
         }
@@ -882,8 +889,12 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         }
       }
 
-      if (state.iteration >= this.maxIterations) {
+      if (state.iteration >= this.maxIterations && state.nextNode !== 'end' && !state.final) {
         trace.recordError('execution', `Max iterations (${this.maxIterations}) reached`);
+        // The run was cut off mid-task. Say so instead of ending with an empty reply.
+        state.output =
+          `I stopped after ${this.maxIterations} steps without finishing this task.` +
+          (this.lastToolOutput ? ` The last step returned:\n\n${clipForModel(this.lastToolOutput, 2000)}` : '');
       }
     } catch (e: any) {
       if (!this.stopIfAborted(state)) {

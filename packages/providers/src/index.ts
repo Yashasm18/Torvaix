@@ -66,7 +66,7 @@ export const MODELS: ModelInfo[] = [
   { id: 'o3-mini', name: 'o3 Mini', provider: 'openai', contextWindow: 200000, description: 'Reasoning-optimized' },
   // Anthropic
   { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'anthropic', contextWindow: 200000, description: 'Best for coding and analysis' },
-  { id: 'claude-haiku-4-20250514', name: 'Claude Haiku 4', provider: 'anthropic', contextWindow: 200000, description: 'Fast, efficient' },
+  { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', provider: 'anthropic', contextWindow: 200000, description: 'Fast, efficient' },
   // Google
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'google', contextWindow: 2000000, description: 'Largest context window' },
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'google', contextWindow: 1000000, description: 'Fast with huge context' },

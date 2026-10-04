@@ -24,7 +24,7 @@ import { formatApprovalRequest } from './approval-message';
 import { closeAllMcpClients } from '@torvaix/mcp';
 import { checkBrowserRequest, parseList, DEFAULT_ALLOWED_ORIGINS } from './http-security';
 import { isValidEmail, validateWorkspaceId, validateMessages, validateText, clampCount, LIMITS } from './validation';
-import { MemoryStore } from '@torvaix/memory';
+import { MemoryStore, type AutomationRecord } from '@torvaix/memory';
 import { LLMClient, PROVIDERS, pickInstalledModel, resolveModel } from '@torvaix/providers';
 import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
 import { AutomationEngine, AutomationWorkflow, torvaixEvents } from '@torvaix/events';
@@ -84,43 +84,31 @@ const llmClient = new LLMClient();
 
 // ── Background Automation Engine ──
 
+/** Settings column of an automation row as an object; `{}` if it isn't one. */
+function parseConfig(json: string): Record<string, any> {
+  try {
+    const value = JSON.parse(json || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+/** A stored automation with its trigger and action settings parsed. */
+function toWorkflow(r: AutomationRecord): AutomationWorkflow {
+  return {
+    ...r,
+    actionType: r.actionType as AutomationWorkflow['actionType'],
+    triggerConfig: parseConfig(r.triggerConfig),
+    actionConfig: parseConfig(r.actionConfig),
+  };
+}
+
 const automationEngine = new AutomationEngine({
-  listAutomations: (workspaceId?: string) => {
-    const rows = memoryStore.listAutomations(workspaceId);
-    return rows.map(r => ({
-      id: r.id,
-      workspaceId: r.workspaceId,
-      name: r.name,
-      description: r.description,
-      triggerType: r.triggerType,
-      triggerConfig: JSON.parse(r.triggerConfig || '{}'),
-      actionType: r.actionType as any,
-      actionConfig: JSON.parse(r.actionConfig || '{}'),
-      status: r.status,
-      lastRunAt: r.lastRunAt,
-      runCount: r.runCount,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }));
-  },
+  listAutomations: (workspaceId?: string) => memoryStore.listAutomations(workspaceId).map(toWorkflow),
   getAutomation: (id: string) => {
     const r = memoryStore.getAutomation(id);
-    if (!r) return null;
-    return {
-      id: r.id,
-      workspaceId: r.workspaceId,
-      name: r.name,
-      description: r.description,
-      triggerType: r.triggerType,
-      triggerConfig: JSON.parse(r.triggerConfig || '{}'),
-      actionType: r.actionType as any,
-      actionConfig: JSON.parse(r.actionConfig || '{}'),
-      status: r.status,
-      lastRunAt: r.lastRunAt,
-      runCount: r.runCount,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    };
+    return r ? toWorkflow(r) : null;
   },
   updateAutomation: (id: string, updates: any) => {
     return memoryStore.updateAutomation(id, updates);
@@ -180,7 +168,9 @@ automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
   }
 
   if (actionType === 'agent_task') {
-    const prompt = actionConfig?.prompt || `Execute background automation: ${workflow.name}`;
+    const prompt = typeof actionConfig?.prompt === 'string' && actionConfig.prompt.trim()
+      ? actionConfig.prompt
+      : `Execute background automation: ${workflow.name}`;
     // Same model as chat, so background tasks use the auto-selected installed model too.
     const agent = new AgentOrchestrator(memoryStore, { llm: llmClient, model: chatModel });
     const finalState = await agent.run({
@@ -418,8 +408,8 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
+    const { email, password } = req.body ?? {};
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       res.status(400).json({ error: 'Missing email or password' });
       return;
     }
@@ -460,6 +450,10 @@ app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
 app.post('/api/workspaces', requireAuth, (req: AuthRequest, res) => {
   try {
     const { id, name = 'New Workspace', settings: rawSettings } = req.body ?? {};
+    const invalid =
+      validateText(name, 'name', LIMITS.nameChars) ??
+      (id !== undefined ? validateWorkspaceId(id)?.replace('workspaceId', 'id') ?? null : null);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
     // Agent tools run inside settings.path, so clients can't choose it; the server provisions it.
     const settings: Record<string, unknown> = rawSettings && typeof rawSettings === 'object' ? { ...rawSettings } : {};
     delete settings.path;
@@ -553,7 +547,7 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
     });
 
     if (isStream) {
-      let outputText = finalState.output;
+      let outputText = typeof finalState.output === 'string' ? finalState.output : String(finalState.output ?? '');
       if (finalState.pendingActionId) {
         const pending = memoryStore.getPendingAction(finalState.pendingActionId);
         outputText = formatApprovalRequest(finalState.pendingActionId, pending?.action);
@@ -795,12 +789,7 @@ app.get('/api/automations', requireAuth, async (req: AuthRequest, res) => {
   try {
     const workspaceId = (req.query.workspaceId as string) || 'default';
     memoryStore.seedDefaultAutomations(workspaceId);
-    const rows = memoryStore.listAutomations(workspaceId);
-    const automations = rows.map(r => ({
-      ...r,
-      triggerConfig: JSON.parse(r.triggerConfig || '{}'),
-      actionConfig: JSON.parse(r.actionConfig || '{}'),
-    }));
+    const automations = memoryStore.listAutomations(workspaceId).map(toWorkflow);
     res.json({ success: true, automations });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to list automations', details: error.message });
@@ -819,7 +808,7 @@ app.post('/api/automations', requireAuth, async (req: AuthRequest, res) => {
       (description !== undefined && (typeof description !== 'string' || description.length > LIMITS.descriptionChars)
         ? `description must be text of at most ${LIMITS.descriptionChars} characters`
         : null) ??
-      validateAutomationInput({ triggerType, triggerConfig, actionType, status });
+      validateAutomationInput({ triggerType, triggerConfig, actionType, actionConfig, status });
     if (invalid) {
       res.status(400).json({ error: invalid });
       return;
@@ -834,14 +823,7 @@ app.post('/api/automations', requireAuth, async (req: AuthRequest, res) => {
       actionConfig,
       status
     });
-    res.status(201).json({
-      success: true,
-      automation: {
-        ...record,
-        triggerConfig: JSON.parse(record.triggerConfig || '{}'),
-        actionConfig: JSON.parse(record.actionConfig || '{}'),
-      }
-    });
+    res.status(201).json({ success: true, automation: toWorkflow(record) });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to create automation', details: error.message });
   }
@@ -862,14 +844,7 @@ app.get('/api/automations/:id', requireAuth, async (req: AuthRequest, res) => {
     const id = req.params.id as string;
     const record = memoryStore.getAutomation(id);
     if (!record) { res.status(404).json({ error: 'Automation not found' }); return; }
-    res.json({
-      success: true,
-      automation: {
-        ...record,
-        triggerConfig: JSON.parse(record.triggerConfig || '{}'),
-        actionConfig: JSON.parse(record.actionConfig || '{}'),
-      }
-    });
+    res.json({ success: true, automation: toWorkflow(record) });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to get automation', details: error.message });
   }
@@ -884,27 +859,26 @@ app.put('/api/automations/:id', requireAuth, async (req: AuthRequest, res) => {
     // Validate the result of the update, so e.g. switching to an event trigger needs a valid event.
     const invalid =
       (updates.name !== undefined ? validateText(updates.name, 'name', LIMITS.nameChars) : null) ??
+      (updates.description !== undefined && (typeof updates.description !== 'string' || updates.description.length > LIMITS.descriptionChars)
+        ? `description must be text of at most ${LIMITS.descriptionChars} characters`
+        : null) ??
       validateAutomationInput({
-      triggerType: updates.triggerType ?? existing.triggerType,
-      triggerConfig: updates.triggerConfig ?? JSON.parse(existing.triggerConfig || '{}'),
-      actionType: updates.actionType ?? existing.actionType,
-      status: updates.status ?? existing.status,
-    });
+        triggerType: updates.triggerType ?? existing.triggerType,
+        triggerConfig: updates.triggerConfig ?? parseConfig(existing.triggerConfig),
+        actionType: updates.actionType ?? existing.actionType,
+        actionConfig: updates.actionConfig ?? parseConfig(existing.actionConfig),
+        status: updates.status ?? existing.status,
+      });
     if (invalid) {
       res.status(400).json({ error: invalid });
       return;
     }
-    const updated = memoryStore.updateAutomation(id, updates);
-    if (!updated) { res.status(404).json({ error: 'Automation not found' }); return; }
+    // Only what the user can edit. Run statistics (lastRunAt, runCount) belong to the engine.
+    const { name, description, triggerType, triggerConfig, actionType, actionConfig, status } = updates;
+    memoryStore.updateAutomation(id, { name, description, triggerType, triggerConfig, actionType, actionConfig, status });
     const record = memoryStore.getAutomation(id);
-    res.json({
-      success: true,
-      automation: {
-        ...record,
-        triggerConfig: JSON.parse(record?.triggerConfig || '{}'),
-        actionConfig: JSON.parse(record?.actionConfig || '{}'),
-      }
-    });
+    if (!record) { res.status(404).json({ error: 'Automation not found' }); return; }
+    res.json({ success: true, automation: toWorkflow(record) });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to update automation', details: error.message });
   }
@@ -925,21 +899,7 @@ app.post('/api/automations/:id/trigger', requireAuth, async (req: AuthRequest, r
     const id = req.params.id as string;
     const record = memoryStore.getAutomation(id);
     if (!record) { res.status(404).json({ error: 'Automation not found' }); return; }
-    const workflow: AutomationWorkflow = {
-      id: record.id,
-      workspaceId: record.workspaceId,
-      name: record.name,
-      description: record.description,
-      triggerType: record.triggerType,
-      triggerConfig: JSON.parse(record.triggerConfig || '{}'),
-      actionType: record.actionType as any,
-      actionConfig: JSON.parse(record.actionConfig || '{}'),
-      status: record.status,
-      lastRunAt: record.lastRunAt,
-      runCount: record.runCount,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-    };
+    const workflow = toWorkflow(record);
     const log = await automationEngine.executeWorkflow(workflow, { source: 'manual_trigger' });
     res.json({ success: true, log });
   } catch (error: any) {
@@ -950,7 +910,7 @@ app.post('/api/automations/:id/trigger', requireAuth, async (req: AuthRequest, r
 app.get('/api/automations/:id/logs', requireAuth, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id as string;
-    const limit = Number(req.query.limit) || 20;
+    const limit = clampCount(req.query.limit, 20, 200);
     const logs = memoryStore.listAutomationLogs(id, limit);
     res.json({ success: true, logs });
   } catch (error: any) {
@@ -1061,6 +1021,18 @@ app.post('/api/companion/devices/revoke', requireAuth, async (req, res) => {
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to revoke device', details: error.message });
   }
+});
+
+// Unknown API paths and unexpected errors answer in JSON like every other route, instead of
+// Express's HTML error pages (which the web app can't show as a message).
+app.use('/api/', (_req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[Server] Unhandled error:', err);
+  if (res.headersSent) { res.end(); return; }
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // ── WebSocket (preserved) ──
