@@ -200,3 +200,56 @@ describe('tool results', () => {
     expect(state.output).toContain('two files');
   });
 });
+
+describe('what a reply reports about itself', () => {
+  let store: MemoryStore;
+  beforeEach(() => {
+    callTool.mockReset();
+    callTool.mockImplementation(async (tool: string, args: any) => ({ content: [{ type: 'text', text: `ran ${tool} ${JSON.stringify(args)}` }] }));
+    store = new MemoryStore(':memory:', { ollamaUrl: 'http://127.0.0.1:1', qdrantUrl: 'http://127.0.0.1:1' });
+  });
+
+  it('names the memory it saved, so the user can see and undo it', async () => {
+    const agent = new AgentOrchestrator(store, { llm: scriptedLlm([]), model: 'test-model' });
+    const state = await agent.run({ workspaceId: 'default', instructions: 'Remember that my favorite framework is Next.js' });
+
+    expect(state.pulse.route).toBe('knowledge');
+    expect(state.pulse.savedMemory?.content).toBe('Remember that my favorite framework is Next.js');
+    expect(await store.getMemoryById(state.pulse.savedMemory!.id)).toBeTruthy();
+    expect(state.pulse.model).toBe('test-model');
+  });
+
+  it('lists the memories an answer used, with how and when each was found', async () => {
+    await store.storeMemory('default', 'My favorite framework is Next.js', 'User Chat');
+    const agent = new AgentOrchestrator(store, { llm: scriptedLlm(['Next.js']), model: 'test-model' });
+    const state = await agent.run({ workspaceId: 'default', instructions: 'Do you remember my favorite framework?' });
+
+    expect(state.pulse.route).toBe('memory');
+    expect(state.pulse.retrievedMemories).toHaveLength(1);
+    expect(state.pulse.retrievedMemories[0]).toMatchObject({ content: 'My favorite framework is Next.js', match: 'keyword' });
+    expect(state.pulse.retrievedMemories[0].createdAt).toMatch(/^\d{4}-\d{2}-\d{2} /);
+    expect(state.pulse.steps.map(s => s.phase)).toEqual(['router', 'memory']);
+    expect(state.pulse.steps.every(s => typeof s.durationMs === 'number')).toBe(true);
+  });
+
+  it('marks memories as "recent" when nothing matched and the latest ones were read instead', async () => {
+    await store.storeMemory('default', 'The deploy runs on Fridays', 'User Chat');
+    const agent = new AgentOrchestrator(store, { llm: scriptedLlm(['You deploy on Fridays.']), model: 'test-model' });
+    const state = await agent.run({ workspaceId: 'default', instructions: 'What do you know about me?' });
+
+    expect(state.pulse.retrievedMemories.map(m => m.match)).toEqual(['recent']);
+  });
+
+  it('records the tools that ran and an approval it is waiting for', async () => {
+    const llm = scriptedLlm([
+      '{"done": false, "tool": "write_file", "args": {"filePath": "a.txt", "content": "x"}}',
+      '{"done": false, "tool": "bash", "args": {"command": "cat a.txt"}}',
+    ]);
+    const agent = new AgentOrchestrator(store, { llm, model: 'test-model' });
+    const state = await agent.run({ workspaceId: 'default', instructions: 'write then show', nextNode: 'execution' } as any);
+
+    expect(state.pulse.route).toBe('execution');
+    expect(state.pulse.steps.filter(s => s.phase === 'tool_call').map(s => s.action)).toEqual(['Tool: write_file']);
+    expect(state.pulse.awaitingApproval).toBe('bash');
+  });
+});

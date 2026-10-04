@@ -40,7 +40,25 @@ Core identity rules:
  */
 export interface KnowledgePulseData {
   id: string;
-  retrievedMemories: { id: string; content: string; source: string; score: number }[];
+  /** Which part of the agent handled the message. */
+  route: 'identity' | 'memory' | 'knowledge' | 'conversation' | 'execution' | 'repo_analysis' | null;
+  model: string;
+  totalMs: number;
+  retrievedMemories: {
+    id: string;
+    content: string;
+    source: string;
+    score: number;
+    /** How it was found. 'recent' means nothing matched and the latest memories were used instead. */
+    match: 'keyword' | 'vector' | 'hybrid_rrf' | 'recent';
+    createdAt?: string;
+  }[];
+  /** The memory stored by this turn, so the user can see exactly what was kept (and undo it). */
+  savedMemory: { id: string; content: string } | null;
+  /** Tool waiting for the user's approval, if the turn stopped there. */
+  awaitingApproval: string | null;
+  /** What the agent did, in order, with how long each step took. */
+  steps: { phase: string; action: string; durationMs?: number }[];
   detectedEntities: { text: string; type: string }[];
   relationships: { source: string; relation: string; target: string; confidence?: number }[];
   graphActivity: { nodesAdded: number; relationshipsAdded: number; updated: boolean };
@@ -217,6 +235,7 @@ export class AgentOrchestrator {
     const route = keywordRoute(state.instructions);
     if (route === 'identity') {
       endTrace({ decision: 'end', bypass: true });
+      state.pulse.route = 'identity';
       console.log(`[Router Agent] Decision: identity (keyword bypass)`);
       state.output = "I am Torvaix, your workspace-first AI Operating System.";
       state.nextNode = 'end';
@@ -292,8 +311,8 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       if (results.length === 0) {
         // Broad recall ("what do you know about me?") has no specific keywords; answer from the
         // most recent memories instead of saying nothing is stored.
-        const recent = (await this.memoryStore.getAllMemories(state.workspaceId)) as { id: string; content: string; source: string }[];
-        results = recent.slice(0, 5).map(m => ({ id: m.id, content: m.content, source: m.source, score: 0, retrievalType: 'keyword' as const }));
+        const recent = (await this.memoryStore.getAllMemories(state.workspaceId)) as { id: string; content: string; source: string; createdAt: string }[];
+        results = recent.slice(0, 5).map(m => ({ id: m.id, content: m.content, source: m.source, score: 0, createdAt: m.createdAt }));
       }
 
       // Surface retrieved memories to the Knowledge Pulse panel.
@@ -302,6 +321,8 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
         content: r.content,
         source: r.source,
         score: r.score,
+        match: r.retrievalType ?? 'recent',
+        createdAt: r.createdAt,
       }));
 
       const hit = results.length > 0;
@@ -355,6 +376,8 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
           content: r.content,
           source: r.source,
           score: r.score,
+          match: r.retrievalType ?? 'keyword',
+          createdAt: r.createdAt,
         }));
       }
 
@@ -415,7 +438,8 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
 
     try {
       await this.memoryStore.initQdrant();
-      await this.memoryStore.storeMemory(state.workspaceId, state.instructions, 'User Chat');
+      const savedId = await this.memoryStore.storeMemory(state.workspaceId, state.instructions, 'User Chat');
+      state.pulse.savedMemory = { id: savedId, content: state.instructions };
 
       // NLP enrichment (best-effort): extract entities/relationships via the Python
       // intelligence layer and fold them into the knowledge graph. This never blocks
@@ -763,6 +787,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         state.trace!.recordApproval(tool, false);
         const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, args);
         state.pendingActionId = pendingId;
+        state.pulse.awaitingApproval = tool;
         state.output = `Security Confirmation Required for ${tool}. Please approve.`;
         endTrace({ tool, status: 'awaiting_approval' });
         state.nextNode = 'end';
@@ -853,6 +878,12 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       trace,
       pulse: {
         id: crypto.randomUUID(),
+        route: null,
+        model: this.model,
+        totalMs: 0,
+        savedMemory: null,
+        awaitingApproval: null,
+        steps: [],
         retrievedMemories: [],
         detectedEntities: [],
         relationships: [],
@@ -869,6 +900,8 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         if (this.stopIfAborted(state)) break;
         state.iteration++;
         console.log(`[STEP START] Iteration ${state.iteration}`);
+
+        if (state.nextNode !== 'router' && !state.pulse.route) state.pulse.route = state.nextNode;
 
         switch (state.nextNode) {
           case 'router':
@@ -922,6 +955,16 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         .getTrace()
         .filter(e => stepPhases.has(e.phase))
         .map(e => `${e.phase}: ${e.action}`);
+      // The same path with timings and the tools that ran, for the "How I answered" panel.
+      state.pulse.steps = trace
+        .getTrace()
+        .filter(e => stepPhases.has(e.phase) || e.phase === 'tool_call')
+        // Events are recorded when a step ends; list them in the order they started, so a step
+        // comes before the tool calls and sub-steps that ran inside it.
+        .map((e, index) => ({ e, index, startedAt: e.timestamp - (e.durationMs ?? 0) }))
+        .sort((a, b) => a.startedAt - b.startedAt || a.index - b.index)
+        .map(({ e }) => ({ phase: e.phase, action: e.action, durationMs: e.durationMs }));
+      state.pulse.totalMs = trace.getTotalDurationMs();
 
       if (onStreamChunk) {
         const traceJson = trace.serialize(state.iteration);

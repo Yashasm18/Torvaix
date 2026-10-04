@@ -16,7 +16,8 @@ import {
 import { Send, User, Loader2, Shield, Search, Database, BookOpen, CheckCircle2, Paperclip, BrainCircuit, Terminal, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X } from "lucide-react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { useSystemStatus } from "@/hooks/use-system-status";
-import { useMemoryContextStore, type RetrievedMemory } from "@/store/memory-context-store";
+import { useAnswerDetailsStore } from "@/store/answer-details-store";
+import { normalizeTurn } from "@/lib/answer-details";
 import { useDBStore } from "@/store/db-store";
 import {
   DEFAULT_CHAT_TITLE,
@@ -85,7 +86,10 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
   const provider = systemStatus?.model?.provider ?? 'ollama';
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const processedPulseId = useRef<string | null>(null);
+  // Each reply's details go to exactly one message. Stream data piles up across turns, so
+  // without this the previous reply's details would be pinned to the next message too.
+  const attachedTurnIds = useRef(new Set<string>());
+  const turnsByMessage = useAnswerDetailsStore((s) => s.byMessage);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const { workspace } = useActiveWorkspace();
@@ -135,7 +139,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
   }, [messages, isLoading, chatId, saveChatMessages]);
 
   useEffect(() => {
-    useMemoryContextStore.getState().resetKnowledgePulse();
+    useAnswerDetailsStore.getState().reset();
   }, []);
 
   const startNewChat = () => {
@@ -227,20 +231,6 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-
-    // Parse messages for tool results to update the right context panel
-    const latestMessage = messages[messages.length - 1];
-    if (latestMessage?.role === 'assistant' && latestMessage.toolInvocations) {
-      const memoryQueries = latestMessage.toolInvocations.filter(t => t.toolName === 'query_memory' && t.state === 'result');
-
-      if (memoryQueries.length > 0) {
-        const latestQuery = memoryQueries[memoryQueries.length - 1];
-        const queryResult = 'result' in latestQuery ? (latestQuery.result as { memories?: RetrievedMemory[] }) : undefined;
-        if (queryResult && Array.isArray(queryResult.memories)) {
-          useMemoryContextStore.getState().setRetrievedMemories(queryResult.memories);
-        }
-      }
-    }
   }, [messages]);
 
   // Parse trace data from stream data annotations (prefix 2:)
@@ -258,17 +248,18 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
           setTraceMap(prev => new Map(prev).set(lastAssistantIdx, parsed));
         }
 
-        // Knowledge Pulse annotation — populate the side panel from the live agent run.
-        // Deduped by id since `streamData` accumulates across turns.
-        if (parsed.torvaixPulse && parsed.torvaixPulse.id !== processedPulseId.current) {
-          processedPulseId.current = parsed.torvaixPulse.id;
-          const pulse = parsed.torvaixPulse;
-          const store = useMemoryContextStore.getState();
-          store.setRetrievedMemories(pulse.retrievedMemories ?? []);
-          store.setDetectedEntities(pulse.detectedEntities ?? []);
-          store.setRelationships(pulse.relationships ?? []);
-          store.setGraphActivity(pulse.graphActivity ?? { nodesAdded: 0, relationshipsAdded: 0, updated: false });
-          store.setAgentSteps(pulse.agentSteps ?? []);
+        // "How I answered" details for this reply.
+        const turn = normalizeTurn(parsed.torvaixPulse);
+        if (turn && !attachedTurnIds.current.has(turn.id)) {
+          const store = useAnswerDetailsStore.getState();
+          if (store.latest?.id !== turn.id) store.record(turn);
+          // The details arrive just before the reply's text, so its message may not exist yet;
+          // this effect runs again when it does.
+          const last = messages[messages.length - 1];
+          if (last?.role === 'assistant') {
+            attachedTurnIds.current.add(turn.id);
+            store.attach(last.id, turn);
+          }
         }
       } catch { /* not structured data */ }
     }
@@ -556,7 +547,24 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                         }
 
                         if (message.role === 'assistant') {
-                          return <MarkdownMessage content={message.content} />;
+                          return (
+                            <>
+                              <MarkdownMessage content={message.content} />
+                              {turnsByMessage[message.id] && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const store = useAnswerDetailsStore.getState();
+                                    store.select(message.id);
+                                    store.requestOpen();
+                                  }}
+                                  className="self-start text-xs text-muted-foreground hover:text-primary transition-colors"
+                                >
+                                  How I answered
+                                </button>
+                              )}
+                            </>
+                          );
                         }
 
                         return (

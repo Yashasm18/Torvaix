@@ -14,11 +14,11 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { BrainCircuit, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { useDBStore } from "@/store/db-store"
-import { useMemoryContextStore } from "@/store/memory-context-store"
+import { useAnswerDetailsStore } from "@/store/answer-details-store"
 import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { useSystemStatus } from "@/hooks/use-system-status"
-import { KnowledgePulse } from "../knowledge-pulse"
+import { AnswerDetails } from "../answer-details"
 import { CommandPalette } from "../command-palette"
 
 const PULSE_PREF_KEY = "torvaix:knowledge-pulse-open"
@@ -54,10 +54,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     () => false
   );
 
-  // The Knowledge Pulse panel describes the last agent turn, which belongs to one workspace.
+  // The details panel describes replies in the open chat, which belong to one workspace.
   React.useEffect(() => {
-    useMemoryContextStore.getState().resetKnowledgePulse();
+    useAnswerDetailsStore.getState().reset();
   }, [workspaceId]);
+
+  // "How I answered" under a reply asks for the panel to be shown.
+  const openRequests = useAnswerDetailsStore((s) => s.openRequests);
+  const handledOpenRequests = React.useRef(openRequests);
+  React.useEffect(() => {
+    if (openRequests === handledOpenRequests.current) return;
+    handledOpenRequests.current = openRequests;
+    if (isWide) setPulseOpen(true);
+    else setPulseSheetOpen(true);
+  }, [openRequests, isWide]);
 
   const togglePulse = () => {
     if (!isWide) {
@@ -132,8 +142,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ? { dot: "bg-primary animate-pulse", label: "Connected" }
         : { dot: "bg-red-500", label: "Agent offline" };
 
-  // Knowledge Pulse describes the last chat turn, so it only belongs next to the chat. On every
-  // other page it was a third of the screen saying "waiting for the next knowledge event".
+  // The panel describes chat replies, so it only belongs next to the chat.
   const onChat = pathname === "/" || pathname === "/chat" || (pathname?.startsWith("/chat/") ?? false);
   const showSidePanel = isWide && pulseOpen && onChat;
 
@@ -168,8 +177,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {onChat && <button
               type="button"
               onClick={togglePulse}
-              aria-label={showSidePanel ? "Hide Knowledge Pulse" : "Show Knowledge Pulse"}
-              title={showSidePanel ? "Hide Knowledge Pulse" : "Show Knowledge Pulse"}
+              aria-label={showSidePanel ? "Hide answer details" : "Show answer details"}
+              title={showSidePanel ? "Hide answer details" : "Show how the last reply was answered"}
               className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
               {showSidePanel ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
@@ -185,7 +194,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <ResizableHandle withHandle />
               <ResizablePanel defaultSize={30} minSize={20} className="bg-surface border-l border-border flex flex-col">
                 <div className="h-full w-full overflow-y-auto p-3">
-                  <KnowledgePulse />
+                  <AnswerDetails />
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
@@ -199,9 +208,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Sheet open={pulseSheetOpen} onOpenChange={setPulseSheetOpen}>
           <SheetContent side="right" className="w-[92vw] sm:max-w-md overflow-y-auto p-3">
             <SheetHeader className="sr-only">
-              <SheetTitle>Knowledge Pulse</SheetTitle>
+              <SheetTitle>How I answered</SheetTitle>
             </SheetHeader>
-            <KnowledgePulse compact />
+            <AnswerDetails compact />
           </SheetContent>
         </Sheet>
       )}

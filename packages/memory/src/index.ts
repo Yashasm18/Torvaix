@@ -30,6 +30,8 @@ export interface MemoryQueryResult {
   source: string;
   score: number;
   retrievalType?: 'vector' | 'keyword' | 'hybrid_rrf';
+  /** When the memory was saved (SQLite UTC timestamp). */
+  createdAt?: string;
 }
 
 export interface Workspace {
@@ -624,17 +626,17 @@ export class MemoryStore {
     try {
       const ftsQuery = keywords.map(k => `"${k}"*`).join(' OR ');
       const stmt = this.db.prepare(`
-        SELECT m.id, m.content, m.source, bm25(memories_fts) as bm25Score
+        SELECT m.id, m.content, m.source, m.createdAt, bm25(memories_fts) as bm25Score
         FROM memories_fts f
         JOIN memories m ON m.id = f.id
         WHERE f.workspaceId = ? AND memories_fts MATCH ?
         ORDER BY bm25Score ASC
         LIMIT ?
       `);
-      const rows = stmt.all(workspaceId, ftsQuery, limit) as { id: string; content: string; source: string; bm25Score: number }[];
+      const rows = stmt.all(workspaceId, ftsQuery, limit) as { id: string; content: string; source: string; createdAt: string; bm25Score: number }[];
 
       const scored = rows
-        .map(r => ({ id: r.id, content: r.content, source: r.source, score: coverage(r.content), retrievalType: 'keyword' as const }))
+        .map(r => ({ id: r.id, content: r.content, source: r.source, score: coverage(r.content), retrievalType: 'keyword' as const, createdAt: r.createdAt }))
         .filter(r => r.score > 0)
         .sort((a, b) => b.score - a.score);
       // Empty after scoring happens when the tokenizer splits a script differently from our keywords.
@@ -647,12 +649,12 @@ export class MemoryStore {
     const conditions = keywords.map(() => 'LOWER(content) LIKE ?').join(' OR ');
     const params = keywords.map(k => `%${k}%`);
     const stmt = this.db.prepare(
-      `SELECT id, content, source FROM memories WHERE workspaceId = ? AND (${conditions}) ORDER BY createdAt DESC LIMIT ?`
+      `SELECT id, content, source, createdAt FROM memories WHERE workspaceId = ? AND (${conditions}) ORDER BY createdAt DESC LIMIT ?`
     );
-    const rows = stmt.all(workspaceId, ...params, limit) as { id: string; content: string; source: string }[];
+    const rows = stmt.all(workspaceId, ...params, limit) as { id: string; content: string; source: string; createdAt: string }[];
 
     return rows
-      .map(row => ({ id: row.id, content: row.content, source: row.source, score: coverage(row.content), retrievalType: 'keyword' as const }))
+      .map(row => ({ id: row.id, content: row.content, source: row.source, score: coverage(row.content), retrievalType: 'keyword' as const, createdAt: row.createdAt }))
       .sort((a, b) => b.score - a.score);
   }
 
@@ -718,6 +720,7 @@ export class MemoryStore {
         source: item.source,
         score: Number((rrfScore / maxRRF).toFixed(4)),
         retrievalType: type,
+        createdAt: item.createdAt,
       };
     });
   }
@@ -742,9 +745,9 @@ export class MemoryStore {
             },
           });
 
-          const stmt = this.db.prepare('SELECT content FROM memories WHERE id = ?');
+          const stmt = this.db.prepare('SELECT content, createdAt FROM memories WHERE id = ?');
           for (const point of searchResults) {
-            const row = stmt.get(point.id) as { content: string } | undefined;
+            const row = stmt.get(point.id) as { content: string; createdAt: string } | undefined;
             if (row) {
               vectorResults.push({
                 id: String(point.id),
@@ -752,6 +755,7 @@ export class MemoryStore {
                 source: String(point.payload?.source ?? 'unknown'),
                 score: point.score,
                 retrievalType: 'vector',
+                createdAt: row.createdAt,
               });
             }
           }
