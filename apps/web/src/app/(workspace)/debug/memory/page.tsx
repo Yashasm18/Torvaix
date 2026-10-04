@@ -82,6 +82,9 @@ export default function MemoryDebugPage() {
   }, [workspaceId, run]);
 
   useEffect(() => {
+    // Rows and search results belong to the workspace they were loaded for.
+    setMemories([]);
+    setSearchResults([]);
     loadAllMemories();
   }, [loadAllMemories]);
 

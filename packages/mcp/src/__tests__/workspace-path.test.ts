@@ -47,4 +47,18 @@ describe('resolveInsideWorkspace', () => {
     // Writing a new file through a symlinked directory would land outside too.
     expect(() => resolveInsideWorkspace(path.join(ws, 'link-dir', 'new-file.txt'), ws)).toThrow(/symlink/);
   });
+
+  it('rejects a symlink whose target does not exist yet, which a write would create outside', () => {
+    // realpath fails for a broken link, so it used to be treated as a new file inside the
+    // workspace; write_file then followed the link and created the target outside.
+    fs.symlinkSync(path.join(base, 'outside', 'not-created-yet.txt'), path.join(ws, 'dangling'));
+    expect(() => resolveInsideWorkspace(path.join(ws, 'dangling'), ws)).toThrow(/symlink/);
+
+    fs.symlinkSync(path.join(base, 'outside', 'no-such-dir'), path.join(ws, 'dangling-dir'));
+    expect(() => resolveInsideWorkspace(path.join(ws, 'dangling-dir', 'file.txt'), ws)).toThrow(/symlink/);
+
+    // A broken link that points back inside the workspace is fine.
+    fs.symlinkSync(path.join(ws, 'sub', 'later.txt'), path.join(ws, 'dangling-inside'));
+    expect(() => resolveInsideWorkspace(path.join(ws, 'dangling-inside'), ws)).not.toThrow();
+  });
 });

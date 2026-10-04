@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { LoadError } from "@/components/load-error";
+import { NO_RESPONSE, responseError } from "@/lib/api-error";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { useSystemStatus } from "@/hooks/use-system-status";
 import { describeTrigger, WEEKDAYS } from "@/lib/automation-schedule";
@@ -157,6 +159,14 @@ export default function AutomationPage() {
   const { workspaceId } = useActiveWorkspace();
   const systemStatus = useSystemStatus();
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  // The workspace on screen now. A reply for one the user has since left must not be shown.
+  const currentWorkspace = useRef(workspaceId);
+  useEffect(() => {
+    currentWorkspace.current = workspaceId;
+  }, [workspaceId]);
+
   const fetchAutomations = async () => {
     if (!workspaceId) return;
     const ws = encodeURIComponent(workspaceId);
@@ -166,6 +176,8 @@ export default function AutomationPage() {
         fetch(`/api/automations?workspaceId=${ws}`),
         fetch(`/api/automations/stats?workspaceId=${ws}`),
       ]);
+      if (currentWorkspace.current !== workspaceId) return;
+      setLoadError(autoRes.ok ? null : `Couldn't load this workspace's automations. ${await responseError(autoRes)}`);
 
       if (autoRes.ok) {
         const autoData = await autoRes.json();
@@ -182,12 +194,19 @@ export default function AutomationPage() {
       }
     } catch (err) {
       console.error("Failed to load automations:", err);
+      if (currentWorkspace.current === workspaceId) setLoadError(NO_RESPONSE);
     } finally {
-      setLoading(false);
+      if (currentWorkspace.current === workspaceId) setLoading(false);
     }
   };
 
   useEffect(() => {
+    // Never show (or let the user pause and delete) another workspace's automations while the new ones load.
+    setAutomations([]);
+    setStats(null);
+    setLoadError(null);
+    setActionError(null);
+    setLastExecutionResult(null);
     fetchAutomations();
   }, [workspaceId]);
 
@@ -200,13 +219,17 @@ export default function AutomationPage() {
         body: JSON.stringify({ status: nextStatus }),
       });
       if (res.ok) {
+        setActionError(null);
         setAutomations(prev =>
           prev.map(a => (a.id === automation.id ? { ...a, status: nextStatus } : a))
         );
         fetchAutomations();
+      } else {
+        setActionError(`Couldn't ${nextStatus === "active" ? "turn on" : "pause"} "${automation.name}". ${await responseError(res)}`);
       }
     } catch (err) {
       console.error("Failed to update status:", err);
+      setActionError(NO_RESPONSE);
     }
   };
 
@@ -215,11 +238,15 @@ export default function AutomationPage() {
     try {
       const res = await fetch(`/api/automations/${id}`, { method: "DELETE" });
       if (res.ok) {
+        setActionError(null);
         setAutomations(prev => prev.filter(a => a.id !== id));
         fetchAutomations();
+      } else {
+        setActionError(`Couldn't delete the automation. ${await responseError(res)}`);
       }
     } catch (err) {
       console.error("Failed to delete automation:", err);
+      setActionError(NO_RESPONSE);
     }
   };
 
@@ -247,6 +274,7 @@ export default function AutomationPage() {
       }
     } catch (err) {
       console.error("Failed to trigger automation:", err);
+      setLastExecutionResult({ id: automation.id, output: NO_RESPONSE, status: "error" });
     } finally {
       setTriggeringId(null);
     }
@@ -256,6 +284,7 @@ export default function AutomationPage() {
     setSelectedWorkflowForLogs(automation);
     try {
       setLogsLoading(true);
+      setLogs([]); // not the previous automation's runs while these load
       const res = await fetch(`/api/automations/${automation.id}/logs?limit=25`);
       if (res.ok) {
         const data = await res.json();
@@ -629,6 +658,14 @@ export default function AutomationPage() {
 
       {/* Execution Feedback Notification Banner */}
       <AnimatePresence>
+        {loadError && <LoadError message={loadError} onRetry={fetchAutomations} className="mb-4" />}
+        {actionError && (
+          <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-3 text-sm text-red-400">
+            <span className="min-w-0 break-words">{actionError}</span>
+            <button type="button" onClick={() => setActionError(null)} aria-label="Dismiss" className="shrink-0 hover:text-red-300">✕</button>
+          </div>
+        )}
+
         {lastExecutionResult && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}

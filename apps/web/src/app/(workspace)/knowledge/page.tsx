@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { LoadError } from "@/components/load-error";
+import { NO_RESPONSE, responseError } from "@/lib/api-error";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { parseServerTimestamp } from "@/lib/server-time";
 import { motion, AnimatePresence } from "framer-motion";
@@ -91,6 +93,12 @@ export default function KnowledgePage() {
   const [submitting, setSubmitting] = useState(false);
 
   const { workspaceId } = useActiveWorkspace();
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // The workspace on screen now. A reply for one the user has since left must not be shown.
+  const currentWorkspace = useRef(workspaceId);
+  useEffect(() => {
+    currentWorkspace.current = workspaceId;
+  }, [workspaceId]);
 
   const fetchKnowledge = async () => {
     if (!workspaceId) return;
@@ -101,6 +109,8 @@ export default function KnowledgePage() {
         fetch(`/api/memory?workspaceId=${ws}`),
         fetch(`/api/memory/insights?workspaceId=${ws}`),
       ]);
+      if (currentWorkspace.current !== workspaceId) return;
+      setLoadError(memRes.ok ? null : `Couldn't load this workspace's memories. ${await responseError(memRes)}`);
 
       if (memRes.ok) {
         const memData = await memRes.json();
@@ -120,12 +130,18 @@ export default function KnowledgePage() {
       }
     } catch (e) {
       console.error("Failed to load knowledge:", e);
+      if (currentWorkspace.current === workspaceId) setLoadError(NO_RESPONSE);
     } finally {
-      setLoading(false);
+      if (currentWorkspace.current === workspaceId) setLoading(false);
     }
   };
 
   useEffect(() => {
+    // Never show one workspace's memories under another's name while the new ones load (or fail to).
+    setMemories([]);
+    setInsights([]);
+    setHealth(null);
+    setLoadError(null);
     fetchKnowledge();
   }, [workspaceId]);
 
@@ -375,6 +391,8 @@ export default function KnowledgePage() {
           </div>
         </div>
       </div>
+
+      {loadError && <LoadError message={loadError} onRetry={fetchKnowledge} className="mx-6 my-2" />}
 
       {actionError && !isAddOpen && (
         <div role="alert" className="mx-6 my-2 p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 text-xs text-red-400 flex items-center justify-between">

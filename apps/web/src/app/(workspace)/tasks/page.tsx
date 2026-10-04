@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { LoadError } from "@/components/load-error";
+import { NO_RESPONSE, responseError } from "@/lib/api-error";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { parseServerTimestamp } from "@/lib/server-time";
 import { motion, AnimatePresence } from "framer-motion";
@@ -79,6 +81,12 @@ export default function TasksPage() {
   const [lastDispatchedOutput, setLastDispatchedOutput] = useState<string | null>(null);
 
   const { workspaceId } = useActiveWorkspace();
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // The workspace on screen now. A reply for one the user has since left must not be shown.
+  const currentWorkspace = useRef(workspaceId);
+  useEffect(() => {
+    currentWorkspace.current = workspaceId;
+  }, [workspaceId]);
 
   const fetchData = async () => {
     if (!workspaceId) return;
@@ -89,6 +97,9 @@ export default function TasksPage() {
         fetch(`/api/agent/executions?workspaceId=${ws}&limit=60`),
         fetch(`/api/agent/pending-actions?workspaceId=${ws}&status=pending`),
       ]);
+      if (currentWorkspace.current !== workspaceId) return;
+      const failed = !execRes.ok ? execRes : !pendingRes.ok ? pendingRes : null;
+      setLoadError(failed ? `Couldn't load this workspace's tasks. ${await responseError(failed)}` : null);
 
       if (execRes.ok) {
         const execData = await execRes.json();
@@ -105,14 +116,16 @@ export default function TasksPage() {
       }
     } catch (e) {
       console.error("Failed to fetch task execution data:", e);
+      if (currentWorkspace.current === workspaceId) setLoadError(NO_RESPONSE);
     } finally {
-      setLoading(false);
+      if (currentWorkspace.current === workspaceId) setLoading(false);
     }
   };
 
   useEffect(() => {
     setExecutions([]);
     setPendingActions([]);
+    setLoadError(null);
     fetchData();
     const interval = setInterval(fetchData, 8000); // 8-second auto polling
     return () => clearInterval(interval);
@@ -303,6 +316,8 @@ export default function TasksPage() {
 
       {/* Gated Security Approvals Banner */}
       <div className="px-6 pt-4 pb-2">
+        {loadError && <LoadError message={loadError} onRetry={fetchData} className="mb-4" />}
+
         {approvalOutput && (
           <div className="mb-3 p-3 rounded-lg border border-border bg-surface text-xs font-mono text-foreground whitespace-pre-wrap max-h-40 overflow-y-auto flex justify-between gap-3">
             <span>{approvalOutput}</span>
