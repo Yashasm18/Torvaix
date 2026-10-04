@@ -15,6 +15,8 @@ import {
   getProviderById,
   resolveModel,
   pickInstalledModel,
+  describeHttpError,
+  isProviderId,
 } from '../index';
 
 describe('Provider Metadata', () => {
@@ -175,7 +177,7 @@ describe('LLMClient with mocked fetch', () => {
 
     await expect(
       client.complete('gpt-4o-mini', [{ role: 'user', content: 'hi' }])
-    ).rejects.toThrow('OpenAI error 401');
+    ).rejects.toThrow('OpenAI rejected the API key (HTTP 401). Check it in Settings → Models & keys.');
   });
 
   it('applies temperature and maxTokens options', async () => {
@@ -223,5 +225,65 @@ describe('LLMClient with mocked fetch', () => {
     await expect(
       client.complete('llama3.2:3b', [{ role: 'user', content: 'hi' }], { signal: cancel.signal })
     ).rejects.toBe(abortError);
+  });
+});
+
+describe('models and keys chosen in the app', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const okResponse = (body: unknown) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) });
+
+  it('sends a model outside the built-in list to the provider the user picked, not to Ollama', async () => {
+    expect(resolveModel('claude-next-9', 'anthropic')).toMatchObject({ id: 'claude-next-9', provider: 'anthropic' });
+    expect(resolveModel('gpt-4o', 'openrouter').provider).toBe('openrouter');
+    expect(resolveModel('some-local-model').provider).toBe('ollama');
+
+    const mockFetch = vi.fn().mockResolvedValue(okResponse({ content: [{ text: 'hi' }] }));
+    vi.stubGlobal('fetch', mockFetch);
+    const client = new LLMClient({ apiKeys: { anthropic: 'test-key-not-real' } });
+    await client.complete('claude-next-9', [{ role: 'user', content: 'hi' }], { provider: 'anthropic' });
+
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.anthropic.com/v1/messages');
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).model).toBe('claude-next-9');
+  });
+
+  it('uses a key added while running, and stops when it is removed', async () => {
+    const client = new LLMClient({ apiKeys: { openai: '' } });
+    expect(client.isProviderReady('openai')).toBe(false);
+
+    client.setApiKey('openai', '  test-key-not-real  ');
+    expect(client.isProviderReady('openai')).toBe(true);
+    const mockFetch = vi.fn().mockResolvedValue(okResponse({ choices: [{ message: { content: 'hi' } }] }));
+    vi.stubGlobal('fetch', mockFetch);
+    await client.complete('gpt-4o-mini', [{ role: 'user', content: 'hi' }]);
+    expect(mockFetch.mock.calls[0][1].headers.Authorization).toBe('Bearer test-key-not-real');
+
+    client.setApiKey('openai', undefined);
+    expect(client.isProviderReady('openai')).toBe(false);
+    await expect(client.complete('gpt-4o-mini', [{ role: 'user', content: 'hi' }])).rejects.toThrow(/Settings → Models & keys/);
+  });
+
+  it('keeps the Google key out of the request URL', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(okResponse({ candidates: [{ content: { parts: [{ text: 'hi' }] } }] }));
+    vi.stubGlobal('fetch', mockFetch);
+    const client = new LLMClient({ apiKeys: { google: 'test-key-not-real' } });
+    await client.complete('gemini-2.5-flash', [{ role: 'user', content: 'hi' }]);
+
+    expect(mockFetch.mock.calls[0][0]).not.toContain('test-key-not-real');
+    expect(mockFetch.mock.calls[0][1].headers['x-goog-api-key']).toBe('test-key-not-real');
+  });
+
+  it('explains provider errors instead of showing their JSON', () => {
+    const body = '{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}';
+    expect(describeHttpError('Anthropic', 401, body)).toBe('Anthropic rejected the API key (HTTP 401). Check it in Settings → Models & keys.');
+    expect(describeHttpError('OpenAI', 404, '{"error":{"message":"The model `gpt-9` does not exist"}}')).toContain('Check the model id. The model `gpt-9` does not exist');
+    expect(describeHttpError('Groq', 429, 'slow down')).toMatch(/rate limiting.*slow down/);
+    expect(describeHttpError('Google', 500, 'boom')).toBe('Google error 500: boom');
+  });
+
+  it('recognises provider ids', () => {
+    expect(isProviderId('anthropic')).toBe(true);
+    expect(isProviderId('nope')).toBe(false);
+    expect(isProviderId(undefined)).toBe(false);
   });
 });

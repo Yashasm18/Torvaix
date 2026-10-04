@@ -30,14 +30,32 @@ It's built for local models through [Ollama](https://ollama.com). Cloud provider
 - **Automations.** Run workflows on a schedule (interval, hourly, daily, weekly), on events such as a new memory, or manually.
 - **Memory consolidation.** Finds duplicate and related memories, scores them, and groups them into themes.
 - **Agent trace.** Each reply shows how the request was routed, what was retrieved, and how long each tool call took.
-- **Multiple model providers.** Ollama by default. OpenAI, Anthropic, Google, Groq and OpenRouter work when you add an API key.
+- **Multiple model providers.** Ollama by default. OpenAI, Anthropic, Google, Groq and OpenRouter work when you add an API key in **Settings → Models & keys**, where you also pick the chat model.
 
 ## Getting started
+
+### Quick install (macOS and Linux)
+
+You need [Node.js](https://nodejs.org) 22 or newer and Git.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Yashasm18/Torvaix/main/install.sh | sh
+```
+
+```bash
+cd Torvaix && npm run dev
+```
+
+Then open <http://localhost:3000>. The [installer](install.sh) downloads Torvaix into a `Torvaix` folder, installs its packages and creates `.env`. It doesn't use sudo, and running it again updates your copy.
+
+For models, either install [Ollama](https://ollama.com) and pull one (step 1 below), or add an API key in **Settings → Models & keys** once Torvaix is open.
+
+On Windows, follow the manual steps below in PowerShell (use `copy` in place of `cp`). Torvaix hasn't been tested on Windows yet; if it doesn't start, use WSL with the macOS and Linux steps.
 
 ### Requirements
 
 - Node.js 22 or newer, with npm
-- [Ollama](https://ollama.com) running locally
+- [Ollama](https://ollama.com) running locally, or an API key for a cloud provider
 - Optional: Docker, for Qdrant (vector search) and the Python NLP service
 
 ### 1. Pull the models
@@ -50,7 +68,7 @@ ollama pull llama3.2
 ollama pull nomic-embed-text
 ```
 
-Any installed chat model works. If `TORVAIX_MODEL` isn't set, Torvaix uses an installed variant (for example `llama3.2:3b`). The **Models** page shows which models are installed and what's missing.
+Any installed chat model works. Unless you choose one, Torvaix uses an installed variant (for example `llama3.2:3b`). The **Models** page shows which models are installed and what's missing.
 
 ### 2. Install
 
@@ -90,12 +108,14 @@ npm start
 
 ## Configuration
 
-Copy `.env.example` to `.env` in the repository root. Every setting is optional, and variables already set in your shell take precedence.
+The chat model and API keys can be set in the app, under **Settings → Models & keys**. A model chosen there wins over `TORVAIX_MODEL`, and a key saved there wins over the one in `.env`. They are stored in `settings.json` in the data folder, readable only by your user, and keys are never sent back to the browser.
+
+Everything else is set in `.env`. Copy `.env.example` to `.env` in the repository root. Every setting is optional, and variables already set in your shell take precedence.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `TORVAIX_HOME` | `~/.torvaix` | Where databases (`data/`) and workspace folders (`workspaces/`) are stored |
-| `TORVAIX_MODEL` | an installed Ollama model | Chat model ID, local or cloud |
+| `TORVAIX_MODEL` | an installed Ollama model | Chat model ID, local or cloud, unless one is chosen in Settings |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant endpoint |
 | `PYTHON_SERVICE_URL` | `http://localhost:8000` | Optional NLP service for entity extraction |
@@ -103,10 +123,10 @@ Copy `.env.example` to `.env` in the repository root. Every setting is optional,
 | `AGENT_PORT` / `AGENT_HOST` | `3001` / `127.0.0.1` | Agent server address. Keep it on loopback. |
 | `AGENT_SERVER_URL` | `http://localhost:3001` | Where the web app sends requests for the agent |
 | `AGENT_ALLOWED_ORIGINS` / `AGENT_ALLOWED_HOSTS` | localhost only | Extra origins or hosts the agent accepts |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` | none | Enable cloud providers |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` | none | Enable cloud providers (or add the key in Settings) |
 | `JWT_SECRET` | random at startup | Signs login tokens |
 
-If `OPENAI_API_KEY` is set and Ollama can't produce embeddings, memory text is sent to OpenAI for embeddings. If neither is available, Torvaix uses a local keyword-based embedding.
+If `OPENAI_API_KEY` is set in `.env` and Ollama can't produce embeddings, memory text is sent to OpenAI for embeddings. If neither is available, Torvaix uses a local keyword-based embedding.
 
 ## Architecture
 

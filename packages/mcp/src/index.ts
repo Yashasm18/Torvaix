@@ -189,7 +189,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Run exactly the command the user approved. It used to rewrite "python" to "python3"
         // first, which also changed things like "rm python.txt" into "rm python3.txt".
         const { command } = BashArgsSchema.parse(args);
-        const run = await runProcess("/bin/sh", ["-c", command], { cwd: WORKSPACE_ROOT, timeoutMs: SHELL_TIMEOUT_MS });
+        // Windows has no /bin/sh; use its own command interpreter there.
+        const [shell, shellArgs] = process.platform === "win32"
+          ? ["cmd.exe", ["/d", "/s", "/c", command]]
+          : ["/bin/sh", ["-c", command]];
+        const run = await runProcess(shell, shellArgs, { cwd: WORKSPACE_ROOT, timeoutMs: SHELL_TIMEOUT_MS });
         const out = formatRun(run, { label: "Command", timeoutMs: SHELL_TIMEOUT_MS, emptyOk: "Command executed successfully with no output." });
         return { content: [{ type: "text", text: out.text }], ...(out.isError ? { isError: true } : {}) };
       }
@@ -200,7 +204,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         await fs.writeFile(tempFile, code);
         try {
           // Pass the script path as an argument, not through a shell: workspace paths may contain spaces.
-          const run = await runProcess("python3", [tempFile], { cwd: WORKSPACE_ROOT, timeoutMs: SHELL_TIMEOUT_MS });
+          // The Windows installer from python.org provides `python`, not `python3`.
+          const python = process.platform === "win32" ? "python" : "python3";
+          const run = await runProcess(python, [tempFile], { cwd: WORKSPACE_ROOT, timeoutMs: SHELL_TIMEOUT_MS });
           const out = formatRun(run, { label: "Script", timeoutMs: SHELL_TIMEOUT_MS, emptyOk: "Script executed successfully with no output." });
           return { content: [{ type: "text", text: out.text }], ...(out.isError ? { isError: true } : {}) };
         } finally {

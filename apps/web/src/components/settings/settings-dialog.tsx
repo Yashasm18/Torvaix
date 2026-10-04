@@ -18,14 +18,7 @@ import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { refreshSystemStatus, useSystemStatus } from "@/hooks/use-system-status"
 import { exportWorkspaceAsJSON } from "@/lib/export"
 import { WorkspaceManager } from "./workspace-manager"
-
-const PROVIDER_ENV: Record<string, string> = {
-  openai: "OPENAI_API_KEY",
-  anthropic: "ANTHROPIC_API_KEY",
-  google: "GOOGLE_API_KEY",
-  groq: "GROQ_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-}
+import { ModelSettings } from "./model-settings"
 
 function StatusLine({ label, ok, detail }: { label: string; ok: boolean | undefined; detail?: React.ReactNode }) {
   return (
@@ -57,15 +50,13 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
     setTesting(false)
   }
 
-  const cloudProviders = status?.providers.filter((p) => p.id !== "ollama") ?? []
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto bg-card border-border">
+      <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto bg-card border-border">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Appearance, model providers, and the health of your local Torvaix services.
+            Appearance, the chat model and API keys, and the health of your local Torvaix services.
           </DialogDescription>
         </DialogHeader>
 
@@ -78,7 +69,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
               <Moon className="h-4 w-4 mr-2" /> Appearance
             </TabsTrigger>
             <TabsTrigger value="providers" className="flex-none h-9 md:w-full justify-start px-3 data-[state=active]:bg-muted">
-              <Key className="h-4 w-4 mr-2" /> Providers
+              <Key className="h-4 w-4 mr-2" /> Models &amp; keys
             </TabsTrigger>
             <TabsTrigger value="privacy" className="flex-none h-9 md:w-full justify-start px-3 data-[state=active]:bg-muted">
               <Shield className="h-4 w-4 mr-2" /> Privacy
@@ -97,8 +88,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
                 <StatusLine label="Chat model" ok={status ? !!status.model : undefined} detail={status?.model ? `${status.model.id} (${status.model.provider})` : undefined} />
               </div>
               <p className="text-xs text-muted-foreground">
-                The chat model is set on the agent server with the <code className="font-mono">TORVAIX_MODEL</code> environment
-                variable, e.g. <code className="font-mono">TORVAIX_MODEL=llama3.2:3b</code>.
+                Change the chat model, or add an API key for a cloud provider, under <span className="text-foreground">Models &amp; keys</span>.
               </p>
               <div className="rounded-xl border border-border p-4 space-y-2">
                 <div className="text-sm">Backup</div>
@@ -137,28 +127,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
               </div>
             </TabsContent>
 
-            <TabsContent value="providers" className="m-0 space-y-4">
-              <h3 className="text-lg font-medium">Cloud Providers</h3>
-              <p className="text-sm text-muted-foreground">
-                API keys are read by the agent server from environment variables and never sent to the browser.
-                Add a key to your <code className="font-mono">.env</code> and restart the agent server to enable a provider.
-              </p>
-              <div className="rounded-xl border border-border p-4">
-                {status === null ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : cloudProviders.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Agent server is offline, so provider status is unavailable.</p>
-                ) : (
-                  cloudProviders.map((p) => (
-                    <StatusLine
-                      key={p.id}
-                      label={p.name}
-                      ok={p.ready}
-                      detail={p.ready ? "Configured" : PROVIDER_ENV[p.id] ? `Set ${PROVIDER_ENV[p.id]}` : "Not configured"}
-                    />
-                  ))
-                )}
-              </div>
+            <TabsContent value="providers" className="m-0">
+              <ModelSettings />
             </TabsContent>
 
             <TabsContent value="privacy" className="m-0 space-y-4">
@@ -167,7 +137,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
                 <p>Torvaix collects no telemetry.</p>
                 <p>
                   Data leaves this computer only when you use a cloud model (your prompts and relevant memories go to that
-                  provider), when the agent searches the web, or when an OpenAI key is set and Ollama can&apos;t create
+                  provider), when the agent searches the web, or when an OpenAI key is set in <code className="font-mono">.env</code> and Ollama can&apos;t create
                   embeddings. Pages also load one font stylesheet from Fontshare.
                 </p>
                 <p>

@@ -53,6 +53,8 @@ Torvaix doesn't collect telemetry. Data leaves your machine only in these cases:
 - **Embeddings fallback.** If `OPENAI_API_KEY` is set and Ollama can't create embeddings, memory text goes to OpenAI.
 - **Fonts.** Each page load requests a font stylesheet from Fontshare. Google Fonts are downloaded once, when the app is built.
 
+API keys you add in Settings are saved in `data/settings.json` under `TORVAIX_HOME`, with permissions that let only your user read it. The app shows whether a provider has a key and its last four characters, never the key.
+
 Everything else is stored under `TORVAIX_HOME` (default `~/.torvaix`), in Qdrant if you run it, and in your browser's IndexedDB for chat history. These files aren't encrypted. Rely on disk encryption, and never commit `.env`, `*.db` files or the `~/.torvaix` folder. If a key leaks, rotate it with the provider.
 
 ## If you deploy beyond localhost
