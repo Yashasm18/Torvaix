@@ -3,7 +3,7 @@ import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse } from '@/li
 
 export async function POST(req: Request) {
   try {
-    const { messages, workspaceId, pendingActionId: bodyPendingId } = await req.json();
+    const { messages, workspaceId, pendingActionId: bodyPendingId, agentId } = await req.json();
     const last = Array.isArray(messages) ? messages[messages.length - 1] : undefined;
     if (!last || typeof last.content !== 'string') {
       return NextResponse.json({ error: 'A message is required' }, { status: 400 });
@@ -33,7 +33,9 @@ export async function POST(req: Request) {
           .filter((m) => m && ['user', 'assistant', 'system'].includes(m.role) && typeof m.content === 'string')
           .slice(-100)
           .map((m) => ({ role: m.role, content: m.content })),
-        pendingActionId
+        pendingActionId,
+        // Only a real id. Resumes after an approval arrive here too and carry the same agentId.
+        ...(typeof agentId === 'string' && agentId.trim() ? { agentId: agentId.trim() } : {})
       })
     });
 

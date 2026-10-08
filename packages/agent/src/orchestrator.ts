@@ -16,6 +16,7 @@ import { getMcpClient } from '@torvaix/mcp';
 import { ingestKnowledgeGraph, findMentionedEntities, getNeighbors, type MLIntelligencePayload } from '@torvaix/graph';
 import { TraceCollector } from './trace';
 import { keywordRoute } from './routing';
+import { normalizeAgentTools, toolsPromptBlock, type AgentToolId } from './agent-tools';
 
 // Intelligence (NLP) service — spaCy + sentence-transformers. Best-effort; never blocks a write.
 const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
@@ -33,6 +34,14 @@ Core identity rules:
 - You can read files, write files, search, reason, remember, and execute tasks.
 - You are built for developers and knowledge workers who value privacy and control.`;
 
+/** An agent the user set up: its own instructions and the only tools it may use. */
+export interface AgentPersona {
+  name: string;
+  instructions: string;
+  /** Ids of the tools it may use. Anything else is refused in code, not only left out of the prompt. */
+  tools: string[];
+}
+
 /**
  * Live "Knowledge Pulse" snapshot for the workspace side-panel. Accumulated during a
  * run and streamed to the frontend as a data annotation so the UI reflects exactly what
@@ -43,6 +52,8 @@ export interface KnowledgePulseData {
   /** Which part of the agent handled the message. */
   route: 'identity' | 'memory' | 'knowledge' | 'conversation' | 'execution' | 'repo_analysis' | null;
   model: string;
+  /** Name of the custom agent that answered, or null for Torvaix itself. */
+  agent: string | null;
   totalMs: number;
   retrievedMemories: {
     id: string;
@@ -71,6 +82,8 @@ export interface AgentState {
   messages: LLMMessage[];
   nextNode: 'router' | 'memory' | 'knowledge' | 'execution' | 'conversation' | 'repo_analysis' | 'end';
   output: string;
+  /** Set when the run could not do what was asked; `output` then says why. */
+  error?: string;
   pendingActionId?: string;
   iteration: number;
   trace?: TraceCollector;
@@ -82,6 +95,10 @@ export interface AgentState {
 const MAX_TOOL_CONTEXT_CHARS = 6000;
 /** Knowledge-graph relationships added to a chat prompt, at most. */
 const MAX_GRAPH_RELATIONS = 8;
+/** Longest saved memory put into an agent's prompt. */
+const MAX_AGENT_MEMORY_CHARS = 500;
+/** Start of the note that tells the model a tool is not one of its tools. */
+const TOOL_REFUSED_PREFIX = 'Tool not available:';
 
 /**
  * Shortens a long tool result for the model's context, keeping the start and the end (where
@@ -105,6 +122,12 @@ export class AgentOrchestrator {
   /** Aborted when the user presses Stop or the client disconnects. */
   private signal?: AbortSignal;
   private readonly maxContextChars: number;
+  /** The custom agent this run is for. Without one, Torvaix works as it does in chat. */
+  private readonly persona?: AgentPersona;
+  /** The persona's tools, in catalogue order. Unknown ids are dropped. */
+  private readonly personaTools: AgentToolId[] = [];
+  /** Saved memories for the execution prompt, looked up once per run. */
+  private recalledForPrompt: string | null = null;
 
   constructor(
     memoryStore: MemoryStore,
@@ -113,6 +136,7 @@ export class AgentOrchestrator {
       model?: string;
       provider?: ProviderId;
       maxContextChars?: number;
+      persona?: AgentPersona;
     }
   ) {
     this.memoryStore = memoryStore;
@@ -120,6 +144,59 @@ export class AgentOrchestrator {
     this.model = options?.model ?? process.env.TORVAIX_MODEL ?? this.llm.getDefaultModel();
     this.provider = options?.provider;
     this.maxContextChars = options?.maxContextChars ?? 12000;
+    this.persona = options?.persona;
+    this.personaTools = normalizeAgentTools(options?.persona?.tools);
+  }
+
+  // ── Custom agent (persona) ──
+
+  /** Whether a tool may be used. Without a persona every tool is allowed, as in chat. */
+  private allowsTool(tool: string): boolean {
+    return !this.persona || (this.personaTools as string[]).includes(tool);
+  }
+
+  /** The user's instructions for this agent, to add to a system message. Empty without a persona. */
+  private personaPrompt(): string {
+    if (!this.persona) return '';
+    return (
+      `\n\nThe user set up this agent, "${this.persona.name}". These are the user's instructions for it. ` +
+      `Follow them, but never skip a rule above or the approval a command needs.\n` +
+      `--- Instructions for this agent ---\n${this.persona.instructions}\n--- End of instructions ---`
+    );
+  }
+
+  /** Why a tool was refused, naming the tools the agent does have. */
+  private toolRefusal(tool: string): string {
+    return this.personaTools.length > 0
+      ? `${TOOL_REFUSED_PREFIX} ${tool} is not one of this agent's tools, so nothing was run. Your tools are: ${this.personaTools.join(', ')}. ` +
+        `Use one of them, or reply with {"done": true, "message": "..."}.`
+      : `${TOOL_REFUSED_PREFIX} ${tool} is not available because this agent has no tools, so nothing was run. ` +
+        `Reply with {"done": true, "message": "..."}.`;
+  }
+
+  /**
+   * Saved memories that match the task, as a short block for the execution prompt. They are also
+   * listed in the pulse. Best effort: a failed lookup must never fail the run.
+   */
+  private async recallForPersona(state: AgentState): Promise<string> {
+    try {
+      const results = await this.memoryStore.queryMemory(state.workspaceId, state.instructions, 3);
+      const relevant = results.filter(r => r.score > 0.4);
+      if (relevant.length === 0) return '';
+      state.pulse.retrievedMemories = relevant.map(r => ({
+        id: r.id,
+        content: r.content,
+        source: r.source,
+        score: r.score,
+        match: r.retrievalType ?? 'keyword',
+        createdAt: r.createdAt,
+      }));
+      const lines = relevant.map(r => `- ${r.content.length > MAX_AGENT_MEMORY_CHARS ? `${r.content.slice(0, MAX_AGENT_MEMORY_CHARS)}…` : r.content}`);
+      return `Things you remember about this user (use only if helpful):\n${lines.join('\n')}\n`;
+    } catch (e: any) {
+      state.trace?.recordError('execution', `memory recall failed: ${e.message}`);
+      return '';
+    }
   }
 
   // ── LLM Helper ──
@@ -232,7 +309,9 @@ export class AgentOrchestrator {
     const endTrace = state.trace!.startPhase('router', 'Classifying request');
 
     // Deterministic fast paths for unambiguous requests; everything else goes to the LLM classifier.
-    const route = keywordRoute(state.instructions);
+    // The fixed answer to "who are you" is Torvaix's own; a custom agent answers it in its own voice.
+    const keyword = keywordRoute(state.instructions);
+    const route = keyword === 'identity' && this.persona ? 'conversation' : keyword;
     if (route === 'identity') {
       endTrace({ decision: 'end', bypass: true });
       state.pulse.route = 'identity';
@@ -331,7 +410,7 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
         : 'No relevant memories found.';
 
       const messages: LLMMessage[] = [
-        { role: 'system', content: `${TORVAIX_SYSTEM_PROMPT}\n\nYou have access to the user's persistent memory store. Use retrieved memories to give personalized, context-aware answers.` },
+        { role: 'system', content: `${TORVAIX_SYSTEM_PROMPT}\n\nYou have access to the user's persistent memory store. Use retrieved memories to give personalized, context-aware answers.${this.personaPrompt()}` },
         { role: 'user', content: `The user asked: "${state.instructions}"\n\nI retrieved the following memories:\n${context}\n\nSynthesize a helpful answer.` },
       ];
       (messages as any).__trace = state.trace;
@@ -410,7 +489,7 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
           `You are in a normal conversation with the user. Answer their question or request directly, ` +
           `clearly, and helpfully in natural language. Do NOT output JSON, tool calls, or apologies about ` +
           `missing memory. If the message is vague, give your best helpful answer and, if truly needed, ask ` +
-          `one short clarifying question.${memoryContext}`,
+          `one short clarifying question.${memoryContext}${this.personaPrompt()}`,
       },
       ...history,
       { role: 'user', content: state.instructions },
@@ -612,6 +691,21 @@ ${structure}
       return state;
     }
     if (state.pendingActionId) {
+      // An agent only runs the tools it was given. Check before claiming, so an approval for any
+      // other tool is left as it is and can't be used up by this agent.
+      const waiting = this.persona ? this.memoryStore.getPendingAction(state.pendingActionId) : undefined;
+      if (waiting && !this.allowsTool(waiting.action)) {
+        console.warn(`[Execution Agent] Not resuming ${waiting.action}: it is not one of this agent's tools`);
+        state.pendingActionId = undefined;
+        state.output = `The action was not run: ${waiting.action} is not one of this agent's tools.`;
+        state.error = state.output;
+        state.final = true;
+        state.nextNode = 'end';
+        state.trace!.recordError('execution', `Refused to resume ${waiting.action}: not one of this agent's tools`);
+        endTrace({ tool: waiting.action, status: 'tool_not_allowed' });
+        return state;
+      }
+
       // Claim atomically: the action must be approved, belong to this workspace, and not have run yet.
       const claimed = this.memoryStore.consumeApprovedAction(state.pendingActionId, state.workspaceId);
       const pending = claimed ?? this.memoryStore.getPendingAction(state.pendingActionId);
@@ -654,6 +748,10 @@ ${structure}
       return state;
     }
 
+    if (this.persona && this.recalledForPrompt === null) {
+      this.recalledForPrompt = await this.recallForPersona(state);
+    }
+
     // Build execution prompt
     const trimmedMessages = this.trimMessages(state.messages);
     const contextStr = trimmedMessages.map(m => `[${m.role}] ${m.content}`).join('\n');
@@ -661,15 +759,10 @@ ${structure}
     const execPrompt = `You are the Execution Agent. You execute ONE step at a time.
 
 Available tools:
-- write_file: Write content to a file. Args: {"filePath": "path", "content": "file content"}
-- read_file: Read a file. Args: {"filePath": "path"}
-- bash: Run a shell command. Args: {"command": "shell command"}
-- python: Execute Python code. Args: {"code": "python code"}
-- web_search: Search the web. Args: {"query": "search query"}
-- repo_scan: Scan the workspace architecture and dependencies. Args: {}
+${toolsPromptBlock(this.persona ? this.personaTools : undefined)}
 
 Current task: "${state.instructions}"
-${contextStr ? `History:\n${contextStr}` : ''}
+${this.recalledForPrompt ?? ''}${contextStr ? `History:\n${contextStr}` : ''}
 
 CRITICAL RULES:
 1. Return EXACTLY ONE JSON object. Never return multiple.
@@ -691,7 +784,7 @@ If the task is complete (all steps done) or if you want to respond to the user v
 Reply with ONLY ONE JSON object. Nothing else.`;
 
     const messages: LLMMessage[] = [
-      { role: 'system', content: `${TORVAIX_SYSTEM_PROMPT}\n\nYou are currently in Execution Mode. Reply with only JSON.` },
+      { role: 'system', content: `${TORVAIX_SYSTEM_PROMPT}\n\nYou are currently in Execution Mode. Reply with only JSON.${this.personaPrompt()}` },
       { role: 'user', content: execPrompt },
     ];
     (messages as any).__trace = state.trace;
@@ -702,6 +795,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       rawResponse = res.text;
     } catch (err: any) {
       state.output = `LLM Error: ${err.message}`;
+      state.error = state.output;
       state.nextNode = 'end';
       endTrace({ error: err.message });
       return state;
@@ -746,6 +840,27 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       }
 
       const tool = String(decision.tool);
+
+      // Enforced here and not only in the prompt: a model can ask for any tool. A refused tool is
+      // never run and never gets an approval request. The model hears about it once; if it asks
+      // for another tool that isn't allowed straight away, the run ends.
+      if (!this.allowsTool(tool)) {
+        const repeated = state.messages[state.messages.length - 1]?.content.startsWith(TOOL_REFUSED_PREFIX) ?? false;
+        if (repeated) {
+          state.output = this.personaTools.length > 0
+            ? `I could not finish this: ${tool} is not one of this agent's tools. It can use: ${this.personaTools.join(', ')}.`
+            : `I could not finish this: this agent has no tools, so it can't use ${tool}.`;
+          state.error = state.output;
+          state.nextNode = 'end';
+        } else {
+          state.messages.push({ role: 'system', content: this.toolRefusal(tool) });
+          state.nextNode = 'execution';
+        }
+        state.trace!.recordError('execution', `Refused ${tool}: not one of this agent's tools`);
+        endTrace({ tool, status: 'tool_not_allowed' });
+        return state;
+      }
+
       const isDangerous = tool === 'bash' || tool === 'python';
       const args: Record<string, any> =
         decision.args && typeof decision.args === 'object' && !Array.isArray(decision.args) ? decision.args : {};
@@ -758,6 +873,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         const repeated = state.messages[state.messages.length - 1]?.content === notice;
         if (repeated) {
           state.output = `I couldn't work out the ${required} to run. Try describing the step in more detail.`;
+          state.error = state.output;
           state.nextNode = 'end';
         } else {
           state.messages.push({ role: 'system', content: notice });
@@ -773,6 +889,8 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         console.log(`[FINAL BREAK] Duplicate tool call detected: ${tool} with same args. Forcing synthesis.`);
         // Force the LLM to synthesize from existing context
         state.output = this.lastToolOutput ?? 'The requested information was already retrieved. Please check the results above.';
+        // Repeating a call that just failed is a failure; repeating one that worked only means the answer is already there.
+        if (this.lastToolOutput?.startsWith('Tool execution failed:')) state.error = state.output;
         state.final = true;
         state.nextNode = 'end';
         this.lastToolCall = null;
@@ -827,6 +945,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         if (previousFailed) {
           console.log('[FINAL BREAK] Repeated tool failure. Aborting execution.');
           state.output = `Execution aborted due to repeated tool failures: ${text.replace(/^Tool execution failed: /, '')}`;
+          state.error = state.output;
           state.final = true;
           state.nextNode = 'end';
         }
@@ -843,6 +962,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       const prevMsg = state.messages.length > 0 ? state.messages[state.messages.length - 1] : null;
       if (prevMsg && prevMsg.content.includes('JSON Parsing Error')) {
         state.output = `Agent parsing error: ${e.message}. Raw: ${rawResponse}`;
+        state.error = state.output;
         state.nextNode = 'end';
         endTrace({ error: e.message });
       } else {
@@ -865,6 +985,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
     options?: { signal?: AbortSignal }
   ): Promise<AgentState> {
     this.signal = options?.signal;
+    this.recalledForPrompt = null;
     const trace = new TraceCollector();
 
     let state: AgentState = {
@@ -880,6 +1001,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         id: crypto.randomUUID(),
         route: null,
         model: this.model,
+        agent: this.persona?.name ?? null,
         totalMs: 0,
         savedMemory: null,
         awaitingApproval: null,
@@ -900,6 +1022,10 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         if (this.stopIfAborted(state)) break;
         state.iteration++;
         console.log(`[STEP START] Iteration ${state.iteration}`);
+
+        // The repo scan runs without asking the model, so it needs its own check. An agent
+        // without that tool goes to the execution step, which only offers the tools it has.
+        if (state.nextNode === 'repo_analysis' && !this.allowsTool('repo_scan')) state.nextNode = 'execution';
 
         if (state.nextNode !== 'router' && !state.pulse.route) state.pulse.route = state.nextNode;
 
@@ -933,11 +1059,13 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         state.output =
           `I stopped after ${this.maxIterations} steps without finishing this task.` +
           (this.lastToolOutput ? ` The last step returned:\n\n${clipForModel(this.lastToolOutput, 2000)}` : '');
+        state.error = state.output;
       }
     } catch (e: any) {
       if (!this.stopIfAborted(state)) {
         trace.recordError('execution', `Fatal: ${e.message}`);
         state.output = `Agent error: ${e.message}`;
+        state.error = state.output;
       }
     } finally {
       trace.addEvent('complete', 'Agent run finished', {

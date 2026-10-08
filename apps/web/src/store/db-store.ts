@@ -23,6 +23,10 @@ interface DBState {
   /** Chat currently open in each workspace (workspaceId -> chatId). */
   activeChatIds: Record<string, string>;
   setActiveChat: (workspaceId: string, chatId: string) => void;
+  /** Agent chosen for each chat (chatId -> agentId). A chat with no entry uses the default assistant. */
+  chatAgentIds: Record<string, string>;
+  /** Choose the agent that answers a chat. `null` goes back to the default assistant. */
+  setChatAgent: (chatId: string, agentId: string | null) => void;
   /** Replace a chat's stored messages with the live conversation and refresh its title/updatedAt. */
   saveChatMessages: (chatId: string, messages: UiMessage[]) => void;
 
@@ -58,6 +62,19 @@ const idbStorage = {
   },
 };
 
+/**
+ * The agent chosen for a chat, or null for the default assistant. State saved before agents
+ * existed has no `chatAgentIds`, so this has to cope with it being missing.
+ */
+export function selectChatAgentId(state: { chatAgentIds?: Record<string, string> }, chatId: string): string | null {
+  return state.chatAgentIds?.[chatId] || null;
+}
+
+/** The chosen-agent entries without the ones that belong to these chats. */
+function withoutChats(chatAgentIds: Record<string, string> | undefined, chatIds: Set<string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(chatAgentIds ?? {}).filter(([chatId]) => !chatIds.has(chatId)));
+}
+
 /** Ensure the agent server has a row for this workspace (idempotent on the server). */
 async function provisionWorkspace(workspace: Pick<Workspace, 'id' | 'name'>): Promise<void> {
   const token = localStorage.getItem('torvaix_token');
@@ -84,11 +101,20 @@ export const useDBStore = create<DBState>()(
       projects: [],
       activeWorkspaceId: null,
       activeChatIds: {},
+      chatAgentIds: {},
 
       setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
 
       setActiveChat: (workspaceId, chatId) =>
         set((state) => ({ activeChatIds: { ...state.activeChatIds, [workspaceId]: chatId } })),
+
+      setChatAgent: (chatId, agentId) =>
+        set((state) => {
+          const next = agentId || null;
+          if (selectChatAgentId(state, chatId) === next) return {};
+          const others = withoutChats(state.chatAgentIds, new Set([chatId]));
+          return { chatAgentIds: next ? { ...others, [chatId]: next } : others };
+        }),
 
       saveChatMessages: (chatId, uiMessages) => {
         set((state) => {
@@ -139,6 +165,10 @@ export const useDBStore = create<DBState>()(
 
       deleteWorkspace: (id) => {
         set((state) => ({
+          chatAgentIds: withoutChats(
+            state.chatAgentIds,
+            new Set(state.chats.filter((c) => c.workspaceId === id).map((c) => c.id))
+          ),
           workspaces: state.workspaces.filter((w) => w.id !== id),
           chats: state.chats.filter((c) => c.workspaceId !== id),
           notes: state.notes.filter((n) => n.workspaceId !== id),
@@ -188,6 +218,7 @@ export const useDBStore = create<DBState>()(
           chats: state.chats.filter((c) => c.id !== id),
           messages: state.messages.filter((m) => m.chatId !== id),
           activeChatIds: Object.fromEntries(Object.entries(state.activeChatIds).filter(([, chatId]) => chatId !== id)),
+          chatAgentIds: withoutChats(state.chatAgentIds, new Set([id])),
         }));
       },
 
@@ -275,6 +306,7 @@ export const useDBStore = create<DBState>()(
         messages: state.messages,
         projects: state.projects,
         activeChatIds: state.activeChatIds,
+        chatAgentIds: state.chatAgentIds,
         activeWorkspaceId: state.activeWorkspaceId,
       }),
       onRehydrateStorage: () => (state) => {

@@ -9,6 +9,7 @@ import { NO_RESPONSE, responseError } from "@/lib/api-error"
 import { formatRelativeTime } from "@/lib/relative-time"
 import { parseServerTimestamp } from "@/lib/server-time"
 import {
+  describeFooter,
   describeStep,
   formatDuration,
   matchLabel,
@@ -259,10 +260,10 @@ export function AnswerDetails({ compact = false }: { compact?: boolean }) {
             </Section>
           )}
 
-          {(turn.model || turn.totalMs > 0) && (
+          {describeFooter(turn) && (
             <p className="flex items-center gap-1.5 border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
-              <Clock className="h-3 w-3" />
-              {[turn.totalMs > 0 ? `${formatDuration(turn.totalMs)} in total` : null, turn.model].filter(Boolean).join(" · ")}
+              <Clock className="h-3 w-3 shrink-0" />
+              <span className="min-w-0 break-words">{describeFooter(turn)}</span>
             </p>
           )}
         </>

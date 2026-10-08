@@ -253,3 +253,81 @@ describe('what a reply reports about itself', () => {
     expect(state.pulse.awaitingApproval).toBe('bash');
   });
 });
+
+describe('runs that end in failure', () => {
+  let store: MemoryStore;
+  const failed = (text: string) => ({ content: [{ type: 'text', text }], isError: true }) as any;
+  const readFile = (name: string) => `{"done": false, "tool": "read_file", "args": {"filePath": "${name}"}}`;
+  const run = (llm: any) =>
+    new AgentOrchestrator(store, { llm, model: 'test-model' }).run({ workspaceId: 'default', instructions: 'read the file', nextNode: 'execution' } as any);
+
+  beforeEach(() => {
+    callTool.mockReset();
+    callTool.mockImplementation(async (tool: string, args: any) => ({ content: [{ type: 'text', text: `ran ${tool} ${JSON.stringify(args)}` }] }));
+    store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+  });
+
+  it('is an error when the model never gives a command for bash', async () => {
+    const state = await run(scriptedLlm(['{"done": false, "tool": "bash", "args": {}}', '{"done": false, "tool": "bash", "args": {"command": "   "}}']));
+
+    expect(state.output).toBe("I couldn't work out the command to run. Try describing the step in more detail.");
+    expect(state.error).toBe(state.output);
+    expect(state.pendingActionId).toBeUndefined();
+  });
+
+  it('is an error when the model never gives code for python', async () => {
+    const state = await run(scriptedLlm(['{"done": false, "tool": "python", "args": {}}', '{"done": false, "tool": "python", "args": {"code": ""}}']));
+
+    expect(state.output).toMatch(/couldn't work out the code to run/);
+    expect(state.error).toBe(state.output);
+  });
+
+  it('is an error when the model repeats a call that just failed', async () => {
+    callTool.mockResolvedValueOnce(failed('no such file'));
+    const state = await run(scriptedLlm([readFile('a.txt'), readFile('a.txt')]));
+
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(state.output).toBe('Tool execution failed: no such file');
+    expect(state.error).toBe(state.output);
+  });
+
+  it('is an error when tools keep failing', async () => {
+    callTool.mockResolvedValueOnce(failed('no such file')).mockResolvedValueOnce(failed('no such file either'));
+    const state = await run(scriptedLlm([readFile('a.txt'), readFile('b.txt')]));
+
+    expect(callTool).toHaveBeenCalledTimes(2);
+    expect(state.output).toBe('Execution aborted due to repeated tool failures: no such file either');
+    expect(state.error).toBe(state.output);
+  });
+
+  it('is an error when the run hits the step limit', async () => {
+    let n = 0;
+    const llm = { complete: vi.fn(async () => ({ text: readFile(`file-${n++}.txt`) })), getDefaultModel: () => 'test-model' } as any;
+    const state = await run(llm);
+
+    expect(state.output).toMatch(/^I stopped after 10 steps without finishing this task\./);
+    expect(state.error).toBe(state.output);
+  });
+
+  it('is not an error when the model repeats a call that worked: the answer is simply already there', async () => {
+    const state = await run(scriptedLlm([readFile('a.txt'), readFile('a.txt')]));
+
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(state.output).toBe('ran read_file {"filePath":"a.txt"}');
+    expect(state.error).toBeUndefined();
+  });
+
+  it('is an error when the model repeats an approved command that failed', async () => {
+    callTool.mockResolvedValueOnce(failed('command not found'));
+    const approvedId = store.createPendingAction('default', 'bash', { command: 'nope' });
+    store.updatePendingActionStatus(approvedId, 'approved');
+    const llm = scriptedLlm(['{"done": false, "tool": "bash", "args": {"command": "nope"}}']);
+
+    const state = await new AgentOrchestrator(store, { llm, model: 'test-model' })
+      .run({ workspaceId: 'default', instructions: 'run nope', pendingActionId: approvedId });
+
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(state.output).toBe('Tool execution failed: command not found');
+    expect(state.error).toBe(state.output);
+  });
+});

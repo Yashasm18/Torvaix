@@ -1,4 +1,5 @@
 import { AUTOMATION_EVENTS } from '@torvaix/events';
+import { AGENT_TOOLS, isAgentToolId, normalizeAgentTools, type AgentToolId } from './agent-tools';
 
 const DEFAULT_EVENTS: readonly string[] = AUTOMATION_EVENTS;
 
@@ -62,6 +63,11 @@ export function validateAutomationInput(
   if (action.prompt !== undefined && (typeof action.prompt !== 'string' || action.prompt.length > LIMITS.instructionsChars)) {
     return `prompt must be text of at most ${LIMITS.instructionsChars.toLocaleString('en-US')} characters`;
   }
+  // The agent that runs the task. Whether it still exists is checked when the automation runs,
+  // so an automation whose agent was deleted can still be edited.
+  if (action.agentId !== undefined && (typeof action.agentId !== 'string' || action.agentId.length > LIMITS.workspaceIdChars)) {
+    return 'agentId must be the id of an agent';
+  }
   return null;
 }
 
@@ -81,6 +87,12 @@ export const LIMITS = {
   nameChars: 200,
   descriptionChars: 2_000,
   topK: 50,
+  agentNameChars: 80,
+  agentDescriptionChars: 300,
+  agentInstructionsChars: 4_000,
+  agentsPerWorkspace: 50,
+  /** Entries in an agent's tool list, before repeats are removed. */
+  agentToolEntries: 50,
 } as const;
 
 /** `workspaceId` is optional, but when present it must be one plain string. */
@@ -118,4 +130,94 @@ export function clampCount(value: unknown, fallback: number, max: number): numbe
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(Math.max(Math.trunc(n), 1), max);
+}
+
+// ── Custom agents ──
+
+/** The editable parts of an agent, checked and cleaned up. */
+export interface AgentFields {
+  name: string;
+  description: string;
+  instructions: string;
+  tools: AgentToolId[];
+}
+
+export type AgentInputResult<T> = { value: T; error?: undefined } | { error: string; value?: undefined };
+
+/** Checks `tools`: a list of known tool ids. Repeats are removed and the order is the catalogue's. */
+function validateAgentTools(value: unknown): AgentInputResult<AgentToolId[]> {
+  if (!Array.isArray(value)) return { error: 'tools must be a list of tool ids' };
+  if (value.length > LIMITS.agentToolEntries) return { error: `tools can have at most ${LIMITS.agentToolEntries} entries` };
+  const unknown = value.find(tool => !isAgentToolId(tool));
+  if (unknown !== undefined) {
+    const shown = typeof unknown === 'string' ? `"${unknown.slice(0, 40)}"` : 'an entry that is not text';
+    return { error: `Unknown tool ${shown}. Choose from: ${AGENT_TOOLS.map(t => t.id).join(', ')}` };
+  }
+  return { value: normalizeAgentTools(value) };
+}
+
+function validateOptionalDescription(value: unknown): AgentInputResult<string> {
+  if (value === undefined) return { value: '' };
+  if (typeof value !== 'string' || value.trim().length > LIMITS.agentDescriptionChars) {
+    return { error: `description must be text of at most ${LIMITS.agentDescriptionChars} characters` };
+  }
+  return { value: value.trim() };
+}
+
+/** Text fields are trimmed before they are measured, so spaces around a name don't count against it. */
+const trimmed = (value: unknown) => (typeof value === 'string' ? value.trim() : value);
+
+/**
+ * Checks the body of a request that makes an agent. `name`, `instructions` and `tools` are
+ * required, `description` is optional. Returns the cleaned-up values, or an error message.
+ */
+export function validateAgentInput(body: unknown): AgentInputResult<AgentFields> {
+  if (!isPlainObject(body)) return { error: 'The request body must be an object' };
+
+  const invalid =
+    validateText(trimmed(body.name), 'name', LIMITS.agentNameChars) ??
+    validateText(trimmed(body.instructions), 'instructions', LIMITS.agentInstructionsChars);
+  if (invalid) return { error: invalid };
+
+  const description = validateOptionalDescription(body.description);
+  if (description.error !== undefined) return { error: description.error };
+  const tools = validateAgentTools(body.tools);
+  if (tools.error !== undefined) return { error: tools.error };
+
+  return {
+    value: {
+      name: (body.name as string).trim(),
+      description: description.value,
+      instructions: (body.instructions as string).trim(),
+      tools: tools.value,
+    },
+  };
+}
+
+/** Like validateAgentInput for a change: every field is optional, and only the ones sent are checked and returned. */
+export function validateAgentUpdate(body: unknown): AgentInputResult<Partial<AgentFields>> {
+  if (!isPlainObject(body)) return { error: 'The request body must be an object' };
+  const value: Partial<AgentFields> = {};
+
+  if (body.name !== undefined) {
+    const invalid = validateText(trimmed(body.name), 'name', LIMITS.agentNameChars);
+    if (invalid) return { error: invalid };
+    value.name = (body.name as string).trim();
+  }
+  if (body.description !== undefined) {
+    const description = validateOptionalDescription(body.description);
+    if (description.error !== undefined) return { error: description.error };
+    value.description = description.value;
+  }
+  if (body.instructions !== undefined) {
+    const invalid = validateText(trimmed(body.instructions), 'instructions', LIMITS.agentInstructionsChars);
+    if (invalid) return { error: invalid };
+    value.instructions = (body.instructions as string).trim();
+  }
+  if (body.tools !== undefined) {
+    const tools = validateAgentTools(body.tools);
+    if (tools.error !== undefined) return { error: tools.error };
+    value.tools = tools.value;
+  }
+  return { value };
 }

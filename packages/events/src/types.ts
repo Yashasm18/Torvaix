@@ -21,6 +21,8 @@ export type ActionType =
 
 export interface ActionConfig {
   prompt?: string;
+  /** For agent_task: run as this custom agent instead of Torvaix. */
+  agentId?: string;
   toolName?: string;
   toolParams?: Record<string, any>;
   decayThreshold?: number;

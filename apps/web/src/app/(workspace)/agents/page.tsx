@@ -1,144 +1,118 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Bot, Zap, Brain, Terminal as TerminalIcon, Workflow, ArrowUpRight } from "lucide-react";
+import { Bot, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { LoadError } from "@/components/load-error";
+import { AgentCard } from "@/components/agents/agent-card";
+import { AgentFormDialog } from "@/components/agents/agent-form-dialog";
+import { AgentRunDialog } from "@/components/agents/agent-run-dialog";
+import { BuiltInAgents } from "@/components/agents/built-in-agents";
+import { DeleteAgentDialog } from "@/components/agents/delete-agent-dialog";
+import { NO_RESPONSE } from "@/lib/api-error";
+import { fetchAgents, type Agent, type AgentToolInfo } from "@/lib/agents";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { useSystemStatus } from "@/hooks/use-system-status";
-import { parseServerTimestamp } from "@/lib/server-time";
-import { formatRelativeTime } from "@/lib/relative-time";
-
-const REFRESH_MS = 30_000;
-
-interface ExecutionLog {
-  action: string;
-  status: string;
-  createdAt: string;
-}
-
-interface WorkspaceCounts {
-  memories: number;
-  lastExecution: ExecutionLog | null;
-  pendingApprovals: number;
-  activeAutomations: number;
-  totalAutomations: number;
-}
-
-type AgentState = "online" | "degraded" | "offline" | "loading";
-
-const stateConfig: Record<AgentState, { color: string; label: string; dot: string }> = {
-  online: { color: "text-green-400", label: "Online", dot: "bg-green-500 animate-pulse" },
-  degraded: { color: "text-amber-400", label: "Limited", dot: "bg-amber-500" },
-  offline: { color: "text-red-400", label: "Offline", dot: "bg-red-500" },
-  loading: { color: "text-muted-foreground", label: "Checking…", dot: "bg-slate-500" },
-};
-
-async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-    return res.ok ? ((await res.json()) as T) : null;
-  } catch {
-    return null;
-  }
-}
 
 export default function AgentsPage() {
   const { workspaceId } = useActiveWorkspace();
   const status = useSystemStatus();
-  const [counts, setCounts] = useState<WorkspaceCounts | null>(null);
+
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [tools, setTools] = useState<AgentToolInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Each dialog keeps its agent after it closes, so it doesn't change while it fades out.
+  const [formOpen, setFormOpen] = useState(false);
+  const [formAgent, setFormAgent] = useState<Agent | null>(null);
+  const [runOpen, setRunOpen] = useState(false);
+  const [runAgent, setRunAgent] = useState<Agent | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null);
+
+  // The workspace on screen now. A reply for one the user has since left must not be shown.
+  const currentWorkspace = useRef(workspaceId);
+  useEffect(() => {
+    currentWorkspace.current = workspaceId;
+  }, [workspaceId]);
+  // Only the newest request may fill the page, so a slow older reply can't undo a newer one.
+  const latestLoad = useRef(0);
+
+  const loadAgents = async (showSpinner = true) => {
+    // A late call from a workspace the user has left (a closed run dialog settling) must not
+    // take over the counter, or the load for the workspace on screen would be dropped as old.
+    if (!workspaceId || currentWorkspace.current !== workspaceId) return;
+    const request = ++latestLoad.current;
+    const outdated = () => currentWorkspace.current !== workspaceId || request !== latestLoad.current;
+    if (showSpinner) setLoading(true);
+    try {
+      const data = await fetchAgents(workspaceId);
+      if (outdated()) return;
+      setAgents(data.agents ?? []);
+      setTools(data.availableTools ?? []);
+      setLoadError(null);
+    } catch (e) {
+      console.error("Failed to load agents:", e);
+      if (outdated()) return;
+      // fetch itself throws a TypeError when the web app can't be reached; anything else carries the server's message.
+      setLoadError(
+        e instanceof TypeError || !(e instanceof Error)
+          ? NO_RESPONSE
+          : `Couldn't load this workspace's agents. ${e.message}`
+      );
+    } finally {
+      if (!outdated()) setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!workspaceId) return;
-    const ws = encodeURIComponent(workspaceId);
-    let cancelled = false;
-
-    const load = async () => {
-      const [memory, executions, pending, stats] = await Promise.all([
-        fetchJson<{ memories?: unknown[] }>(`/api/memory?workspaceId=${ws}`),
-        fetchJson<{ logs?: ExecutionLog[] }>(`/api/agent/executions?workspaceId=${ws}&limit=1`),
-        fetchJson<{ actions?: unknown[] }>(`/api/agent/pending-actions?workspaceId=${ws}&status=pending`),
-        fetchJson<{ stats?: { activeCount?: number; totalAutomations?: number } }>(`/api/automations/stats?workspaceId=${ws}`),
-      ]);
-      if (cancelled) return;
-      setCounts({
-        memories: memory?.memories?.length ?? 0,
-        lastExecution: executions?.logs?.[0] ?? null,
-        pendingApprovals: pending?.actions?.length ?? 0,
-        activeAutomations: stats?.stats?.activeCount ?? 0,
-        totalAutomations: stats?.stats?.totalAutomations ?? 0,
-      });
-    };
-
-    load();
-    const interval = setInterval(load, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
+    // Never show (or let the user run and delete) another workspace's agents while the new ones load.
+    setAgents([]);
+    setTools([]);
+    setLoadError(null);
+    setFormOpen(false);
+    setRunOpen(false);
+    setDeleteOpen(false);
+    loadAgents();
   }, [workspaceId]);
 
-  const agentUp = status?.agent;
-  const state = (online: boolean | undefined, degraded = false): AgentState =>
-    status === null ? "loading" : !online ? "offline" : degraded ? "degraded" : "online";
+  const openCreate = () => {
+    setFormAgent(null);
+    setFormOpen(true);
+  };
+  const openEdit = (agent: Agent) => {
+    setFormAgent(agent);
+    setFormOpen(true);
+  };
+  const openRun = (agent: Agent) => {
+    setRunAgent(agent);
+    setRunOpen(true);
+  };
+  const openDelete = (agent: Agent) => {
+    setDeleteAgent(agent);
+    setDeleteOpen(true);
+  };
 
-  const lastRunAt = parseServerTimestamp(counts?.lastExecution?.createdAt);
+  const handleSaved = (saved: Agent | null) => {
+    // Show it straight away; the reload then brings in the server's own copy and counts.
+    if (saved && saved.workspaceId === currentWorkspace.current) {
+      setAgents((prev) =>
+        prev.some((a) => a.id === saved.id) ? prev.map((a) => (a.id === saved.id ? saved : a)) : [...prev, saved]
+      );
+    }
+    loadAgents(false);
+  };
 
-  const agents = [
-    {
-      id: "orchestrator",
-      name: "Orchestrator",
-      icon: Bot,
-      state: state(agentUp, agentUp && !status?.ollama && status?.model?.provider === "ollama"),
-      description: "Reads each message, decides whether to recall, remember, answer or use a tool, and replies with your chat model.",
-      facts: [
-        `Model: ${status?.model?.id ?? "—"}`,
-        status?.model ? (status.model.provider === "ollama" ? (status.ollama ? "Ollama reachable" : "Ollama unreachable") : status.model.provider) : null,
-      ],
-      href: "/chat",
-      cta: "Open chat",
-    },
-    {
-      id: "memory",
-      name: "Memory Agent",
-      icon: Brain,
-      state: state(agentUp && status?.sqlite, !status?.qdrant),
-      description: "Saves the facts you share and finds them again by keyword, plus by meaning when vector search is on.",
-      facts: [
-        counts ? `${counts.memories} memories in this workspace` : null,
-        status ? `Vectors: ${status.qdrant ? "Qdrant" : "off (keyword only)"}` : null,
-        status?.embeddings ? `Embeddings: ${status.embeddings}` : null,
-      ],
-      href: "/knowledge",
-      cta: "View knowledge",
-    },
-    {
-      id: "executor",
-      name: "Tool Executor",
-      icon: TerminalIcon,
-      state: state(agentUp),
-      description: "Runs tools for chats and tasks. Shell and Python commands wait for your approval first.",
-      facts: [
-        counts?.lastExecution
-          ? `Last run: ${counts.lastExecution.action} (${counts.lastExecution.status}) ${formatRelativeTime(lastRunAt)}`
-          : counts ? "No runs yet" : null,
-        counts ? `${counts.pendingApprovals} pending approval${counts.pendingApprovals === 1 ? "" : "s"}` : null,
-      ],
-      href: "/tasks",
-      cta: "Dispatch a task",
-    },
-    {
-      id: "automation",
-      name: "Automation Engine",
-      icon: Workflow,
-      state: state(agentUp),
-      description: "Runs your automations in the background, on a schedule or when something happens.",
-      facts: [counts ? `${counts.activeAutomations} active of ${counts.totalAutomations} automations` : null],
-      href: "/automation",
-      cta: "Manage automations",
-    },
-  ];
+  const handleDeleted = (agentId: string) => {
+    setAgents((prev) => prev.filter((a) => a.id !== agentId));
+    setDeleteOpen(false);
+    loadAgents(false);
+  };
+
+  const canCreate = !!workspaceId && tools.length > 0;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-background overflow-y-auto">
@@ -152,76 +126,106 @@ export default function AgentsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Agents</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            The parts of Torvaix that do the work, and whether each one is running.
+            Agents are helpers you set up for a particular job, each with its own instructions and tools.
           </p>
         </div>
-        <Link href="/tasks">
-          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg">
-            <Zap className="w-4 h-4" />
-            New task
-          </Button>
-        </Link>
+        <Button
+          onClick={openCreate}
+          disabled={!canCreate}
+          className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg"
+        >
+          <Plus className="w-4 h-4" aria-hidden="true" />
+          New agent
+        </Button>
       </motion.div>
 
       {status && !status.agent && (
-        <div className="mx-6 mt-4 p-4 rounded-xl border border-red-500/30 bg-red-500/10 text-sm text-red-400">
+        <div role="alert" className="mx-6 mt-4 p-4 rounded-xl border border-red-500/30 bg-red-500/10 text-sm text-red-400">
           The agent server isn&apos;t running, so no agents are available. Start it with <code className="font-mono">npm run dev</code>.
         </div>
       )}
 
-      {/* Agent Cards */}
-      <div className="flex-1 px-6 pb-6 pt-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {agents.map((agent, index) => {
-            const cfg = stateConfig[agent.state];
-            return (
-              <motion.div
-                key={agent.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.06, duration: 0.3 }}
-                className="bg-surface border border-border rounded-xl p-6 hover:border-primary/30 transition-all duration-200 group flex flex-col"
-              >
-                <div className="flex items-start justify-between mb-4 gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:scale-105 transition-transform">
-                      <agent.icon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-foreground">{agent.name}</h3>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <div className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                        <span className={`text-xs font-mono ${cfg.color}`}>{cfg.label}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <Link
-                    href={agent.href}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors shrink-0"
-                  >
-                    {agent.cta} <ArrowUpRight className="w-3 h-3" />
-                  </Link>
-                </div>
+      <div className="flex-1 px-6 pb-8 pt-4 space-y-8">
+        {/* The agents the user set up */}
+        <section aria-labelledby="your-agents">
+          <h2 id="your-agents" className="text-base font-semibold text-foreground mb-3">
+            Your agents
+          </h2>
 
-                <p className="text-sm text-muted-foreground leading-relaxed mb-4 flex-1">
-                  {agent.description}
+          {loadError && <LoadError message={loadError} onRetry={() => loadAgents()} className="mb-4" />}
+
+          {loading ? (
+            <div role="status" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              <span className="sr-only">Loading agents…</span>
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} className="h-52 rounded-xl" />
+              ))}
+            </div>
+          ) : agents.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {agents.map((agent, index) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  tools={tools}
+                  index={index}
+                  onRun={openRun}
+                  onEdit={openEdit}
+                  onDelete={openDelete}
+                />
+              ))}
+            </div>
+          ) : (
+            // After a failed load the list is unknown, so don't claim it is empty.
+            !loadError && (
+              <div className="bg-card/50 border border-dashed border-border rounded-xl p-10 text-center flex flex-col items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center text-muted-foreground">
+                  <Bot className="w-6 h-6" aria-hidden="true" />
+                </div>
+                <h3 className="font-semibold text-foreground">No agents yet</h3>
+                <p className="text-xs text-muted-foreground max-w-sm">
+                  Create an agent to give a particular job its own instructions and tools. You can run it here, pick it
+                  in a chat, or use it in an automation.
                 </p>
+                <Button onClick={openCreate} disabled={!canCreate} className="mt-1 gap-1.5">
+                  <Plus className="w-4 h-4" aria-hidden="true" />
+                  New agent
+                </Button>
+              </div>
+            )
+          )}
+        </section>
 
-                <div className="flex flex-wrap gap-1.5">
-                  {agent.facts.filter(Boolean).map((fact) => (
-                    <span
-                      key={fact}
-                      className="text-[10px] px-2.5 py-1 rounded-full bg-muted border border-border text-muted-foreground font-mono"
-                    >
-                      {fact}
-                    </span>
-                  ))}
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
+        {/* The parts of Torvaix itself */}
+        <BuiltInAgents workspaceId={workspaceId} />
       </div>
+
+      {workspaceId && (
+        <>
+          <AgentFormDialog
+            open={formOpen}
+            agent={formAgent}
+            availableTools={tools}
+            workspaceId={workspaceId}
+            onOpenChange={setFormOpen}
+            onSaved={handleSaved}
+          />
+          <AgentRunDialog
+            open={runOpen}
+            agent={runAgent}
+            availableTools={tools}
+            workspaceId={workspaceId}
+            onOpenChange={setRunOpen}
+            onRunSettled={() => loadAgents(false)}
+          />
+          <DeleteAgentDialog
+            open={deleteOpen}
+            agent={deleteAgent}
+            onOpenChange={setDeleteOpen}
+            onDeleted={handleDeleted}
+          />
+        </>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { LoadError } from "@/components/load-error";
 import { NO_RESPONSE, responseError } from "@/lib/api-error";
+import { fetchAgents, type Agent } from "@/lib/agents";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { useSystemStatus } from "@/hooks/use-system-status";
 import { describeTrigger, WEEKDAYS } from "@/lib/automation-schedule";
@@ -33,6 +34,7 @@ import {
   Filter,
   Flame,
   Radio,
+  Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,6 +57,8 @@ interface TriggerConfig {
 
 interface ActionConfig {
   prompt?: string;
+  /** Id of the agent an agent task runs as. Without it the task runs as Torvaix, with all tools. */
+  agentId?: string;
   toolName?: string;
   decayThreshold?: number;
 }
@@ -124,6 +128,22 @@ const actionLabels: Record<string, { label: string; icon: any; color: string }> 
   mcp_tool: { label: "MCP Tool Execution", icon: Terminal, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
 };
 
+/** Says the agents couldn't be loaded, so "Torvaix (all tools)" isn't taken for the only choice. */
+function AgentsLoadFailed({ onRetry }: { onRetry: () => void }) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-red-400">
+      Couldn&apos;t load your agents.
+      <button
+        type="button"
+        onClick={onRetry}
+        className="rounded px-1 font-medium underline underline-offset-2 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+      >
+        Try again
+      </button>
+    </span>
+  );
+}
+
 export default function AutomationPage() {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [stats, setStats] = useState<AutomationStats | null>(null);
@@ -153,11 +173,23 @@ export default function AutomationPage() {
   const [newFilterPattern, setNewFilterPattern] = useState("");
   const [newActionType, setNewActionType] = useState<"agent_task" | "consolidate_memory" | "synthesize_graph" | "clean_stale_memories">("agent_task");
   const [newPrompt, setNewPrompt] = useState("");
+  const [newAgentId, setNewAgentId] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
   const { workspaceId } = useActiveWorkspace();
   const systemStatus = useSystemStatus();
+
+  // The workspace's agents, for the "Run as" choice and to name the agent on each card.
+  const [agents, setAgents] = useState<Agent[]>([]);
+  // False until the list has arrived, so an agent isn't called deleted just because the list is empty so far.
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
+  // The last attempt to load the list failed. Only "Torvaix (all tools)" shows then, which must not look like the whole list.
+  const [agentsFailed, setAgentsFailed] = useState(false);
+  // The automation whose agent is being saved, so its select can't be changed again meanwhile.
+  const [savingAgentId, setSavingAgentId] = useState<string | null>(null);
+  // Only the newest load may fill the list, so a slow older reply can't undo a newer one.
+  const latestAgentsLoad = useRef(0);
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -200,6 +232,24 @@ export default function AutomationPage() {
     }
   };
 
+  const loadAgents = async () => {
+    // A call from a workspace the user has left must not take over the counter.
+    if (!workspaceId || currentWorkspace.current !== workspaceId) return;
+    const request = ++latestAgentsLoad.current;
+    const outdated = () => currentWorkspace.current !== workspaceId || request !== latestAgentsLoad.current;
+    setAgentsFailed(false);
+    try {
+      const res = await fetchAgents(workspaceId);
+      if (outdated()) return;
+      setAgents(res.agents);
+      setAgentsLoaded(true);
+    } catch (err) {
+      // The page works without the list, but it says so, so the user isn't led to think "Torvaix (all tools)" is the only choice.
+      console.error("Failed to load agents:", err);
+      if (!outdated()) setAgentsFailed(true);
+    }
+  };
+
   useEffect(() => {
     // Never show (or let the user pause and delete) another workspace's automations while the new ones load.
     setAutomations([]);
@@ -207,7 +257,12 @@ export default function AutomationPage() {
     setLoadError(null);
     setActionError(null);
     setLastExecutionResult(null);
+    setAgents([]);
+    setAgentsLoaded(false);
+    setAgentsFailed(false);
+    setNewAgentId("");
     fetchAutomations();
+    loadAgents();
   }, [workspaceId]);
 
   const handleToggleStatus = async (automation: Automation) => {
@@ -230,6 +285,32 @@ export default function AutomationPage() {
     } catch (err) {
       console.error("Failed to update status:", err);
       setActionError(NO_RESPONSE);
+    }
+  };
+
+  // Changes which agent an agent task runs as. Everything else in its settings (the prompt) stays.
+  const handleChangeAgent = async (automation: Automation, nextAgentId: string) => {
+    const actionConfig: ActionConfig = { ...automation.actionConfig };
+    if (nextAgentId) actionConfig.agentId = nextAgentId;
+    else delete actionConfig.agentId;
+    setSavingAgentId(automation.id);
+    try {
+      const res = await fetch(`/api/automations/${automation.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionConfig }),
+      });
+      if (res.ok) {
+        setActionError(null);
+        setAutomations(prev => prev.map(a => (a.id === automation.id ? { ...a, actionConfig } : a)));
+      } else {
+        setActionError(`Couldn't change which agent runs "${automation.name}". ${await responseError(res)}`);
+      }
+    } catch (err) {
+      console.error("Failed to change the agent:", err);
+      setActionError(NO_RESPONSE);
+    } finally {
+      setSavingAgentId(null);
     }
   };
 
@@ -318,6 +399,8 @@ export default function AutomationPage() {
       const actionConfig: ActionConfig = {};
       if (newActionType === "agent_task") {
         actionConfig.prompt = newPrompt;
+        // Only an agent the workspace still has: an unknown id would make every run fail.
+        if (agents.some(a => a.id === newAgentId)) actionConfig.agentId = newAgentId;
       }
 
       const res = await fetch("/api/automations", {
@@ -340,6 +423,7 @@ export default function AutomationPage() {
         setNewName("");
         setNewDescription("");
         setNewPrompt("");
+        setNewAgentId("");
         fetchAutomations();
       } else {
         const data = await res.json().catch(() => ({}));
@@ -402,7 +486,10 @@ export default function AutomationPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={fetchAutomations}
+              onClick={() => {
+                fetchAutomations();
+                loadAgents();
+              }}
               disabled={loading}
               className="gap-1.5 border-border hover:bg-surface"
             >
@@ -574,6 +661,30 @@ export default function AutomationPage() {
                           className="w-full mt-1 px-3 py-1.5 bg-background border border-border rounded-md text-sm text-foreground"
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {/* Which agent an agent task runs as */}
+                  {newActionType === "agent_task" && (
+                    <div>
+                      <label htmlFor="automation-run-as" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Run as</label>
+                      <select
+                        id="automation-run-as"
+                        value={newAgentId}
+                        onChange={e => setNewAgentId(e.target.value)}
+                        className="w-full mt-1.5 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      >
+                        <option value="">Torvaix (all tools)</option>
+                        {agents.map(agent => (
+                          <option key={agent.id} value={agent.id}>{agent.name}</option>
+                        ))}
+                      </select>
+                      {agentsFailed && (
+                        <div className="mt-1.5">
+                          <AgentsLoadFailed onRetry={() => { loadAgents(); }} />
+                        </div>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-1.5">An agent can only use the tools it was set up with.</p>
                     </div>
                   )}
 
@@ -772,6 +883,8 @@ export default function AutomationPage() {
               };
               const ActionIcon = actionMeta.icon;
               const isTriggering = triggeringId === automation.id;
+              const agentId = automation.actionConfig?.agentId;
+              const agent = agentId ? agents.find(a => a.id === agentId) : undefined;
 
               return (
                 <motion.div
@@ -869,6 +982,31 @@ export default function AutomationPage() {
                           <Terminal className="w-3.5 h-3.5 text-cyan-400/70" />
                           Prompt: &quot;{automation.actionConfig.prompt}&quot;
                         </span>
+                      )}
+                      {automation.actionType === "agent_task" && (
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                          <label htmlFor={`run-as-${automation.id}`} className="flex items-center gap-1.5">
+                            <Bot className="w-3.5 h-3.5 shrink-0 text-blue-400/70" />
+                            Run as
+                          </label>
+                          <select
+                            id={`run-as-${automation.id}`}
+                            value={agentId ?? ""}
+                            // Until the list is here, a missing agent could just be one that hasn't arrived.
+                            disabled={!agentsLoaded || savingAgentId === automation.id}
+                            onChange={e => handleChangeAgent(automation, e.target.value)}
+                            className={`max-w-48 truncate px-2 py-1 bg-background border rounded-md text-[11px] focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-60 ${
+                              agentId && !agent && agentsLoaded ? "border-amber-500/40 text-amber-400" : "border-border text-foreground"
+                            }`}
+                          >
+                            <option value="">Torvaix (all tools)</option>
+                            {agents.map(a => (
+                              <option key={a.id} value={a.id}>{a.name}</option>
+                            ))}
+                            {agentId && !agent && <option value={agentId}>{agentsLoaded ? "Deleted agent" : "An agent"}</option>}
+                          </select>
+                          {agentsFailed && <AgentsLoadFailed onRetry={() => { loadAgents(); }} />}
+                        </div>
                       )}
                     </div>
 

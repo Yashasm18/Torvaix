@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest"
-import { describeStep, formatDuration, matchLabel, normalizeTurn, summarizeTurn, toolsUsed, type AnswerTurn } from "../answer-details"
+import { describeFooter, describeStep, formatDuration, matchLabel, normalizeTurn, summarizeTurn, toolsUsed, type AnswerTurn } from "../answer-details"
 
 const turn = (over: Partial<AnswerTurn> = {}): AnswerTurn => ({
   id: "t1",
   route: "conversation",
   model: "llama3.2:3b",
+  agent: null,
   totalMs: 1200,
   retrievedMemories: [],
   savedMemory: null,
@@ -44,13 +45,29 @@ describe("normalizeTurn", () => {
 
   it("copes with an older agent that sends fewer fields, and with junk", () => {
     const old = normalizeTurn({ id: "p0", retrievedMemories: [{ id: "m1", content: "x", source: "s", score: 1 }, { nope: true }, null], agentSteps: ["router: x"] })
-    expect(old).toMatchObject({ id: "p0", route: null, model: null, totalMs: 0, savedMemory: null, steps: [] })
+    expect(old).toMatchObject({ id: "p0", route: null, model: null, agent: null, totalMs: 0, savedMemory: null, steps: [] })
     expect(old!.retrievedMemories).toEqual([{ id: "m1", content: "x", source: "s", score: 1, match: "keyword", createdAt: undefined }])
 
     expect(normalizeTurn(null)).toBeNull()
     expect(normalizeTurn("text")).toBeNull()
     expect(normalizeTurn({ route: "memory" })).toBeNull()
     expect(normalizeTurn({ id: "p", route: "made-up", savedMemory: { id: 5 } })).toMatchObject({ route: null, savedMemory: null })
+  })
+})
+
+describe("normalizeTurn agent", () => {
+  it("reads the name of the agent that answered", () => {
+    expect(normalizeTurn({ id: "p1", agent: "Researcher" })!.agent).toBe("Researcher")
+    expect(normalizeTurn({ id: "p1", agent: "  Researcher " })!.agent).toBe("Researcher")
+  })
+
+  it("is null when the reply came from the normal assistant or an older agent server", () => {
+    expect(normalizeTurn({ id: "p1", agent: null })!.agent).toBeNull()
+    expect(normalizeTurn({ id: "p1" })!.agent).toBeNull()
+    expect(normalizeTurn({ id: "p1", agent: "   " })!.agent).toBeNull()
+    expect(normalizeTurn({ id: "p1", agent: "" })!.agent).toBeNull()
+    expect(normalizeTurn({ id: "p1", agent: 42 })!.agent).toBeNull()
+    expect(normalizeTurn({ id: "p1", agent: { name: "Researcher" } })!.agent).toBeNull()
   })
 })
 
@@ -93,6 +110,24 @@ describe("summarizeTurn", () => {
     expect(summarizeTurn(turn({ route: "repo_analysis" }))).toBe("Scanned the workspace folder.")
     expect(summarizeTurn(turn({ route: "identity" }))).toBe("Answered directly, without asking the model.")
     expect(summarizeTurn(turn({ route: null }))).toBe("No details were recorded for this reply.")
+  })
+})
+
+describe("describeFooter", () => {
+  it("puts the agent next to the model when a custom agent answered", () => {
+    expect(describeFooter(turn({ agent: "Researcher" }))).toBe("1 s in total · llama3.2:3b · Agent: Researcher")
+    expect(describeFooter(turn({ agent: "Researcher", model: null }))).toBe("1 s in total · Agent: Researcher")
+  })
+
+  it("leaves the agent out for the normal assistant and for turns without the field", () => {
+    expect(describeFooter(turn())).toBe("1 s in total · llama3.2:3b")
+    const withoutField = turn()
+    delete withoutField.agent
+    expect(describeFooter(withoutField)).toBe("1 s in total · llama3.2:3b")
+  })
+
+  it("is empty when there is nothing to say", () => {
+    expect(describeFooter(turn({ totalMs: 0, model: null }))).toBe("")
   })
 })
 
