@@ -24,6 +24,11 @@ export interface AnswerTurn {
   id: string
   route: "identity" | "memory" | "knowledge" | "conversation" | "execution" | "repo_analysis" | null
   model: string | null
+  /**
+   * Name of the custom agent that answered, or null for the normal assistant. Optional because
+   * older agent servers don't send it; `normalizeTurn` always fills it in.
+   */
+  agent?: string | null
   totalMs: number
   retrievedMemories: TurnMemory[]
   savedMemory: { id: string; content: string } | null
@@ -53,6 +58,7 @@ export function normalizeTurn(raw: unknown): AnswerTurn | null {
     id: r.id,
     route: typeof r.route === "string" && ROUTES.includes(r.route) ? (r.route as AnswerTurn["route"]) : null,
     model: typeof r.model === "string" && r.model ? r.model : null,
+    agent: typeof r.agent === "string" && r.agent.trim() ? r.agent.trim() : null,
     totalMs: typeof r.totalMs === "number" && Number.isFinite(r.totalMs) ? r.totalMs : 0,
     retrievedMemories: asArray(r.retrievedMemories)
       .filter((m) => typeof m.id === "string" && typeof m.content === "string")
@@ -162,6 +168,17 @@ export function matchLabel(match: MemoryMatch): string {
     case "recent":
       return "one of your latest"
   }
+}
+
+/** The quiet line at the foot of the panel: how long it took, the model and, for a custom agent, its name. */
+export function describeFooter(turn: AnswerTurn): string {
+  return [
+    turn.totalMs > 0 ? `${formatDuration(turn.totalMs)} in total` : null,
+    turn.model,
+    turn.agent ? `Agent: ${turn.agent}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
 }
 
 /** "0.4 s", "12 s", "1 min 5 s". */

@@ -27,6 +27,7 @@ It's built for local models through [Ollama](https://ollama.com). Cloud provider
 - **Chat with memory.** Facts you share are stored per workspace and recalled in later conversations. Retrieval combines keyword search (SQLite FTS5) with vector search (Qdrant) when Qdrant is available.
 - **Knowledge graph.** Entities and relationships are extracted from stored memories and shown in an interactive graph, scoped to each workspace.
 - **Tool use with approval.** The agent can read and write files inside the workspace folder, search the web, and scan a repository. Every `bash` and `python` command pauses until you approve that exact command.
+- **Your own agents.** Set up agents with their own instructions and a chosen set of tools, for example a researcher that can only search the web. Run one on a task from the **Agents** page, pick one to answer in a chat, or have an automation run as one. An agent can never use a tool it wasn't given, and shell and Python commands still wait for your approval every time.
 - **Automations.** Run workflows on a schedule (interval, hourly, daily, weekly), on events such as a new memory, or manually.
 - **Memory consolidation.** Finds duplicate and related memories, scores them, and groups them into themes.
 - **Agent trace.** Each reply shows how the request was routed, what was retrieved, and how long each tool call took.

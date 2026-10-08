@@ -18,7 +18,7 @@ import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { useSystemStatus } from "@/hooks/use-system-status";
 import { useAnswerDetailsStore } from "@/store/answer-details-store";
 import { normalizeTurn } from "@/lib/answer-details";
-import { useDBStore } from "@/store/db-store";
+import { selectChatAgentId, useDBStore } from "@/store/db-store";
 import {
   DEFAULT_CHAT_TITLE,
   formatAttachment,
@@ -30,6 +30,7 @@ import {
 import { formatRelativeTime } from "@/lib/relative-time";
 import { parseApprovalId } from "@/lib/approval";
 import { ApprovalCard } from "@/components/chat/approval-card";
+import { AgentPicker, REMEMBERED_AGENT_NAME, agentLabel, useWorkspaceAgents } from "@/components/chat/agent-picker";
 import { AppLogo } from "@/components/ui/app-logo";
 import { MemoryModal } from "@/components/chat/memory-modal";
 import { MarkdownMessage } from "@/components/chat/markdown";
@@ -108,6 +109,22 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
   );
   const currentChat = workspaceChats.find((c) => c.id === chatId);
 
+  // Who answers this chat. A remembered agent is sent as it is while the list is still loading or
+  // failed to load: dropping it then would quietly use the normal assistant, which has more tools
+  // than the agent that was picked, and a wrong id is turned down by the server ("Unknown agent").
+  // Only a list that loaded and lacks the agent (deleted) makes it fall back, in the effect below.
+  const { agents, status: agentsStatus, reload: reloadAgents } = useWorkspaceAgents(workspaceId);
+  const rememberedAgentId = useDBStore((s) => selectChatAgentId(s, chatId));
+  const setChatAgent = useDBStore((s) => s.setChatAgent);
+  const activeAgent = agents.find((a) => a.id === rememberedAgentId) ?? null;
+  const agentGone = rememberedAgentId !== null && agentsStatus === 'ready' && !activeAgent;
+  const agentId = agentGone ? undefined : (rememberedAgentId ?? undefined);
+  const agentName = agentLabel(agents, agentsStatus, rememberedAgentId);
+
+  useEffect(() => {
+    if (agentGone) setChatAgent(chatId, null);
+  }, [agentGone, chatId, setChatAgent]);
+
   // Restore this chat's saved history once, when the session mounts.
   const [initialMessages] = useState(() => toUiMessages(useDBStore.getState().messages, chatId));
 
@@ -116,10 +133,13 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     id: chatId,
     initialMessages: initialMessages as any,
     keepLastMessageOnError: true,
+    // useChat (0.0.70) re-reads `body` on every request, so this is the agent at the moment of
+    // sending, including for the message that resumes after an approval.
     body: {
       model: currentModel,
       provider: provider,
       workspaceId,
+      agentId,
     },
     onError: (err) => {
       console.error('[Torvaix Chat] Stream error:', err);
@@ -141,6 +161,12 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
   useEffect(() => {
     useAnswerDetailsStore.getState().reset();
   }, []);
+
+  // The agent server turned the request down because the agent is gone (deleted in another tab).
+  // Look again, so the stale choice is dropped and Retry goes to the normal assistant.
+  useEffect(() => {
+    if (error && /unknown agent/i.test(friendlyError(error))) reloadAgents();
+  }, [error]);
 
   const startNewChat = () => {
     const chat = createChat(workspaceId, DEFAULT_CHAT_TITLE);
@@ -330,6 +356,14 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <AgentPicker
+            agents={agents}
+            status={agentsStatus}
+            value={rememberedAgentId}
+            onChange={(id) => setChatAgent(chatId, id)}
+            onRetry={reloadAgents}
+            disabled={isLoading}
+          />
           <div className="hidden sm:flex items-center gap-1 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-full">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
             <span className="text-xs text-green-400">{provider === 'ollama' ? 'Local' : 'Cloud'}</span>
@@ -638,7 +672,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
             <Textarea
               value={input}
               onChange={handleInputChange}
-              placeholder="Ask Torvaix..."
+              placeholder={`Ask ${agentName === REMEMBERED_AGENT_NAME ? 'your agent' : agentName}...`}
               aria-label="Message"
               ref={messageBox}
               className="flex-1 min-h-[60px] max-h-48 resize-none bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 px-2 py-2"
@@ -717,6 +751,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
           <div className="flex items-center justify-between gap-3 px-2 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-3 min-w-0">
               <span className="truncate">Model: <span className="text-foreground">{currentModel}</span></span>
+              <span className="truncate">Agent: <span className="text-foreground">{agentName}</span></span>
               <span className="truncate">Workspace: <span className="text-foreground">{workspace?.name}</span></span>
             </div>
             <span className="hidden sm:inline shrink-0">Press Enter to send, Shift+Enter for new line</span>

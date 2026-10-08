@@ -17,9 +17,11 @@ import path from 'path';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { AgentOrchestrator } from './orchestrator';
+import { AgentOrchestrator, type AgentPersona } from './orchestrator';
 import { ingestKnowledgeGraph } from '@torvaix/graph';
-import { validateAutomationInput } from './validation';
+import { validateAutomationInput, validateAgentInput, validateAgentUpdate } from './validation';
+import { listAgentToolInfo } from './agent-tools';
+import { createAgentRuns } from './agent-runs';
 import { formatApprovalRequest } from './approval-message';
 import { closeAllMcpClients } from '@torvaix/mcp';
 import { checkBrowserRequest, parseList, DEFAULT_ALLOWED_ORIGINS } from './http-security';
@@ -111,10 +113,14 @@ function currentModel(): { id: string; provider: ProviderId; source: 'saved' | '
   return { id: autoModel, provider: 'ollama', source: 'auto' };
 }
 
-function newOrchestrator(): AgentOrchestrator {
+function newOrchestrator(persona?: AgentPersona): AgentOrchestrator {
   const model = currentModel();
-  return new AgentOrchestrator(memoryStore, { llm: llmClient, model: model.id, provider: model.provider });
+  return new AgentOrchestrator(memoryStore, { llm: llmClient, model: model.id, provider: model.provider, persona });
 }
+
+// ── Custom agents ──
+
+const agentRuns = createAgentRuns({ store: memoryStore, newOrchestrator, events: torvaixEvents });
 
 // ── Background Automation Engine ──
 
@@ -205,6 +211,21 @@ automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
     const prompt = typeof actionConfig?.prompt === 'string' && actionConfig.prompt.trim()
       ? actionConfig.prompt
       : `Execute background automation: ${workflow.name}`;
+
+    // An automation can run as one of the user's agents: its instructions and only its tools.
+    const agentId = actionConfig?.agentId;
+    if (agentId) {
+      const custom = agentRuns.resolveAgentForWorkspace(agentId, workspaceId);
+      if (!custom) {
+        return {
+          success: false,
+          output: 'The agent for this automation no longer exists. Edit the automation and choose another agent.',
+        };
+      }
+      const run = await agentRuns.startRun(custom, prompt, { announce: false });
+      return { success: run.status !== 'error', output: run.output };
+    }
+
     // Same model as chat, so background tasks use the auto-selected installed model too.
     const agent = newOrchestrator();
     const finalState = await agent.run({
@@ -617,7 +638,7 @@ app.post('/api/conversations', requireAuth, (req: AuthRequest, res) => {
 // Agent loop — stricter rate limit
 app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, res) => {
   try {
-    const { instructions, workspaceId, messages = [], pendingActionId } = req.body;
+    const { instructions, workspaceId, messages = [], pendingActionId, agentId } = req.body;
     const isStream = req.query.stream === 'true';
 
     if ((typeof instructions !== 'string' || !instructions.trim()) && typeof pendingActionId !== 'string') {
@@ -629,12 +650,22 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
       validateMessages(req.body.messages);
     if (invalid) { res.status(400).json({ error: invalid }); return; }
 
+    const runWorkspaceId = typeof workspaceId === 'string' && workspaceId ? workspaceId : 'default';
+    // Answered by one of the user's agents when the chat names one. Checked before the stream
+    // starts, so a wrong id is an ordinary JSON error.
+    let persona: AgentPersona | undefined;
+    if (agentId !== undefined && agentId !== null) {
+      const chosen = agentRuns.resolveAgentForWorkspace(agentId, runWorkspaceId);
+      if (!chosen) { res.status(400).json({ error: 'Unknown agent' }); return; }
+      persona = agentRuns.personaOf(chosen);
+    }
+
     if (isStream) {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Transfer-Encoding', 'chunked');
     }
 
-    const orchestrator = newOrchestrator();
+    const orchestrator = newOrchestrator(persona);
 
     // Resuming an approved action is handled inside the orchestrator, which verifies the
     // approval and claims it once. Never grant tool approval here from a bare id.
@@ -649,7 +680,6 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
       if (!res.destroyed && !res.writableEnded) res.write(chunk);
     };
 
-    const runWorkspaceId = typeof workspaceId === 'string' && workspaceId ? workspaceId : 'default';
     const runId = crypto.randomUUID();
     const task = typeof instructions === 'string' && instructions.trim() ? instructions : 'Resume an approved action';
     torvaixEvents.emitAgentStarted({ agentId: runId, workspaceId: runWorkspaceId, task });
@@ -724,7 +754,10 @@ app.post('/api/agent/approve', requireAuth, (req: AuthRequest, res) => {
       res.status(409).json({ error: `Action was already ${existing.status}` });
       return;
     }
-    res.json({ success: true, status });
+    // A denial ends the agent run that was waiting on this command, wherever it was denied.
+    // The closed run goes back with the answer, so the Agents page can show it straight away.
+    const closedRun = agentRuns.settleDecision(pendingActionId, status);
+    res.json({ success: true, status, ...(closedRun ? { run: closedRun } : {}) });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to update pending action' });
   }
@@ -767,6 +800,15 @@ app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest,
     }
     if (typeof instructions === 'string' && instructions.length > LIMITS.instructionsChars) {
       res.status(400).json({ error: 'Instructions are too long' });
+      return;
+    }
+
+    // An approval for a command one of the user's agents is waiting on carries on that agent's
+    // run, so approving here does not leave the run stuck.
+    if (typeof pendingActionId === 'string' && agentRuns.hasWaitingRun(pendingActionId)) {
+      const resumed = await agentRuns.resumeRun(pendingActionId, { announce: true });
+      if ('error' in resumed) { res.status(resumed.status).json({ error: resumed.error }); return; }
+      res.json({ success: true, task: agentRuns.taskOfRun(resumed.run, priority) });
       return;
     }
 
@@ -1043,6 +1085,105 @@ app.get('/api/automations/:id/logs', requireAuth, async (req: AuthRequest, res) 
     res.json({ success: true, logs });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to fetch automation logs', details: error.message });
+  }
+});
+
+// ── Custom Agents API ──
+
+app.get('/api/agents', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const workspaceId = (req.query.workspaceId as string) || 'default';
+    memoryStore.seedDefaultAgents(workspaceId);
+    res.json({ success: true, agents: memoryStore.listAgents(workspaceId), availableTools: listAgentToolInfo() });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to list agents', details: error.message });
+  }
+});
+
+app.post('/api/agents', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const checked = validateAgentInput(req.body);
+    if (checked.error !== undefined) { res.status(400).json({ error: checked.error }); return; }
+    const workspaceId = typeof req.body.workspaceId === 'string' && req.body.workspaceId ? req.body.workspaceId : 'default';
+    const created = agentRuns.createAgentWithinLimit(workspaceId, checked.value);
+    if ('error' in created) { res.status(400).json({ error: created.error }); return; }
+    res.status(201).json({ success: true, agent: created.agent });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to create agent', details: error.message });
+  }
+});
+
+app.put('/api/agents/:id', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    if (!memoryStore.getAgent(id)) { res.status(404).json({ error: 'Agent not found' }); return; }
+    const checked = validateAgentUpdate(req.body);
+    if (checked.error !== undefined) { res.status(400).json({ error: checked.error }); return; }
+    const agent = memoryStore.updateAgent(id, checked.value);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+    res.json({ success: true, agent });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to update agent', details: error.message });
+  }
+});
+
+app.delete('/api/agents/:id', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const deleted = memoryStore.deleteAgent(req.params.id as string);
+    res.json({ success: deleted });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete agent', details: error.message });
+  }
+});
+
+// Runs an agent on a task. With a pendingActionId it carries on with the run that was waiting for
+// that approval instead. The approval itself is given through /api/agent/approve.
+app.post('/api/agents/:id/run', requireAuth, agentLimiter, async (req: AuthRequest, res) => {
+  try {
+    const agent = memoryStore.getAgent(req.params.id as string);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+
+    const { task, pendingActionId } = req.body ?? {};
+    const resuming = pendingActionId !== undefined && pendingActionId !== null;
+    if (resuming && (typeof pendingActionId !== 'string' || !pendingActionId || pendingActionId.length > LIMITS.workspaceIdChars)) {
+      res.status(400).json({ error: 'pendingActionId must be a non-empty string' });
+      return;
+    }
+    const invalid = resuming ? null : validateText(task, 'task', LIMITS.instructionsChars);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
+
+    // Stop when the client goes away, as /api/agent/run does.
+    const cancel = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) cancel.abort();
+    });
+
+    // A resumed run keeps its own task and history; the request only says which approval it is for.
+    const options = { signal: cancel.signal, announce: true };
+    let run;
+    if (resuming) {
+      const resumed = await agentRuns.resumeRun(pendingActionId, { ...options, agentId: agent.id });
+      if ('error' in resumed) { res.status(resumed.status).json({ error: resumed.error }); return; }
+      run = resumed.run;
+    } else {
+      run = await agentRuns.startRun(agent, task as string, options);
+    }
+    if (cancel.signal.aborted) {
+      if (!res.destroyed) res.end();
+      return;
+    }
+    res.json({ success: true, run });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to run agent', details: error.message });
+  }
+});
+
+app.get('/api/agents/:id/runs', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const runs = memoryStore.listAgentRuns(req.params.id as string, clampCount(req.query.limit, 20, 100));
+    res.json({ success: true, runs });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch agent runs', details: error.message });
   }
 });
 

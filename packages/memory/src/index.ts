@@ -8,7 +8,7 @@
  *   and memories saved while Qdrant was down are indexed once it is reachable
  *
  * Also manages workspaces, conversations, pending actions, execution logs,
- * and companion device pairing.
+ * custom agents and their runs, and companion device pairing.
  */
 
 import { QdrantClient } from '@qdrant/js-client-rest';
@@ -93,7 +93,47 @@ export interface AutomationLogRecord {
   startedAt: string;
   completedAt: string | null;
 }
+/** An agent the user set up: its own instructions and the tools it may use. */
+export interface AgentRecord {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  instructions: string;
+  /** Ids of the tools it may use. The agent server checks them against its tool catalogue. */
+  tools: string[];
+  createdAt: string;
+  updatedAt: string;
+  runCount: number;
+  lastRunAt: string | null;
+}
 
+/** "cancelled" is a run the user stopped, or one whose command the user denied. */
+export type AgentRunStatus = 'completed' | 'awaiting_approval' | 'error' | 'cancelled';
+
+export interface AgentRunRecord {
+  id: string;
+  agentId: string;
+  workspaceId: string;
+  task: string;
+  status: AgentRunStatus;
+  output: string;
+  /** Set while the run waits for the user to approve a shell or Python command. */
+  pendingActionId: string | null;
+  durationMs: number;
+  createdAt: string;
+}
+
+/** A message of a run's history, as the agent loop keeps it. */
+export interface AgentContextMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+/** A run together with the history it needs to continue after an approval. */
+export interface AgentRunDetail extends AgentRunRecord {
+  context: AgentContextMessage[];
+}
 
 /** Which embedding source is active. */
 export type EmbedSource = 'ollama' | 'openai' | 'local' | 'none';
@@ -137,6 +177,87 @@ export function toConfigJson(value: unknown): string {
   }
   return JSON.stringify(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {});
 }
+
+/** Most of a paused run's history that is kept, so a long run can't fill the database. */
+const MAX_AGENT_CONTEXT_CHARS = 40_000;
+
+/** The most recent messages that fit the budget. The newest message is always kept, shortened if it alone is too long. */
+function capAgentContext(messages: AgentContextMessage[]): AgentContextMessage[] {
+  const keep: AgentContextMessage[] = [];
+  let total = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const length = messages[i].content.length;
+    if (total + length > MAX_AGENT_CONTEXT_CHARS && keep.length > 0) break;
+    keep.unshift(messages[i]);
+    total += length;
+  }
+  if (keep.length === 1 && keep[0].content.length > MAX_AGENT_CONTEXT_CHARS) {
+    keep[0] = { ...keep[0], content: keep[0].content.slice(-MAX_AGENT_CONTEXT_CHARS) };
+  }
+  return keep;
+}
+
+/** A stored run history as messages; anything that isn't a list of valid messages becomes empty. */
+function parseAgentContext(json: string): AgentContextMessage[] {
+  try {
+    const value = JSON.parse(json || '[]');
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (m): m is AgentContextMessage =>
+        !!m && typeof m === 'object' &&
+        (m.role === 'system' || m.role === 'user' || m.role === 'assistant') &&
+        typeof m.content === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** A stored tool list as an array of strings; anything else becomes empty. */
+function parseAgentTools(json: string): string[] {
+  try {
+    const value = JSON.parse(json || '[]');
+    return Array.isArray(value) ? value.filter((t): t is string => typeof t === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+const AGENT_RUN_COLUMNS = 'id, agentId, workspaceId, task, status, output, pendingActionId, durationMs, createdAt';
+
+/** The agents every workspace starts with. */
+const DEFAULT_AGENTS: { name: string; description: string; instructions: string; tools: string[] }[] = [
+  {
+    name: 'Researcher',
+    description: 'Looks things up on the web and summarises what it finds, with sources.',
+    instructions:
+      'You are a careful researcher. Search the web for what the task asks, compare what you find, and write a short, clear summary. ' +
+      'List the sources you used at the end. If you cannot find a reliable answer, say so instead of guessing.',
+    tools: ['web_search'],
+  },
+  {
+    name: 'File assistant',
+    description: 'Reads and writes files in the workspace folder.',
+    instructions:
+      'You help with files in the workspace folder. Read a file before you change it, write only what the task asks for, ' +
+      'and say which files you read or changed. Use the repository scan to get an overview of a project.',
+    tools: ['read_file', 'write_file', 'repo_scan'],
+  },
+  {
+    name: 'Shell helper',
+    description: 'Runs shell commands and Python code. Every run waits for your approval.',
+    instructions:
+      'You get things done by running shell commands and short Python scripts in the workspace folder. ' +
+      'Run one command at a time, say what it does, and report its output. The user approves every command before it runs.',
+    tools: ['bash', 'python', 'read_file', 'write_file'],
+  },
+];
+
+const AGENT_SELECT = `
+  SELECT a.*,
+    (SELECT COUNT(*) FROM agent_runs r WHERE r.agentId = a.id) AS runCount,
+    (SELECT MAX(r.createdAt) FROM agent_runs r WHERE r.agentId = a.id) AS lastRunAt
+  FROM agents a`;
 
 /** How long a Qdrant/Ollama availability check is trusted before it is repeated. */
 const SERVICE_RECHECK_MS = 30_000;
@@ -255,6 +376,40 @@ export class MemoryStore {
 
       CREATE INDEX IF NOT EXISTS idx_automations_workspace ON automations(workspaceId);
       CREATE INDEX IF NOT EXISTS idx_automation_logs_auto ON automation_logs(automationId);
+
+      -- Custom agents and their runs. "context" is the run's message history as JSON, so a run
+      -- that paused for an approval can carry on with what it already did.
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY,
+        workspaceId TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        instructions TEXT NOT NULL,
+        tools TEXT NOT NULL DEFAULT '[]',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY(workspaceId) REFERENCES workspaces(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_runs (
+        id TEXT PRIMARY KEY,
+        agentId TEXT NOT NULL,
+        workspaceId TEXT NOT NULL,
+        task TEXT NOT NULL,
+        status TEXT NOT NULL,
+        output TEXT NOT NULL DEFAULT '',
+        pendingActionId TEXT,
+        context TEXT NOT NULL DEFAULT '[]',
+        durationMs INTEGER NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY(agentId) REFERENCES agents(id),
+        FOREIGN KEY(workspaceId) REFERENCES workspaces(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspaceId);
+      CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agentId);
+      CREATE INDEX IF NOT EXISTS idx_agent_runs_pending ON agent_runs(pendingActionId);
 
 
       -- Users table (for auth hardening)
@@ -1255,6 +1410,161 @@ export class MemoryStore {
       actionConfig: { prompt: 'Search the web for the latest news about local AI models and summarise the three most important developments.' },
       status: 'paused'
     });
+  }
+
+  // ── Custom Agents & Runs ──
+
+  createAgent(params: {
+    id?: string;
+    workspaceId: string;
+    name: string;
+    description?: string;
+    instructions: string;
+    tools: string[];
+  }): AgentRecord {
+    const id = params.id || randomUUID();
+    const now = new Date().toISOString();
+    this.ensureWorkspaceRow(params.workspaceId);
+    this.db.prepare(`
+      INSERT INTO agents (id, workspaceId, name, description, instructions, tools, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, params.workspaceId, params.name, params.description ?? '', params.instructions, JSON.stringify(params.tools), now, now);
+    return this.getAgent(id)!;
+  }
+
+  getAgent(id: string): AgentRecord | null {
+    const row = this.db.prepare(`${AGENT_SELECT} WHERE a.id = ?`).get(id) as (Omit<AgentRecord, 'tools'> & { tools: string }) | undefined;
+    return row ? { ...row, tools: parseAgentTools(row.tools) } : null;
+  }
+
+  /** A workspace's agents in the order they were made, each with how often it has run. */
+  listAgents(workspaceId: string): AgentRecord[] {
+    const rows = this.db.prepare(`${AGENT_SELECT} WHERE a.workspaceId = ? ORDER BY a.createdAt ASC, a.rowid ASC`)
+      .all(workspaceId) as (Omit<AgentRecord, 'tools'> & { tools: string })[];
+    return rows.map(row => ({ ...row, tools: parseAgentTools(row.tools) }));
+  }
+
+  countAgents(workspaceId: string): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS c FROM agents WHERE workspaceId = ?').get(workspaceId) as { c: number };
+    return row.c;
+  }
+
+  /** Changes the given fields and returns the agent, or null if there is no such agent. */
+  updateAgent(id: string, updates: Partial<{
+    name: string;
+    description: string;
+    instructions: string;
+    tools: string[];
+  }>): AgentRecord | null {
+    if (!this.getAgent(id)) return null;
+
+    const fields: string[] = [];
+    const values: any[] = [];
+    if (updates.name !== undefined) { fields.push('name = ?'); values.push(updates.name); }
+    if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
+    if (updates.instructions !== undefined) { fields.push('instructions = ?'); values.push(updates.instructions); }
+    if (updates.tools !== undefined) { fields.push('tools = ?'); values.push(JSON.stringify(updates.tools)); }
+    // Nothing to change means nothing was edited, so the edit time stays as it was.
+    if (fields.length > 0) {
+      fields.push('updatedAt = ?');
+      values.push(new Date().toISOString(), id);
+      this.db.prepare(`UPDATE agents SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    }
+    return this.getAgent(id);
+  }
+
+  /** Deletes the agent and its runs. Returns false if there was no such agent. */
+  deleteAgent(id: string): boolean {
+    return this.db.transaction(() => {
+      this.db.prepare('DELETE FROM agent_runs WHERE agentId = ?').run(id);
+      return this.db.prepare('DELETE FROM agents WHERE id = ?').run(id).changes > 0;
+    })();
+  }
+
+  /**
+   * Every workspace gets these once. Seeding is recorded in the workspace's settings, so an
+   * agent the user deletes is not brought back the next time the list is opened.
+   */
+  seedDefaultAgents(workspaceId = 'default'): void {
+    this.ensureWorkspaceRow(workspaceId);
+    let settings: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(this.getWorkspace(workspaceId)?.settings || '{}');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) settings = parsed;
+    } catch { /* unreadable settings are treated as empty */ }
+    if (settings.agentsSeeded === true) return;
+
+    this.db.transaction(() => {
+      for (const starter of DEFAULT_AGENTS) this.createAgent({ workspaceId, ...starter });
+      settings.agentsSeeded = true;
+      this.db.prepare('UPDATE workspaces SET settings = ? WHERE id = ?').run(JSON.stringify(settings), workspaceId);
+    })();
+  }
+
+  createAgentRun(params: {
+    id?: string;
+    agentId: string;
+    workspaceId: string;
+    task: string;
+    status: AgentRunStatus;
+    output?: string;
+    pendingActionId?: string | null;
+    context?: AgentContextMessage[];
+    durationMs?: number;
+  }): AgentRunRecord {
+    const id = params.id || randomUUID();
+    const now = new Date().toISOString();
+    this.ensureWorkspaceRow(params.workspaceId);
+    this.db.prepare(`
+      INSERT INTO agent_runs (id, agentId, workspaceId, task, status, output, pendingActionId, context, durationMs, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, params.agentId, params.workspaceId, params.task, params.status, params.output ?? '',
+      params.pendingActionId ?? null, JSON.stringify(capAgentContext(params.context ?? [])),
+      Math.round(params.durationMs ?? 0), now, now
+    );
+    const { context: _context, ...run } = this.getAgentRun(id)!;
+    return run;
+  }
+
+  /** Saves how a run ended (or paused). Returns the run, or null if it no longer exists. */
+  updateAgentRun(id: string, updates: Partial<{
+    status: AgentRunStatus;
+    output: string;
+    pendingActionId: string | null;
+    context: AgentContextMessage[];
+    durationMs: number;
+  }>): AgentRunRecord | null {
+    const fields: string[] = [];
+    const values: any[] = [];
+    if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
+    if (updates.output !== undefined) { fields.push('output = ?'); values.push(updates.output); }
+    if (updates.pendingActionId !== undefined) { fields.push('pendingActionId = ?'); values.push(updates.pendingActionId); }
+    if (updates.context !== undefined) { fields.push('context = ?'); values.push(JSON.stringify(capAgentContext(updates.context))); }
+    if (updates.durationMs !== undefined) { fields.push('durationMs = ?'); values.push(Math.round(updates.durationMs)); }
+    fields.push('updatedAt = ?');
+    values.push(new Date().toISOString(), id);
+
+    if (this.db.prepare(`UPDATE agent_runs SET ${fields.join(', ')} WHERE id = ?`).run(...values).changes === 0) return null;
+    const { context: _context, ...run } = this.getAgentRun(id)!;
+    return run;
+  }
+
+  getAgentRun(id: string): AgentRunDetail | null {
+    const row = this.db.prepare(`SELECT ${AGENT_RUN_COLUMNS}, context FROM agent_runs WHERE id = ?`).get(id) as (AgentRunRecord & { context: string }) | undefined;
+    return row ? { ...row, context: parseAgentContext(row.context) } : null;
+  }
+
+  /** The run that is waiting for this action to be approved, if any. */
+  getAgentRunByPendingAction(pendingActionId: string): AgentRunDetail | null {
+    const row = this.db.prepare(`SELECT ${AGENT_RUN_COLUMNS}, context FROM agent_runs WHERE pendingActionId = ?`).get(pendingActionId) as (AgentRunRecord & { context: string }) | undefined;
+    return row ? { ...row, context: parseAgentContext(row.context) } : null;
+  }
+
+  /** An agent's runs, newest first. The history a run keeps for continuing is not included. */
+  listAgentRuns(agentId: string, limit = 20): AgentRunRecord[] {
+    return this.db.prepare(`SELECT ${AGENT_RUN_COLUMNS} FROM agent_runs WHERE agentId = ? ORDER BY createdAt DESC, rowid DESC LIMIT ?`)
+      .all(agentId, Math.max(1, Math.trunc(limit))) as AgentRunRecord[];
   }
 
 
