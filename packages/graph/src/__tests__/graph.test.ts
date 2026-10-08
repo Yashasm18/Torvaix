@@ -346,5 +346,8 @@ describe('findMentionedEntities', () => {
     expect(findMentionedEntities('nextjsx and postgresql are different words', 'ws-chat')).toEqual([]);
     expect(findMentionedEntities('Tell me about Postgres', 'another-workspace')).toEqual([]);
     expect(findMentionedEntities('   ', 'ws-chat')).toEqual([]);
+    // A request can carry anything: a value that is not text has no words, whatever "length" it claims.
+    expect(findMentionedEntities({ length: 1e9, split: () => ({ length: 1e9 }) } as unknown as string, 'ws-chat')).toEqual([]);
+    expect(findMentionedEntities(undefined as unknown as string, 'ws-chat')).toEqual([]);
   });
 });

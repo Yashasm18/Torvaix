@@ -55,6 +55,9 @@ export function queryGraph(query: string, workspaceId: string = DEFAULT_GRAPH_WO
   `).all(workspaceId, term, term, term) as GraphNode[];
 }
 
+/** Words of a message that are checked against entity names. */
+const MAX_MESSAGE_WORDS = 200;
+
 /**
  * Entities of this workspace's graph that are named in `text`, longest name first.
  *
@@ -67,10 +70,14 @@ export function findMentionedEntities(
   workspaceId: string = DEFAULT_GRAPH_WORKSPACE,
   limit = 3
 ): GraphNode[] {
-  const words = text.split(/\s+/).filter(Boolean).slice(0, 200);
+  // The text comes from a request. Only a string has words to look up, and the loops are
+  // bounded by a fixed number rather than by a length taken from the input.
+  if (typeof text !== 'string') return [];
+  const words = text.split(/\s+/).filter(Boolean).slice(0, MAX_MESSAGE_WORDS);
+  const wordCount = Math.min(words.length, MAX_MESSAGE_WORDS);
   const candidates = new Set<string>();
-  for (let i = 0; i < words.length; i++) {
-    for (let n = 1; n <= 3 && i + n <= words.length; n++) {
+  for (let i = 0; i < wordCount; i++) {
+    for (let n = 1; n <= 3 && i + n <= wordCount; n++) {
       const id = slugify(words.slice(i, i + n).join(' ')).replace(/^-+|-+$/g, '');
       if (id.length >= 3) candidates.add(id);
     }
