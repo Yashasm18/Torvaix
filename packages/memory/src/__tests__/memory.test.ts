@@ -701,3 +701,17 @@ describe('automation settings are always stored as JSON objects', () => {
     }
   });
 });
+
+describe('searching without counting it as a recall', () => {
+  it('leaves the recall count alone when record is false', async () => {
+    const store = new MemoryStore(':memory:', { ollamaUrl: 'http://127.0.0.1:1', qdrantUrl: 'http://127.0.0.1:1' });
+    const id = await store.storeMemory('default', 'PostgreSQL is my favorite database', 'test');
+    const count = () => ((store as any).db.prepare('SELECT retrievalCount AS c FROM memories WHERE id = ?').get(id) as { c: number }).c;
+
+    expect((await store.queryMemory('default', 'favorite database', 5, { record: false })).length).toBe(1);
+    expect(count()).toBe(0);
+
+    await store.queryMemory('default', 'favorite database', 5);
+    expect(count()).toBe(1);
+  });
+});

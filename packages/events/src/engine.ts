@@ -42,6 +42,26 @@ function mostRecentOccurrence(now: Date, time: { hours: number; minutes: number 
   return occurrence;
 }
 
+/**
+ * The text an event filter is matched against: what the event is about, as the Automations page
+ * describes it ("when a memory is saved containing ..."). Matching the whole payload as JSON
+ * made a filter such as "chat" or "task" fire on field names and sources, and made text with
+ * quotes or a leading "^" never match.
+ */
+export function filterText(eventName: string, payload: unknown): string {
+  if (typeof payload === 'string') return payload;
+  const p = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+  const fields = eventName.startsWith('MEMORY_')
+    ? [p.content, p.newContent]
+    : eventName.startsWith('TASK_')
+      ? [p.instructions, p.output]
+      : eventName.startsWith('AGENT_')
+        ? [p.task, p.result]
+        : null;
+  if (!fields) return JSON.stringify(payload ?? '');
+  return fields.filter((value): value is string => typeof value === 'string').join('\n');
+}
+
 export type ActionHandler = (workflow: AutomationWorkflow, triggerPayload?: any) => Promise<{ success: boolean; output: string }>;
 
 export interface AutomationStorage {
@@ -208,7 +228,7 @@ export class AutomationEngine {
         // Check filterPattern if specified
         if (workflow.triggerConfig.filterPattern && payload) {
           // User-supplied pattern: bound the input so a pathological regex can't stall the server.
-          const content = (typeof payload === 'string' ? payload : JSON.stringify(payload)).slice(0, MAX_FILTER_INPUT);
+          const content = filterText(eventName, payload).slice(0, MAX_FILTER_INPUT);
           try {
             const regex = new RegExp(workflow.triggerConfig.filterPattern, 'i');
             if (!regex.test(content)) continue;

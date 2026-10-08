@@ -37,6 +37,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# The agent's python tool runs python3 and its repository scan runs tree.
+RUN apk add --no-cache python3 tree
+
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 torvaix

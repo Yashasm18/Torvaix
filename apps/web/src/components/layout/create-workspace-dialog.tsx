@@ -29,11 +29,16 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: { open: boolean; o
   const [template, setTemplate] = React.useState<WorkspaceTemplate>("general")
   const [creating, setCreating] = React.useState(false)
 
+  // The dialog is opened by its parent, which never goes through this handler, so the form is
+  // cleared when it closes. Clearing "on open" here never ran, and the last workspace's name
+  // was still filled in the next time.
+  const reset = () => {
+    setName("")
+    setTemplate("general")
+  }
+
   const handleOpenChange = (next: boolean) => {
-    if (next) {
-      setName("")
-      setTemplate("general")
-    }
+    if (!next) reset()
     onOpenChange(next)
   }
 
@@ -44,6 +49,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: { open: boolean; o
     setCreating(true)
     try {
       await createWorkspace(trimmed, template)
+      reset()
       onOpenChange(false)
     } finally {
       setCreating(false)

@@ -103,7 +103,7 @@ export default function MemoryDebugPage() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     await run(async () => {
-      const data = await requestJson("/api/memory/query", jsonInit("POST", { workspaceId, query: searchQuery, topK: 5 }));
+      const data = await requestJson("/api/memory/query", jsonInit("POST", { workspaceId, query: searchQuery, topK: 5, record: false }));
       setSearchResults(data.results ?? []);
     });
   };

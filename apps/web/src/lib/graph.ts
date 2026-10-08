@@ -39,3 +39,17 @@ export function fitZoom(view: { width: number; height: number }, graph: { width:
   const zoom = Math.min(zoomX, zoomY, maxZoom)
   return Number.isFinite(zoom) && zoom > 0.05 ? zoom : 0.05
 }
+
+/**
+ * Makes text safe to place inside HTML. The graph library sets a node's hover label with
+ * innerHTML, and entity names come from what the user saved (or pasted from elsewhere), so an
+ * unescaped name containing markup would run as script in the app.
+ */
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}

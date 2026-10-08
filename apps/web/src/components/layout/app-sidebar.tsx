@@ -69,6 +69,11 @@ export function AppSidebar() {
   const [memoryOpen, setMemoryOpen] = React.useState(false)
 
   const systemStatus = useSystemStatus()
+  const chatModel = systemStatus?.model
+  const cloudProvider =
+    chatModel && chatModel.provider !== "ollama"
+      ? systemStatus?.providers.find((p) => p.id === chatModel.provider) ?? { name: chatModel.provider, ready: false }
+      : null
   const pathname = usePathname()
   const [activity, setActivity] = React.useState<WorkspaceActivity | null>(null)
 
@@ -228,7 +233,12 @@ export function AppSidebar() {
         {/* Services: compact, and in the footer so it is never scrolled out of view */}
         <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-2 text-xs" aria-label="Service status">
           <StatusDot label="Agent" title="Agent server" ok={systemStatus?.agent} />
-          <StatusDot label="Model" title="Ollama (chat model)" ok={systemStatus?.ollama} />
+          {/* A cloud chat model doesn't depend on Ollama: show whether that provider has a key. */}
+          <StatusDot
+            label="Model"
+            title={cloudProvider ? `${cloudProvider.name} (chat model)` : "Ollama (chat model)"}
+            ok={cloudProvider ? cloudProvider.ready : systemStatus?.ollama}
+          />
           <StatusDot label="Database" title="SQLite" ok={systemStatus?.sqlite} />
           <StatusDot label="Vectors" title="Qdrant (optional vector search)" ok={systemStatus?.qdrant} optional />
         </div>

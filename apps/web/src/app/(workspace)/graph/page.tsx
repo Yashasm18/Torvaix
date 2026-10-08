@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 import { useTheme } from 'next-themes';
-import { countConnections, fitZoom, linkEndpointId, nodeRadius, relationLabel, shortLabel } from '@/lib/graph';
+import { countConnections, escapeHtml, fitZoom, linkEndpointId, nodeRadius, relationLabel, shortLabel } from '@/lib/graph';
 import { useActiveWorkspace } from '@/hooks/use-active-workspace';
 
 interface Node {
@@ -51,6 +51,9 @@ export default function GraphPage() {
     let cancelled = false;
     setLoaded(false);
     setSelectedNode(null);
+    // Never leave another workspace's graph, or an old error, on screen while this one loads.
+    setGraphData({ nodes: [], links: [] });
+    setLoadError(false);
     fetch(`/api/graph?workspaceId=${encodeURIComponent(workspaceId)}`)
       .then(res => {
         if (!res.ok) throw new Error(`Graph request failed with HTTP ${res.status}`);
@@ -181,7 +184,7 @@ export default function GraphPage() {
             width={dimensions.width}
             height={dimensions.height}
             graphData={graphData}
-            nodeLabel={(node) => `${(node as Node).name} (${(node as Node).type.toLowerCase()})`}
+            nodeLabel={(node) => `${escapeHtml((node as Node).name)} (${escapeHtml((node as Node).type.toLowerCase())})`}
             nodeColor={node => (node as Node).color || '#fff'}
             linkColor={() => isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)'}
             linkWidth={1}

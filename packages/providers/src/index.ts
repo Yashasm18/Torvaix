@@ -156,6 +156,11 @@ export function describeHttpError(provider: string, status: number, body: string
   return `${provider} error ${status}: ${detail}`;
 }
 
+/** OpenAI models that reason before answering. They accept a different set of request settings. */
+export function isOpenAIReasoningModel(model: string): boolean {
+  return /^(o\d|gpt-5)/i.test(model.trim());
+}
+
 // ── Provider Configuration ──
 export interface LLMClientConfig {
   apiKeys?: Partial<Record<ProviderId, string>>;
@@ -237,12 +242,15 @@ export class LLMClient {
     const key = this.apiKeys.openai;
     if (!key) throw new Error('No OpenAI API key yet. Add one in Settings → Models & keys, or set OPENAI_API_KEY in .env.');
 
+    // Reasoning models (o1, o3, o4, gpt-5 and their variants) reject max_tokens and any
+    // temperature or top_p: they take max_completion_tokens and choose their own sampling.
+    const reasoning = isOpenAIReasoningModel(model);
     const body = {
       model,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
-      temperature: opts.temperature ?? 0.7,
-      max_tokens: opts.maxTokens ?? 4096,
-      top_p: opts.topP ?? 1,
+      ...(reasoning
+        ? { max_completion_tokens: opts.maxTokens ?? 4096 }
+        : { temperature: opts.temperature ?? 0.7, max_tokens: opts.maxTokens ?? 4096, top_p: opts.topP ?? 1 }),
     };
 
     const res = await this._fetchWithTimeout('https://api.openai.com/v1/chat/completions', {

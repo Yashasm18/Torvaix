@@ -108,6 +108,10 @@ export class MemoryConsolidator {
 
     const clusters: MemoryCluster[] = [];
     const memoryTokens = new Map<string, string[]>();
+    // Tokens of each cluster's first memory, which is what new memories are compared with.
+    // They were re-computed for every memory x cluster pair, which made 2,000 memories block
+    // the server for about 15 seconds.
+    const clusterTokens = new Map<string, string[]>();
 
     // Pre-tokenize all memories
     for (const m of memories) {
@@ -122,8 +126,7 @@ export class MemoryConsolidator {
 
       for (const cluster of clusters) {
         // Compare with cluster representative (primary content)
-        const clusterTokens = this.tokenize(cluster.primaryContent);
-        const sim = this.computeTokenSimilarity(tokens, clusterTokens);
+        const sim = this.computeTokenSimilarity(tokens, clusterTokens.get(cluster.id) ?? []);
 
         if (sim >= this.similarityThreshold && sim > highestSimilarity) {
           highestSimilarity = sim;
@@ -143,8 +146,10 @@ export class MemoryConsolidator {
         const keywords = this.extractKeywords(memory.content);
         const topic = keywords.slice(0, 3).join(' ') || 'General Knowledge';
 
+        const id = randomUUID();
+        clusterTokens.set(id, tokens);
         clusters.push({
-          id: randomUUID(),
+          id,
           topic: this.formatTopicName(topic),
           category: this.inferCategory(memory.content),
           confidence: 1.0,

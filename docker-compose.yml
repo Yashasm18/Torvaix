@@ -74,6 +74,10 @@ services:
       - torvaix_data:/data
     environment:
       - NODE_ENV=production
+      # Inside the container the web app must listen on every interface, or the published port
+      # reaches nothing. Set here because a .env copied from .env.example says 127.0.0.1, and
+      # env_file would otherwise win over the image's own default.
+      - WEB_HOST=0.0.0.0
       - OLLAMA_URL=http://ollama:11434
       - QDRANT_URL=http://qdrant:6333
       - PYTHON_SERVICE_URL=http://python-agent:8000

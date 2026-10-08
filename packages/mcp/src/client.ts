@@ -85,6 +85,14 @@ class McpClientManager {
       { capabilities: {} }
     );
 
+    // The tool server can exit while idle (crashed or killed). Without this the manager kept
+    // handing out the dead connection and every later tool call failed with "Not connected"
+    // until the agent server was restarted.
+    const client = this.client;
+    client.onclose = () => {
+      if (this.client === client) this.connected = false;
+    };
+
     await this.client.connect(this.transport);
     this.connected = true;
     console.log('[MCP] Connected to MCP Server');
@@ -101,13 +109,20 @@ class McpClientManager {
       });
       return result as McpToolResult;
     } catch (err: any) {
-      // If the call failed due to disconnect, try reconnecting once
-      if (err.message?.includes('disconnected') || err.message?.includes('closed')) {
+      const message = String(err?.message ?? '');
+      // Nothing was sent: the connection was already gone. Connecting again and calling is safe.
+      if (message.includes('Not connected')) {
         this.connected = false;
-        console.log(`[MCP] Connection lost during tool call, reconnecting...`);
+        console.log('[MCP] Tool server was not connected, starting it again...');
         const freshClient = await this.connect();
         const result = await freshClient.callTool({ name, arguments: args });
         return result as McpToolResult;
+      }
+      // The connection dropped while the tool was running. It may have partly run, so it is not
+      // sent again: a shell command the user approved once must not run twice.
+      if (message.includes('disconnected') || message.includes('closed')) {
+        this.connected = false;
+        throw new Error('The tool server stopped while this was running, so its result is unknown. It starts again on the next call.');
       }
       throw err;
     }

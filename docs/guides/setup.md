@@ -163,7 +163,7 @@ ssh -L 3000:localhost:3000 you@your-machine
 
 Then open <http://localhost:3000> on the device you're connecting from.
 
-If you really need it reachable on your network, set `WEB_HOST=0.0.0.0` in `.env`. Only do this on a network you trust, behind a firewall or an authenticating reverse proxy with HTTPS. Never expose the agent port (3001), Qdrant, Ollama or the NLP service. See [SECURITY.md](../../SECURITY.md).
+If you really need it reachable on your network, set `WEB_HOST=0.0.0.0` in `.env`, and list the name or address you will open it with in `WEB_ALLOWED_HOSTS` (for example `WEB_ALLOWED_HOSTS=192.168.1.20`). Requests addressed to any other name are refused. Only do this on a network you trust, behind a firewall or an authenticating reverse proxy with HTTPS. Never expose the agent port (3001), Qdrant, Ollama or the NLP service. See [SECURITY.md](../../SECURITY.md).
 
 ## Updating
 
