@@ -45,7 +45,8 @@ export default function RetrievalTesterPage() {
       const res = await fetch("/api/memory/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, query: text, topK: RECALL_COUNT }),
+        // record: false keeps this a pure look-up; a real recall counts towards each memory's usage.
+        body: JSON.stringify({ workspaceId, query: text, topK: RECALL_COUNT, record: false }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);

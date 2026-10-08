@@ -5,6 +5,7 @@ import { LoadError } from "@/components/load-error";
 import { NO_RESPONSE, responseError } from "@/lib/api-error";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { parseServerTimestamp } from "@/lib/server-time";
+import { decodeToolResult } from "@/lib/tool-result";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2,
@@ -217,7 +218,7 @@ export default function TasksPage() {
     const matchesSearch =
       log.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
       log.params.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (log.result && log.result.toLowerCase().includes(searchQuery.toLowerCase()));
+      decodeToolResult(log.result).toLowerCase().includes(searchQuery.toLowerCase());
 
     if (!matchesSearch) return false;
     if (selectedFilter === "success") return log.status === "success";
@@ -240,7 +241,7 @@ export default function TasksPage() {
             Tasks
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Every tool the agent has run, its output, and commands waiting for your approval.
+            The agent&apos;s latest tool runs (up to 60), their output, and commands waiting for your approval.
           </p>
         </div>
 
@@ -363,7 +364,8 @@ export default function TasksPage() {
                             ID: {action.id.slice(0, 8)}
                           </span>
                         </div>
-                        <pre className="text-xs font-mono bg-surface p-2.5 rounded border border-border text-foreground overflow-x-auto">
+                        {/* Wrapped, never cut off: the user must be able to read all of what they approve. */}
+                        <pre className="text-xs font-mono bg-surface p-2.5 rounded border border-border text-foreground whitespace-pre-wrap break-all max-h-64 overflow-auto">
                           {commandStr}
                         </pre>
                       </div>
@@ -587,7 +589,7 @@ export default function TasksPage() {
                             Execution Result / Standard Output
                           </span>
                           <pre className="text-xs font-mono bg-surface p-3 rounded-lg border border-border text-foreground overflow-x-auto max-h-60 whitespace-pre-wrap">
-                            {log.result || "No output returned."}
+                            {decodeToolResult(log.result) || "No output returned."}
                           </pre>
                         </div>
                       </motion.div>

@@ -17,6 +17,7 @@ import {
   pickInstalledModel,
   describeHttpError,
   isProviderId,
+  isOpenAIReasoningModel,
 } from '../index';
 
 describe('Provider Metadata', () => {
@@ -285,5 +286,32 @@ describe('models and keys chosen in the app', () => {
     expect(isProviderId('anthropic')).toBe(true);
     expect(isProviderId('nope')).toBe(false);
     expect(isProviderId(undefined)).toBe(false);
+  });
+});
+
+describe('OpenAI reasoning models', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('are recognised by id', () => {
+    for (const id of ['o3-mini', 'o1', 'o4-mini', 'gpt-5', 'gpt-5-mini']) expect(isOpenAIReasoningModel(id)).toBe(true);
+    for (const id of ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1']) expect(isOpenAIReasoningModel(id)).toBe(false);
+  });
+
+  it('are sent max_completion_tokens and no sampling settings, which they reject', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) });
+    vi.stubGlobal('fetch', mockFetch);
+    const client = new LLMClient({ apiKeys: { openai: 'test-key-not-real' } });
+
+    await client.complete('o3-mini', [{ role: 'user', content: 'hi' }], { temperature: 0.2, maxTokens: 50 });
+    const reasoning = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(reasoning).toMatchObject({ model: 'o3-mini', max_completion_tokens: 50 });
+    expect(reasoning).not.toHaveProperty('max_tokens');
+    expect(reasoning).not.toHaveProperty('temperature');
+    expect(reasoning).not.toHaveProperty('top_p');
+
+    await client.complete('gpt-4o-mini', [{ role: 'user', content: 'hi' }], { temperature: 0.2, maxTokens: 50 });
+    const ordinary = JSON.parse(mockFetch.mock.calls[1][1].body);
+    expect(ordinary).toMatchObject({ max_tokens: 50, temperature: 0.2 });
+    expect(ordinary).not.toHaveProperty('max_completion_tokens');
   });
 });

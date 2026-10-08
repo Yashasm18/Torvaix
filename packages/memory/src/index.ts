@@ -880,7 +880,12 @@ export class MemoryStore {
     });
   }
 
-  async queryMemory(workspaceId: string, query: string, topK: number = 5): Promise<MemoryQueryResult[]> {
+  /**
+   * Finds the memories that best match `query`. Each result counts as a recall (it feeds the
+   * "recalls" numbers and theme importance) unless `record` is false, which the inspector pages
+   * use so that trying out searches doesn't change those numbers.
+   */
+  async queryMemory(workspaceId: string, query: string, topK: number = 5, options: { record?: boolean } = {}): Promise<MemoryQueryResult[]> {
     let vectorResults: MemoryQueryResult[] = [];
 
     // 1. Dense vector search via Qdrant, comparing only vectors from the same embedding model
@@ -940,8 +945,10 @@ export class MemoryStore {
     const updateStatsStmt = this.db.prepare(
       'UPDATE memories SET lastAccessedAt = CURRENT_TIMESTAMP, retrievalCount = retrievalCount + 1 WHERE id = ?'
     );
-    for (const r of results) {
-      updateStatsStmt.run(r.id);
+    if (options.record !== false) {
+      for (const r of results) {
+        updateStatsStmt.run(r.id);
+      }
     }
 
     return results;

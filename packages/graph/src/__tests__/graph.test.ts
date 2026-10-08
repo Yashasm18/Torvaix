@@ -5,6 +5,7 @@ import {
   findPath,
   queryGraph,
   findMentionedEntities,
+  slugify,
   queryGraphFiltered,
   getEgoGraph,
   getGraphStats,
@@ -346,5 +347,32 @@ describe('findMentionedEntities', () => {
     expect(findMentionedEntities('nextjsx and postgresql are different words', 'ws-chat')).toEqual([]);
     expect(findMentionedEntities('Tell me about Postgres', 'another-workspace')).toEqual([]);
     expect(findMentionedEntities('   ', 'ws-chat')).toEqual([]);
+  });
+});
+
+describe('entity ids', () => {
+  beforeEach(() => {
+    db.exec('DELETE FROM edges');
+    db.exec('DELETE FROM nodes');
+  });
+
+  it('keeps ids of plain names as they were, so existing graphs still match', () => {
+    expect(slugify('React 19')).toBe('react-19');
+    expect(slugify('Next.js')).toBe('nextjs');
+    expect(slugify('Torvaix OS')).toBe('torvaix-os');
+  });
+
+  it('gives C++ and C# their own nodes, which used to share the id "c"', () => {
+    expect(slugify('C++')).toBe('c-plus-plus');
+    expect(slugify('C#')).toBe('c-sharp');
+    ingestKnowledgeGraph({ entities: [{ text: 'C++', type: 'TECHNOLOGY' }, { text: 'C#', type: 'TECHNOLOGY' }] }, 'ws-ids');
+    expect(getAllNodesAndEdges('ws-ids').nodes.map(n => n.name).sort()).toEqual(['C#', 'C++']);
+    expect(findMentionedEntities('Is C++ faster than C#?', 'ws-ids').map(n => n.name).sort()).toEqual(['C#', 'C++']);
+  });
+
+  it('keeps names in other scripts and with accents, which used to be dropped or cut', () => {
+    ingestKnowledgeGraph({ entities: [{ text: '東京', type: 'PLACE' }, { text: 'Café', type: 'PLACE' }] }, 'ws-ids');
+    expect(getAllNodesAndEdges('ws-ids').nodes.map(n => n.id).sort()).toEqual(['café', '東京'].sort());
+    expect(slugify('!!!')).toBe('');
   });
 });

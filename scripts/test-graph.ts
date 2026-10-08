@@ -2,9 +2,22 @@
  * Manual verification script for Phase 2.7 Knowledge Graph.
  * Run from TORVAIX root: npx tsx scripts/test-graph.ts
  */
-import { ingestKnowledgeGraph, MLIntelligencePayload } from '../packages/graph/src/graph-ingestion';
-import { getNeighbors, findPath, queryGraph, getAllNodesAndEdges } from '../packages/graph/src/graph-query';
-import { db } from '../packages/graph/src/graph-store';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import type { MLIntelligencePayload } from '../packages/graph/src/types';
+
+// This script empties the graph before it starts. Point it at a throwaway data folder first:
+// the graph store opens $TORVAIX_HOME/graph.db when it is loaded, which is the user's real
+// graph unless this is set. The modules are loaded with require() below so that happens after.
+process.env.TORVAIX_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'torvaix-graph-test-'));
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { ingestKnowledgeGraph } = require('../packages/graph/src/graph-ingestion') as typeof import('../packages/graph/src/graph-ingestion');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { getNeighbors, findPath, queryGraph, getAllNodesAndEdges } = require('../packages/graph/src/graph-query') as typeof import('../packages/graph/src/graph-query');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { db } = require('../packages/graph/src/graph-store') as typeof import('../packages/graph/src/graph-store');
 
 // Clean slate for testing
 db.exec('DELETE FROM edges');

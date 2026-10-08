@@ -82,7 +82,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   };
 
-  if (!hasHydrated) return null;
+  // Reading the saved data normally takes a few milliseconds. If it fails (site data blocked,
+  // a private window, a damaged entry) the store never reports that it finished, and the app
+  // used to stay a blank page with no explanation.
+  const [storageStuck, setStorageStuck] = React.useState(false);
+  React.useEffect(() => {
+    if (hasHydrated) return;
+    const timer = setTimeout(() => setStorageStuck(true), 5000);
+    return () => clearTimeout(timer);
+  }, [hasHydrated]);
+
+  if (!hasHydrated) {
+    if (!storageStuck) return null;
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background px-4">
+        <div role="alert" className="w-full max-w-md p-8 border border-border bg-surface rounded-xl text-center space-y-4">
+          <h2 className="text-xl font-bold text-foreground">Torvaix couldn&apos;t read its saved data</h2>
+          <p className="text-sm text-muted-foreground">
+            Your workspaces and chats are kept in this browser. The browser may be blocking site data for this
+            address, for example in a private window or with cookies and site data turned off. Allow site data
+            for this page, then reload.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            Reload
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (workspaces.length === 0) {
     return (
@@ -186,21 +217,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </motion.header>
         <main className="flex-1 min-h-0 overflow-hidden animate-in fade-in duration-500">
-          {showSidePanel ? (
-            <ResizablePanelGroup orientation="horizontal">
-              <ResizablePanel defaultSize={70} minSize={50}>
-                {children}
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel defaultSize={30} minSize={20} className="bg-surface border-l border-border flex flex-col">
+          {/* The page keeps the same place in the tree whether or not the details panel is shown.
+              It used to move between two different parents, which rebuilt the whole page on every
+              toggle: a half-typed message and the reply details were lost. Sizes are strings
+              because this library reads plain numbers as pixels, not percentages. */}
+          <ResizablePanelGroup orientation="horizontal">
+            <ResizablePanel id="page" defaultSize="70%" minSize="50%">
+              <div className="h-full w-full flex flex-col overflow-hidden">{children}</div>
+            </ResizablePanel>
+            {showSidePanel && <ResizableHandle withHandle />}
+            {showSidePanel && (
+              <ResizablePanel id="answer-details" defaultSize="30%" minSize="20%" className="bg-surface border-l border-border flex flex-col">
                 <div className="h-full w-full overflow-y-auto p-3">
                   <AnswerDetails />
                 </div>
               </ResizablePanel>
-            </ResizablePanelGroup>
-          ) : (
-            <div className="h-full w-full flex flex-col overflow-hidden">{children}</div>
-          )}
+            )}
+          </ResizablePanelGroup>
         </main>
       </div>
 

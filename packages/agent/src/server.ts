@@ -884,10 +884,10 @@ app.post('/api/memory/store', requireAuth, async (req: AuthRequest, res) => {
 
 app.post('/api/memory/query', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const { workspaceId, query, topK } = req.body;
+    const { workspaceId, query, topK, record } = req.body;
     const invalid = validateText(query, 'query', LIMITS.instructionsChars);
     if (invalid) { res.status(400).json({ error: invalid }); return; }
-    const results = await memoryStore.queryMemory(workspaceId ?? 'default', query, clampCount(topK, 5, LIMITS.topK));
+    const results = await memoryStore.queryMemory(workspaceId ?? 'default', query, clampCount(topK, 5, LIMITS.topK), { record: record !== false });
     res.json({ success: true, results });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to query memory', details: error.message });

@@ -121,6 +121,7 @@ Everything else is set in `.env`. Copy `.env.example` to `.env` in the repositor
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant endpoint |
 | `PYTHON_SERVICE_URL` | `http://localhost:8000` | Optional NLP service for entity extraction |
 | `WEB_HOST` | `127.0.0.1` | Interface the web app listens on. Keep it on loopback. |
+| `WEB_ALLOWED_HOSTS` | localhost only | Extra host names the web app answers to, e.g. a LAN address you open it with |
 | `AGENT_PORT` / `AGENT_HOST` | `3001` / `127.0.0.1` | Agent server address. Keep it on loopback. |
 | `AGENT_SERVER_URL` | `http://localhost:3001` | Where the web app sends requests for the agent |
 | `AGENT_ALLOWED_ORIGINS` / `AGENT_ALLOWED_HOSTS` | localhost only | Extra origins or hosts the agent accepts |

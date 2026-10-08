@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { db, DEFAULT_GRAPH_WORKSPACE } from './graph-store';
+import { slugify } from './slug';
 import type { MLIntelligencePayload } from './types';
 
 export type { MLIntelligencePayload };
@@ -7,13 +8,6 @@ export type { MLIntelligencePayload };
 /** Importance of a node when the source doesn't score it (same as the column default). */
 const DEFAULT_IMPORTANCE = 5;
 
-/**
- * Slugs a string to be used as a deterministic node ID.
- * E.g. "React 19" -> "react-19"
- */
-function slugify(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-}
 
 /**
  * Adds entities and relationships to a workspace's graph.

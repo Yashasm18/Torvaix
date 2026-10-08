@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const { workspaceId = 'default', query, topK = 5 } = await req.json();
+    const { workspaceId = 'default', query, topK = 5, record } = await req.json();
 
     if (!query || typeof query !== 'string') {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 });
@@ -14,7 +14,8 @@ export async function POST(req: NextRequest) {
     const res = await fetch(`${AGENT_SERVER_URL}/api/memory/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspaceId, query, topK }),
+      // The inspector pages search without counting it as a recall.
+      body: JSON.stringify({ workspaceId, query, topK, ...(record === false ? { record: false } : {}) }),
     });
 
     if (!res.ok) return agentErrorResponse(res);

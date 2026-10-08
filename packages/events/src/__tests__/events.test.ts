@@ -326,3 +326,27 @@ describe('AutomationEngine — calendar-aware scheduling & loop safety', () => {
     expect(handler).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('filterText: what an event filter is matched against', () => {
+  it('uses the text the event is about, not field names or ids', async () => {
+    const { filterText } = await import('../engine');
+    const memory = { id: 'm1', workspaceId: 'ws', source: 'User Chat', content: 'I like pizza' };
+    expect(filterText('MEMORY_CREATED', memory)).toBe('I like pizza');
+    expect(filterText('MEMORY_UPDATED', { id: 'm1', workspaceId: 'ws', newContent: 'I like pasta' })).toBe('I like pasta');
+    expect(filterText('MEMORY_DELETED', { id: 'm1', workspaceId: 'ws' })).toBe('');
+    expect(filterText('TASK_COMPLETED', { id: 't', workspaceId: 'ws', instructions: 'list files', output: 'a.txt' })).toBe('list files\na.txt');
+    expect(filterText('AGENT_FINISHED', { agentId: 'a', workspaceId: 'ws', task: 'summarise', status: 'completed', result: 'done' })).toBe('summarise\ndone');
+    expect(filterText('SOMETHING_ELSE', { a: 1 })).toBe('{"a":1}');
+    expect(filterText('MEMORY_CREATED', 'plain text')).toBe('plain text');
+  });
+
+  it('no longer fires on a source or key name, and matches quotes and anchors in the text', async () => {
+    const { filterText } = await import('../engine');
+    const saved = filterText('MEMORY_CREATED', { id: 'm1', workspaceId: 'ws', source: 'User Chat', content: 'Remember she said "hi" to me' });
+    expect(/chat/i.test(saved)).toBe(false);   // only the source says "Chat"
+    expect(/source|workspaceId/i.test(saved)).toBe(false);
+    expect(/said "hi"/i.test(saved)).toBe(true);
+    expect(/^Remember/i.test(saved)).toBe(true);
+    expect(/task/i.test(filterText('AGENT_FINISHED', { agentId: 'a', workspaceId: 'ws', task: 'summarise', status: 'completed', result: 'ok' }))).toBe(false);
+  });
+});

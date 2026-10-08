@@ -160,7 +160,8 @@ export default function KnowledgePage() {
         const data = await res.json();
         const rep = data.report;
         setConsolidationReport(
-          `Consolidation complete: ${rep.processedCount} memories analyzed into ${rep.clustersCount} semantic clusters. Formed ${rep.synthesizedInsights.length} high-order insights & reinforced ${rep.reinforcedEdgesCount} graph edges!`
+          // Says only what happened: this reads the memories and reports. It changes neither them nor the graph.
+          `Looked at ${rep.processedCount} memories and found ${rep.clustersCount} themes and ${rep.reinforcedEdgesCount} possible links between topics. Nothing was changed.`
         );
         await fetchKnowledge();
       } else {

@@ -27,7 +27,7 @@ It is **not** designed to be exposed to the internet or shared with people you d
 | Protection | Details |
 | --- | --- |
 | Loopback binding | The web app and the agent server listen on `127.0.0.1` unless you set `WEB_HOST` or `AGENT_HOST`. The Docker Compose file publishes every port on `127.0.0.1` only. |
-| Origin and Host checks | The agent rejects browser requests from other origins, and requests whose `Host` isn't localhost or listed in `AGENT_ALLOWED_HOSTS`. This blocks DNS-rebinding attacks. |
+| Origin and Host checks | The web app and the agent both reject requests from other origins, and requests whose `Host` isn't localhost or listed in `WEB_ALLOWED_HOSTS` (web app) or `AGENT_ALLOWED_HOSTS` (agent). This blocks DNS-rebinding attacks. |
 | CSRF check | The web app's API routes reject cross-site state-changing requests. |
 | Approval for code execution | `bash` and `python` tool calls pause until you approve them in the UI. Each approval covers exactly one command and can be used only once. |
 | Workspace confinement for files | `read_file` and `write_file` can't reach paths outside the workspace folder, including through symlinks that point out of it. |

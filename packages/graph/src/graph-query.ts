@@ -1,9 +1,7 @@
 import { db, DEFAULT_GRAPH_WORKSPACE } from './graph-store';
+import { slugify } from './slug';
 import type { GraphNode, GraphEdge, EgoGraphResult, QueryGraphOptions, GraphStats } from './types';
 
-function slugify(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-}
 
 export function getNeighbors(
   entityName: string,

@@ -24,7 +24,8 @@ interface SettingsData {
   suggestedModels: { id: string; name: string; provider: string; description: string }[]
 }
 
-type TestResult = { ok: true; ms: number } | { ok: false; error: string }
+/** `model` is the one that was tested, which may no longer be the one selected. */
+type TestResult = { model: string } & ({ ok: true; ms: number } | { ok: false; error: string })
 
 const OLLAMA = "ollama"
 const OTHER = "__other__"
@@ -132,7 +133,8 @@ export function ModelSettings() {
       })
       if (!res.ok) throw new Error(await responseError(res))
       const body = await res.json()
-      setTest(body.ok ? { ok: true, ms: body.ms } : { ok: false, error: body.error ?? "The model didn't answer." })
+      const tested = typeof body.model === "string" ? body.model : chosenModel
+      setTest(body.ok ? { model: tested, ok: true, ms: body.ms } : { model: tested, ok: false, error: body.error ?? "The model didn't answer." })
     })
 
   return (
@@ -152,7 +154,7 @@ export function ModelSettings() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="model-provider">Provider</Label>
-              <select id="model-provider" className={SELECT_CLASS} value={provider} onChange={(e) => changeProvider(e.target.value)}>
+              <select id="model-provider" className={SELECT_CLASS} value={provider} disabled={busy !== null} onChange={(e) => changeProvider(e.target.value)}>
                 <option value={OLLAMA}>Ollama (on this computer)</option>
                 {data.providers.map((p) => (
                   <option key={p.id} value={p.id} disabled={!p.ready}>
@@ -166,6 +168,7 @@ export function ModelSettings() {
               <select
                 id="model-id"
                 className={SELECT_CLASS}
+                disabled={busy !== null}
                 value={isListed ? model : OTHER}
                 onChange={(e) => {
                   setTest(null)
@@ -244,7 +247,7 @@ export function ModelSettings() {
             <p role="status" className={`flex items-start gap-2 text-sm ${test.ok ? "text-green-500" : "text-red-400"}`}>
               {test.ok ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : <XCircle className="h-4 w-4 mt-0.5 shrink-0" />}
               <span className="min-w-0 break-words">
-                {test.ok ? `${chosenModel} answered in ${(test.ms / 1000).toFixed(1)} s.` : test.error}
+                {test.ok ? `${test.model} answered in ${(test.ms / 1000).toFixed(1)} s.` : `${test.model}: ${test.error}`}
               </span>
             </p>
           )}
@@ -305,7 +308,18 @@ export function ModelSettings() {
                       variant="ghost"
                       className="h-9 text-muted-foreground hover:text-red-400"
                       disabled={busy !== null}
-                      onClick={() => run(`remove-${p.id}`, () => send(`/api/settings/providers/${p.id}`, "DELETE"))}
+                      onClick={() =>
+                        run(`remove-${p.id}`, async () => {
+                          const next = await send(`/api/settings/providers/${p.id}`, "DELETE")
+                          // Removing the key of the model in use puts the server back on automatic;
+                          // show that, not the provider that was just removed.
+                          setProvider(next.model.provider)
+                          setModel(next.model.id)
+                          setCustomModel("")
+                          setTest(null)
+                          return next
+                        })
+                      }
                     >
                       Remove
                     </Button>
