@@ -421,6 +421,7 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       endTrace({ hit, resultCount: results.length, topScore: results[0]?.score });
     } catch (e: any) {
       state.output = `Memory Error: ${e.message}`;
+      state.error = state.output;
       state.nextNode = 'end';
       endTrace({ hit: false, error: e.message });
       state.trace!.recordError('memory', e.message);
@@ -502,6 +503,7 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       endTrace({ memHit });
     } catch (e: any) {
       state.output = `I hit an error while thinking that through: ${e.message}`;
+      state.error = state.output;
       endTrace({ error: e.message });
       state.trace!.recordError('conversation', e.message);
     }
@@ -550,6 +552,7 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       endTrace({ stored: true, enriched: !!intel });
     } catch (e: any) {
       state.output = `Knowledge Error: ${e.message}`;
+      state.error = state.output;
       state.nextNode = 'end';
       endTrace({ stored: false, error: e.message });
       state.trace!.recordError('knowledge', e.message);
@@ -664,6 +667,7 @@ ${structure}
       endTrace({ status: 'completed' });
     } catch (e: any) {
       state.output = `Repo analysis failed: ${e.message}`;
+      state.error = state.output;
       endTrace({ status: 'error', error: e.message });
       state.trace!.recordError('repo_analysis', e.message);
     }

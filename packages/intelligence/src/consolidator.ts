@@ -29,6 +29,16 @@ const STOP_WORDS = new Set([
   'favorite', 'favourite', 'thing', 'things', 'way', 'much', 'many', 'every'
 ]);
 
+/**
+ * Milliseconds of a stored timestamp. SQLite's CURRENT_TIMESTAMP is UTC without a zone
+ * ("2026-09-14 16:10:20"), which `new Date()` reads as local time and so shifts every memory's
+ * age by the computer's UTC offset.
+ */
+function timestampMs(value: string): number {
+  const iso = value.includes('T') ? value : value.trim().replace(' ', 'T');
+  return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : `${iso}Z`).getTime();
+}
+
 export class MemoryConsolidator {
   private similarityThreshold: number;
   private decayHalfLifeDays: number;
@@ -248,8 +258,9 @@ export class MemoryConsolidator {
    * Calculates retention score based on exponential time decay and access reinforcement.
    */
   calculateMemoryDecayScore(memory: MemoryRecord, now: Date = new Date()): number {
-    const lastAccessTime = memory.lastAccessedAt ? new Date(memory.lastAccessedAt).getTime() : new Date(memory.createdAt).getTime();
-    const ageDays = Math.max(0, (now.getTime() - lastAccessTime) / (1000 * 60 * 60 * 24));
+    const lastAccessTime = timestampMs(memory.lastAccessedAt || memory.createdAt);
+    // A timestamp that cannot be read counts as "just now" rather than turning the score into NaN.
+    const ageDays = Number.isFinite(lastAccessTime) ? Math.max(0, (now.getTime() - lastAccessTime) / (1000 * 60 * 60 * 24)) : 0;
 
     // Exponential decay factor: e^(-lambda * t) where halfLife = ln(2) / lambda
     const lambda = Math.LN2 / this.decayHalfLifeDays;

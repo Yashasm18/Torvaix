@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse } from '@/lib/agent-proxy';
+import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse, readJson } from '@/lib/agent-proxy';
 
 export async function POST(req: Request) {
   try {
-    const { messages, workspaceId, pendingActionId: bodyPendingId, agentId } = await req.json();
+    const { messages, workspaceId, pendingActionId: bodyPendingId, agentId } = await readJson(req);
     const last = Array.isArray(messages) ? messages[messages.length - 1] : undefined;
     if (!last || typeof last.content !== 'string') {
       return NextResponse.json({ error: 'A message is required' }, { status: 400 });

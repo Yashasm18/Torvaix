@@ -13,7 +13,7 @@ type Events = {
 
   /** A chat or task run. Runs started by automations don't emit these, so workflows can't trigger each other in a loop. */
   AGENT_STARTED: { agentId: string; workspaceId: string; task: string };
-  AGENT_FINISHED: { agentId: string; workspaceId: string; task: string; status: 'completed' | 'awaiting_approval'; result: string };
+  AGENT_FINISHED: { agentId: string; workspaceId: string; task: string; status: 'completed' | 'awaiting_approval' | 'error'; result: string };
 };
 
 /** Events the automation engine listens to, and the Automation page offers as triggers. */

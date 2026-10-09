@@ -232,8 +232,10 @@ automationEngine.setActionHandler(async (workflow: AutomationWorkflow) => {
       workspaceId,
       instructions: prompt,
     });
+    // A run that could not reach the model, or whose tool failed, is a failed run: the log and
+    // the success rate on the Automations page must not count it as done.
     return {
-      success: true,
+      success: !finalState.error,
       output: finalState.output || `Agent task finished with status completed`
     };
   }
@@ -286,6 +288,14 @@ app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
   if (err?.type === 'entity.too.large') { res.status(413).json({ error: 'Request body is too large' }); return; }
   if (err?.type === 'entity.parse.failed') { res.status(400).json({ error: 'Request body is not valid JSON' }); return; }
   next(err);
+});
+
+// A request with no JSON body leaves `req.body` undefined, and every route that read a field
+// from it then answered 500 with the TypeError's text. An empty object lets each route's own
+// validation answer 400 with the field that is missing.
+app.use('/api/', (req, _res, next) => {
+  if (req.body === undefined || req.body === null) req.body = {};
+  next();
 });
 
 // `workspaceId` reaches SQL lookups and the filesystem. Reject anything but one plain string up
@@ -703,7 +713,7 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
       agentId: runId,
       workspaceId: runWorkspaceId,
       task,
-      status: finalState.pendingActionId ? 'awaiting_approval' : 'completed',
+      status: finalState.pendingActionId ? 'awaiting_approval' : finalState.error ? 'error' : 'completed',
       result: finalState.output,
     });
 
@@ -834,11 +844,12 @@ app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest,
       agentId: taskId,
       workspaceId,
       task: taskText,
-      status: awaitingApproval ? 'awaiting_approval' : 'completed',
+      status: awaitingApproval ? 'awaiting_approval' : finalState.error ? 'error' : 'completed',
       result: finalState.output,
     });
     // Not complete while it waits for approval; it completes when the approved action runs.
-    if (!awaitingApproval) {
+    // A task that failed isn't complete either, so "when a task completes" automations don't fire.
+    if (!awaitingApproval && !finalState.error) {
       torvaixEvents.emitTaskCompleted({ id: taskId, workspaceId, instructions: taskText, output: finalState.output });
     }
 
@@ -849,7 +860,7 @@ app.post('/api/agent/tasks', requireAuth, agentLimiter, async (req: AuthRequest,
         workspaceId,
         instructions,
         priority,
-        status: finalState.pendingActionId ? 'pending_confirmation' : 'completed',
+        status: finalState.pendingActionId ? 'pending_confirmation' : finalState.error ? 'error' : 'completed',
         output: finalState.output,
         pendingActionId: finalState.pendingActionId,
       },

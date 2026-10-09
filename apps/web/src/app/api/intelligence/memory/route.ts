@@ -1,10 +1,11 @@
+import { readJson } from '@/lib/agent-proxy';
 import { NextResponse } from 'next/server';
 
 const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = await readJson(req);
     const { text } = body;
 
     if (!text) {
