@@ -134,6 +134,19 @@ export function pickInstalledModel(preferred: string, installed: string[]): stri
 }
 
 /**
+ * The installed Ollama model to use for a name the user chose themselves (TORVAIX_MODEL). Unlike
+ * `pickInstalledModel` it never switches to a different model: only to another tag of the same
+ * one, because `llama3.2` in `.env` with `llama3.2:3b` installed otherwise fails every chat with
+ * "isn't installed".
+ */
+export function matchInstalledTag(chosen: string, installed: string[]): string {
+  const normalize = (name: string) => (name.includes(':') ? name : `${name}:latest`);
+  if (installed.some(name => normalize(name) === normalize(chosen))) return chosen;
+  const base = chosen.split(':')[0];
+  return installed.find(name => name.split(':')[0] === base) ?? chosen;
+}
+
+/**
  * A provider's error reply in words the user can act on. Providers answer with JSON such as
  * `{"error":{"message":"invalid x-api-key"}}`; showing that raw in the chat helped nobody.
  */

@@ -14,8 +14,18 @@ if (!fs.existsSync(/*turbopackIgnore: true*/ torvaixDir)) {
 const dbPath = path.join(torvaixDir, 'graph.db');
 export const db = new Database(/*turbopackIgnore: true*/ dbPath);
 
-// Initialize schema with WAL mode
-db.pragma('journal_mode = WAL');
+// Initialize schema with WAL mode. The web app and the agent server (and parallel test workers)
+// open this file at the same moment, and switching the journal mode needs the file to itself:
+// SQLite then answers "database is locked" at once, without waiting. Try again briefly.
+for (let attempt = 0; ; attempt++) {
+  try {
+    db.pragma('journal_mode = WAL');
+    break;
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'SQLITE_BUSY' || attempt >= 20) throw err;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  }
+}
 
 /** Workspace used when a caller doesn't specify one (matches the memory store's default). */
 export const DEFAULT_GRAPH_WORKSPACE = 'default';

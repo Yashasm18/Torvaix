@@ -27,7 +27,7 @@ import { closeAllMcpClients } from '@torvaix/mcp';
 import { checkBrowserRequest, parseList, DEFAULT_ALLOWED_ORIGINS } from './http-security';
 import { isValidEmail, validateWorkspaceId, validateMessages, validateText, clampCount, LIMITS } from './validation';
 import { MemoryStore, type AutomationRecord } from '@torvaix/memory';
-import { LLMClient, MODELS, PROVIDERS, isProviderId, pickInstalledModel, resolveModel, type ProviderId } from '@torvaix/providers';
+import { LLMClient, MODELS, PROVIDERS, isProviderId, matchInstalledTag, pickInstalledModel, resolveModel, type ProviderId } from '@torvaix/providers';
 import { SettingsStore, API_KEY_ENV, keyHint, validateApiKey, validateModelId } from './settings';
 import { WorkspaceKnowledgeSynthesizer } from '@torvaix/intelligence';
 import { AutomationEngine, AutomationWorkflow, torvaixEvents } from '@torvaix/events';
@@ -101,6 +101,9 @@ for (const provider of CLOUD_PROVIDERS) {
 /** Installed Ollama model picked automatically; refreshed by probeOllama(). */
 let autoModel = llmClient.getDefaultModel();
 
+/** The installed tag that TORVAIX_MODEL stands for, when it names an Ollama model; set by probeOllama(). */
+let envModelTag: string | null = null;
+
 /**
  * The chat model in use. A model chosen in Settings wins, then TORVAIX_MODEL, then whichever
  * suitable model Ollama has installed.
@@ -109,7 +112,10 @@ function currentModel(): { id: string; provider: ProviderId; source: 'saved' | '
   const saved = settings.getModel();
   if (saved) return { ...saved, source: 'saved' };
   const fromEnv = process.env.TORVAIX_MODEL?.trim();
-  if (fromEnv) return { id: fromEnv, provider: resolveModel(fromEnv).provider, source: 'env' };
+  if (fromEnv) {
+    const provider = resolveModel(fromEnv).provider;
+    return { id: provider === 'ollama' ? envModelTag ?? fromEnv : fromEnv, provider, source: 'env' };
+  }
   return { id: autoModel, provider: 'ollama', source: 'auto' };
 }
 
@@ -382,8 +388,15 @@ async function probeOllama(): Promise<boolean> {
   try {
     const r = await fetch(`${llmClient.getOllamaUrl()}/api/tags`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) return false;
-    if (!process.env.TORVAIX_MODEL) {
-      const { models = [] } = (await r.json()) as { models?: { name: string }[] };
+    const { models = [] } = (await r.json()) as { models?: { name: string }[] };
+    const fromEnv = process.env.TORVAIX_MODEL?.trim();
+    if (fromEnv) {
+      const tag = matchInstalledTag(fromEnv, models.map(m => m.name));
+      if (tag !== fromEnv && tag !== envModelTag) {
+        console.log(`[Model] TORVAIX_MODEL is "${fromEnv}"; using the installed tag "${tag}"`);
+      }
+      envModelTag = tag;
+    } else {
       const picked = pickInstalledModel(llmClient.getDefaultModel(), models.map(m => m.name));
       if (picked !== autoModel) {
         console.log(`[Model] Using installed Ollama model "${picked}" (choose another in Settings, or set TORVAIX_MODEL)`);
