@@ -13,7 +13,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Send, User, Loader2, Shield, Search, Database, BookOpen, CheckCircle2, Paperclip, BrainCircuit, Terminal, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X } from "lucide-react";
+import { Send, User, Loader2, Shield, Search, Database, BookOpen, CheckCircle2, Paperclip, BrainCircuit, Terminal, ChevronDown, Cpu, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X } from "lucide-react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { chatModelState } from '@/lib/model-status';
 import { useSystemStatus } from "@/hooks/use-system-status";
@@ -29,11 +29,22 @@ import {
   toUiMessages,
 } from "@/store/chat-history";
 import { formatRelativeTime } from "@/lib/relative-time";
+
+/** Marks the message that carries an approval or a denial back to the agent. */
+const ACTION_MARKER = "__PENDING_ACTION_ID__";
+
+/** A finished tool call whose result is a failure. */
+function toolFailed(tool: { state: string; result?: { output?: unknown } }): boolean {
+  return tool.state === "result" && String(tool.result?.output ?? "").startsWith("Tool execution failed");
+}
 import { parseApprovalId } from "@/lib/approval";
 import { ApprovalCard } from "@/components/chat/approval-card";
 import { AgentPicker, REMEMBERED_AGENT_NAME, agentLabel, useWorkspaceAgents } from "@/components/chat/agent-picker";
 import { AppLogo } from "@/components/ui/app-logo";
 import { MemoryModal } from "@/components/chat/memory-modal";
+import { ApprovalModePicker, useApprovalMode } from "@/components/chat/approval-mode-picker";
+import { ThinkingIndicator } from "@/components/chat/thinking-indicator";
+import { latestProgress } from "@/lib/progress";
 import { MarkdownMessage } from "@/components/chat/markdown";
 
 const MAX_ATTACHMENT_BYTES = 100_000;
@@ -130,6 +141,8 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
   // Restore this chat's saved history once, when the session mounts.
   const [initialMessages] = useState(() => toUiMessages(useDBStore.getState().messages, chatId));
 
+  const approvalMode = useApprovalMode();
+
   const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, append, data: streamData, error, reload, stop } = useChat({
     api: '/api/chat',
     id: chatId,
@@ -142,6 +155,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
       provider: provider,
       workspaceId,
       agentId,
+      approvalMode,
     },
     onError: (err) => {
       console.error('[Torvaix Chat] Stream error:', err);
@@ -222,59 +236,21 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
   };
 
   // --- Agent Trace State ---
-  interface TraceEvent {
-    phase: string;
-    action: string;
-    durationMs?: number;
-    metadata?: Record<string, any>;
-    timestamp: number;
-  }
-  interface TraceData {
-    totalMs: number;
-    events: TraceEvent[];
-  }
-  const [traceMap, setTraceMap] = useState<Map<number, TraceData>>(new Map());
-  const [expandedTraces, setExpandedTraces] = useState<Set<number>>(new Set());
-
-  const toggleTrace = (index: number) => {
-    setExpandedTraces(prev => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
-  };
-
-  const phaseIcon = (phase: string) => {
-    switch (phase) {
-      case 'router': return <Cpu className="w-3.5 h-3.5 text-blue-400" />;
-      case 'memory': return <HardDrive className="w-3.5 h-3.5 text-purple-400" />;
-      case 'knowledge': return <Database className="w-3.5 h-3.5 text-green-400" />;
-      case 'execution': return <Terminal className="w-3.5 h-3.5 text-amber-400" />;
-      case 'approval': return <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />;
-      case 'complete': return <CheckCircle2 className="w-3.5 h-3.5 text-primary" />;
-      default: return <Activity className="w-3.5 h-3.5 text-muted-foreground" />;
-    }
-  };
+  // What the agent says it is doing, while the newest reply is still being worked out.
+  const progressSteps = useMemo(() => latestProgress(streamData), [streamData]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Parse trace data from stream data annotations (prefix 2:)
+  // Read the "How I answered" details from the stream's data parts (prefix 2:)
   useEffect(() => {
     if (!streamData || !Array.isArray(streamData) || streamData.length === 0) return;
-    const lastAssistantIdx = messages.length - 1;
-    if (lastAssistantIdx < 0) return;
+    if (messages.length === 0) return;
 
     for (const item of streamData) {
       try {
         const parsed = typeof item === 'string' ? JSON.parse(item) : item;
-
-        // Agent trace annotation
-        if (parsed.totalMs && parsed.events) {
-          setTraceMap(prev => new Map(prev).set(lastAssistantIdx, parsed));
-        }
 
         // "How I answered" details for this reply.
         const turn = normalizeTurn(parsed.torvaixPulse);
@@ -459,6 +435,8 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
         ) : (
           <AnimatePresence>
             {messages.map((message, index) => (
+              // The message that carries an approval back to the agent is plumbing, not something the user said.
+              message.role === 'user' && message.content.includes(ACTION_MARKER) ? null :
               <motion.div
                 key={message.id}
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -481,14 +459,6 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                       : 'bg-surface border border-border text-foreground'
                     } flex flex-col gap-4 w-full shadow-sm`}>
 
-                      {/* Loading State for empty assistant message */}
-                      {isLoading && message.role === 'assistant' && !message.content && (!message.toolInvocations || message.toolInvocations.length === 0) && index === messages.length - 1 && (
-                        <div className="flex items-center gap-3 text-muted-foreground">
-                          <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                          <span className="text-sm font-medium animate-pulse text-primary">Thinking through your workspace...</span>
-                        </div>
-                      )}
-
                       {/* Tool Invocations Timeline */}
                       {message.toolInvocations && message.toolInvocations.length > 0 && (
                         <div className="flex flex-col gap-3 w-full font-mono text-sm">
@@ -497,12 +467,12 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                               <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary/50" />
                               <div className="flex items-center gap-2 mb-2">
                                 {tool.state === 'result' ? (
-                                  <CheckCircle2 className="w-4 h-4 text-primary" />
+                                  toolFailed(tool) ? <AlertCircle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-primary" />
                                 ) : (
                                   <Loader2 className="w-4 h-4 text-primary animate-spin" />
                                 )}
                                 <span className={tool.state === 'result' ? 'text-foreground font-semibold' : 'text-primary font-semibold'}>
-                                  {tool.state === 'result' ? `Executed Agent Tool: ${tool.toolName}` : `Agent Running Tool: ${tool.toolName}`}
+                                  {tool.state !== 'result' ? `Running ${tool.toolName}` : toolFailed(tool) ? `${tool.toolName} failed` : `Ran ${tool.toolName}`}
                                 </span>
                               </div>
                               <div className="pl-6 pt-2 pb-1 overflow-x-auto whitespace-pre">
@@ -524,60 +494,11 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                         </div>
                       )}
 
-                      {/* Agent Trace Panel — Collapsed by default */}
-                      {message.role === 'assistant' && traceMap.has(index) && (() => {
-                        const trace = traceMap.get(index)!;
-                        const isExpanded = expandedTraces.has(index);
-                        return (
-                          <div className="border border-border/50 rounded-lg overflow-hidden">
-                            <button
-                              onClick={() => toggleTrace(index)}
-                              className="flex items-center justify-between w-full px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
-                            >
-                              <div className="flex items-center gap-2">
-                                <Activity className="w-3.5 h-3.5 text-primary" />
-                                <span className="font-medium">Agent Trace</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
-                                  {trace.totalMs.toFixed(0)}ms · {trace.events.length} steps
-                                </span>
-                              </div>
-                              {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                            </button>
-                            {isExpanded && (
-                              <div className="px-3 pb-3 space-y-1.5 border-t border-border/30">
-                                {trace.events.map((ev, i) => (
-                                  <div key={i} className="flex items-center gap-2 text-[11px] py-1 px-2 rounded bg-background/50">
-                                    {phaseIcon(ev.phase)}
-                                    <span className="font-medium text-foreground/80 capitalize">{ev.phase}</span>
-                                    <span className="text-muted-foreground">{ev.action}</span>
-                                    {ev.durationMs !== undefined && (
-                                      <span className="ml-auto flex items-center gap-1 text-muted-foreground">
-                                        <Clock className="w-3 h-3" />
-                                        {ev.durationMs.toFixed(0)}ms
-                                      </span>
-                                    )}
-                                    {ev.metadata?.decision && (
-                                      <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px]">
-                                        → {ev.metadata.decision}
-                                      </span>
-                                    )}
-                                    {ev.metadata?.hit !== undefined && (
-                                      <span className={`px-1.5 py-0.5 rounded text-[10px] ${ev.metadata.hit ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-                                        {ev.metadata.hit ? `${ev.metadata.resultCount} hits` : 'miss'}
-                                      </span>
-                                    )}
-                                    {ev.metadata?.tool && (
-                                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 text-[10px]">
-                                        {ev.metadata.tool}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
+                      {/* Still working: shown under any finished tool cards, so it stays in view */}
+                      {isLoading && message.role === 'assistant' && !message.content && index === messages.length - 1 && (
+                        <ThinkingIndicator steps={progressSteps} />
+                      )}
+
                       {/* Text Content */}
                       {message.content && (() => {
                         const pendingId = message.role === 'assistant' ? parseApprovalId(message.content) : null;
@@ -594,9 +515,13 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                         }
 
                         if (message.role === 'assistant') {
+                          // When the reply is just the command's output again, the card above already shows it.
+                          const repeatsOutput = (message.toolInvocations ?? []).some(
+                            (tool) => tool.state === 'result' && String(tool.result?.output ?? '').trim() === message.content.trim()
+                          );
                           return (
                             <>
-                              <MarkdownMessage content={message.content} />
+                              {!repeatsOutput && <MarkdownMessage content={message.content} />}
                               {turnsByMessage[message.id] && (
                                 <button
                                   type="button"
@@ -643,10 +568,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                     </div>
 
                     <div className="rounded-2xl p-5 bg-surface border border-border text-foreground flex flex-col gap-4 w-full shadow-sm">
-                        <div className="flex items-center gap-3 text-muted-foreground">
-                          <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                          <span className="text-sm font-medium animate-pulse text-primary">Thinking through your workspace...</span>
-                        </div>
+                        <ThinkingIndicator steps={progressSteps} />
                     </div>
                   </div>
                 </div>
@@ -740,6 +662,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                 >
                   <BrainCircuit className="h-4 w-4" />
                 </Button>
+                <ApprovalModePicker disabled={isLoading} />
               </div>
 
               {isLoading ? (

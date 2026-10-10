@@ -3,7 +3,7 @@ import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse, readJson } 
 
 export async function POST(req: Request) {
   try {
-    const { messages, workspaceId, pendingActionId: bodyPendingId, agentId } = await readJson(req);
+    const { messages, workspaceId, pendingActionId: bodyPendingId, agentId, approvalMode } = await readJson(req);
     const last = Array.isArray(messages) ? messages[messages.length - 1] : undefined;
     if (!last || typeof last.content !== 'string') {
       return NextResponse.json({ error: 'A message is required' }, { status: 400 });
@@ -11,10 +11,15 @@ export async function POST(req: Request) {
     let lastMsg: string = last.content;
     let pendingActionId = bodyPendingId;
 
+    // A message that only carries an approval or a denial back to the agent.
+    const carriesDecision = (m: any) => typeof m?.content === 'string' && m.content.includes('__PENDING_ACTION_ID__');
     const match = lastMsg.match(/__PENDING_ACTION_ID__:([a-f0-9-]+)/);
     if (match) {
       pendingActionId = match[1];
-      lastMsg = lastMsg.replace(/__PENDING_ACTION_ID__:([a-f0-9-]+)/, '').trim();
+      // The task is still what the user asked for. Sending "I have approved the action." as the
+      // task made the model act on that sentence, for example by writing it into a file.
+      const request = (messages as any[]).slice(0, -1).reverse().find((m) => m?.role === 'user' && typeof m.content === 'string' && !carriesDecision(m));
+      lastMsg = request ? request.content : lastMsg.replace(/__PENDING_ACTION_ID__:([a-f0-9-]+)/, '').trim();
     }
 
     // Proxy the request to the Torvaix Agent Server with streaming enabled
@@ -30,10 +35,12 @@ export async function POST(req: Request) {
         // calls, annotations and "data" entries on messages; the agent only understands role + text.
         messages: (messages as any[])
           .slice(0, -1)
-          .filter((m) => m && ['user', 'assistant', 'system'].includes(m.role) && typeof m.content === 'string')
+          .filter((m) => m && ['user', 'assistant', 'system'].includes(m.role) && typeof m.content === 'string' && !carriesDecision(m))
           .slice(-100)
           .map((m) => ({ role: m.role, content: m.content })),
         pendingActionId,
+        // Whether commands wait for approval; the agent server treats anything unknown as "ask".
+        ...(typeof approvalMode === 'string' ? { approvalMode } : {}),
         // Only a real id. Resumes after an approval arrive here too and carry the same agentId.
         ...(typeof agentId === 'string' && agentId.trim() ? { agentId: agentId.trim() } : {})
       })
