@@ -15,6 +15,7 @@ import {
   getProviderById,
   resolveModel,
   pickInstalledModel,
+  matchInstalledTag,
   describeHttpError,
   isProviderId,
   isOpenAIReasoningModel,
@@ -37,6 +38,14 @@ describe('Provider Metadata', () => {
     expect(getModelById('llama3.2')?.provider).toBe('ollama');
     expect(getModelById('gpt-4o')?.provider).toBe('openai');
     expect(getModelById('nonexistent')).toBeUndefined();
+  });
+
+  it('matchInstalledTag uses another tag of the chosen model, and never a different model', () => {
+    expect(matchInstalledTag('llama3.2', ['qwen3-vl:4b', 'llama3.2:3b'])).toBe('llama3.2:3b');
+    expect(matchInstalledTag('llama3.2', ['llama3.2:latest', 'llama3.2:3b'])).toBe('llama3.2');
+    expect(matchInstalledTag('llama3.2:1b', ['llama3.2:1b', 'llama3.2:3b'])).toBe('llama3.2:1b');
+    expect(matchInstalledTag('mistral', ['qwen3-vl:4b'])).toBe('mistral');
+    expect(matchInstalledTag('mistral', [])).toBe('mistral');
   });
 
   it('pickInstalledModel prefers the configured model, then a same-model tag, then any chat model', () => {
