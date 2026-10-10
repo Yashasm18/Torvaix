@@ -248,12 +248,12 @@ export default function KnowledgePage() {
     <div className="flex-1 flex flex-col h-full bg-background overflow-y-auto">
       {/* Header */}
       <motion.div
-        className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-6 pb-2 gap-4"
+        className="flex flex-wrap items-start justify-between p-6 pb-2 gap-x-4 gap-y-3"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
-        <div>
+        <div className="min-w-0 flex-1 basis-64">
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Brain className="w-6 h-6 text-primary" />
             Knowledge
@@ -262,7 +262,7 @@ export default function KnowledgePage() {
             What Torvaix remembers in this workspace, and the themes it finds across those memories.
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
           <Button
             variant="outline"
             onClick={fetchKnowledge}

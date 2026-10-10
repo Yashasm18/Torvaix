@@ -172,7 +172,7 @@ export default function OSWorkspace() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
-          className="grid grid-cols-1 @2xl:grid-cols-3 gap-4 mb-10"
+          className="grid grid-cols-1 @md:grid-cols-3 gap-4 mb-10"
         >
           {stats.map((stat) => (
             <Link

@@ -39,6 +39,7 @@ import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { SettingsDialog } from "../settings/settings-dialog"
 import { CreateWorkspaceDialog } from "./create-workspace-dialog"
 import { MemoryModal } from "../chat/memory-modal"
+import { chatModelState } from "@/lib/model-status"
 import { useSystemStatus } from "@/hooks/use-system-status"
 import {
   DropdownMenu,
@@ -237,7 +238,7 @@ export function AppSidebar() {
           <StatusDot
             label="Model"
             title={cloudProvider ? `${cloudProvider.name} (chat model)` : "Ollama (chat model)"}
-            ok={cloudProvider ? cloudProvider.ready : systemStatus?.ollama}
+            ok={chatModelState(systemStatus).ready}
           />
           <StatusDot label="Database" title="SQLite" ok={systemStatus?.sqlite} />
           <StatusDot label="Vectors" title="Qdrant (optional vector search)" ok={systemStatus?.qdrant} optional />

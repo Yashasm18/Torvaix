@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Send, User, Loader2, Shield, Search, Database, BookOpen, CheckCircle2, Paperclip, BrainCircuit, Terminal, ChevronDown, ChevronRight, Activity, Clock, Cpu, HardDrive, ShieldCheck, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X } from "lucide-react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
+import { chatModelState } from '@/lib/model-status';
 import { useSystemStatus } from "@/hooks/use-system-status";
 import { useAnswerDetailsStore } from "@/store/answer-details-store";
 import { normalizeTurn } from "@/lib/answer-details";
@@ -85,6 +86,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
   const systemStatus = useSystemStatus();
   const currentModel = systemStatus?.model?.id ?? (systemStatus ? 'unavailable' : '…');
   const provider = systemStatus?.model?.provider ?? 'ollama';
+  const modelState = chatModelState(systemStatus);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Each reply's details go to exactly one message. Stream data piles up across turns, so
@@ -310,7 +312,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     <div className="flex-1 flex flex-col h-full bg-background relative overflow-hidden">
       {/* Header */}
       <motion.div
-        className="flex items-center justify-between gap-3 p-4 border-b border-border bg-surface/80 backdrop-blur-sm z-10"
+        className="@container flex items-center justify-between gap-3 p-4 border-b border-border bg-surface/80 backdrop-blur-sm z-10"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
@@ -364,14 +366,25 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
             onRetry={reloadAgents}
             disabled={isLoading}
           />
-          <div className="hidden sm:flex items-center gap-1 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-full">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="text-xs text-green-400">{provider === 'ollama' ? 'Local' : 'Cloud'}</span>
-          </div>
-          <div className="hidden md:flex items-center gap-1 px-2 py-1 bg-primary/10 border border-primary/20 rounded-full">
-            <Shield className="w-3 h-3 text-primary" />
-            <span className="text-xs text-primary">Private</span>
-          </div>
+          {/* Sized by the header's own width: with both side panels open the window can be wide and the header narrow. */}
+          {modelState.ready === false ? (
+            <div className="hidden @2xl:flex items-center gap-1 px-2 py-1 bg-red-500/10 border border-red-500/20 rounded-full" title={modelState.problem ?? undefined}>
+              <div className="w-2 h-2 bg-red-500 rounded-full" />
+              <span className="text-xs text-red-400">Model offline</span>
+            </div>
+          ) : (
+            <div className="hidden @2xl:flex items-center gap-1 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-full" title={modelState.local ? "The model runs on this computer" : "The model runs at a cloud provider"}>
+              <div className="w-2 h-2 bg-green-500 rounded-full" />
+              <span className="text-xs text-green-400">{modelState.local ? 'Local' : 'Cloud'}</span>
+            </div>
+          )}
+          {/* Only true for a local model: with a cloud model, prompts go to that provider. */}
+          {modelState.local && (
+            <div className="hidden @3xl:flex items-center gap-1 px-2 py-1 bg-primary/10 border border-primary/20 rounded-full" title="Prompts stay on this computer">
+              <Shield className="w-3 h-3 text-primary" />
+              <span className="text-xs text-primary">Private</span>
+            </div>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -382,7 +395,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
             title={messages.length === 0 ? "This chat is already empty" : "Start a new chat"}
           >
             <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">New chat</span>
+            <span className="hidden @xl:inline">New chat</span>
           </Button>
           <Button
             type="button"
@@ -665,6 +678,12 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                 <X className="w-4 h-4" />
               </button>
             )}
+          </div>
+        )}
+        {modelState.problem && (
+          <div role="status" className="max-w-4xl mx-auto mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-300">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span className="min-w-0 break-words">{modelState.problem}</span>
           </div>
         )}
         <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex flex-col gap-2">

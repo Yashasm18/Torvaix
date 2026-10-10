@@ -17,6 +17,7 @@ import { THEMES } from "@/lib/themes"
 import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { refreshSystemStatus, useSystemStatus } from "@/hooks/use-system-status"
 import { exportWorkspaceAsJSON } from "@/lib/export"
+import { chatModelState } from "@/lib/model-status"
 import { WorkspaceManager } from "./workspace-manager"
 import { ModelSettings } from "./model-settings"
 
@@ -43,6 +44,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
   const { workspace } = useActiveWorkspace()
   const status = useSystemStatus()
   const [testing, setTesting] = React.useState(false)
+  const modelState = chatModelState(status)
 
   const testConnection = async () => {
     setTesting(true)
@@ -85,8 +87,13 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
               <div className="rounded-xl border border-border p-4 space-y-1">
                 <StatusLine label="Active workspace" ok={workspace ? true : undefined} detail={workspace ? `${workspace.name} (${workspace.id})` : undefined} />
                 <StatusLine label="Agent server" ok={status?.agent} detail={status?.agent ? "Reachable" : status ? "Not running. Start it with npm run dev" : undefined} />
-                <StatusLine label="Chat model" ok={status ? !!status.model : undefined} detail={status?.model ? `${status.model.id} (${status.model.provider})` : undefined} />
+                <StatusLine label="Chat model" ok={modelState.ready} detail={status?.model ? `${status.model.id} (${status.model.provider})` : undefined} />
               </div>
+              {status?.agent && modelState.problem && (
+                <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300">
+                  {modelState.problem}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 Change the chat model, or add an API key for a cloud provider, under <span className="text-foreground">Models &amp; keys</span>.
               </p>
