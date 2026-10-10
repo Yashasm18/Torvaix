@@ -46,8 +46,8 @@ export function AgentCard({
 
       <ToolChips toolIds={agent.tools} tools={tools} />
 
-      <div className="flex flex-col gap-3 pt-3 border-t border-border/50 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-muted-foreground" title={lastRun?.toLocaleString()}>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pt-3 border-t border-border/50">
+        <p className="text-xs text-muted-foreground whitespace-nowrap" title={lastRun?.toLocaleString()}>
           {lastRunLabel(agent.lastRunAt)} · {runCountLabel(agent.runCount)}
         </p>
         <div className="flex items-center gap-1.5">

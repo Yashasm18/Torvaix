@@ -90,7 +90,7 @@ export default function IntelligencePage() {
   ];
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-background overflow-y-auto">
+    <div className="flex-1 flex flex-col h-full bg-background overflow-y-auto @container">
       {/* Header */}
       <motion.div
         className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-6 pb-2 gap-4"
@@ -112,7 +112,7 @@ export default function IntelligencePage() {
 
       {/* Stats Row */}
       <div className="px-6 pt-4 pb-2">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 @3xl:grid-cols-4 gap-3">
           {stats.map((stat, idx) => (
             <motion.div
               key={stat.label}
@@ -125,7 +125,7 @@ export default function IntelligencePage() {
                 <stat.icon className={`w-4 h-4 ${stat.color}`} />
               </div>
               <div className="min-w-0">
-                <div className="text-lg font-bold text-foreground font-mono truncate">{stat.value}</div>
+                <div className="text-lg font-bold text-foreground font-mono truncate" title={stat.value}>{stat.value}</div>
                 <div className="text-[11px] text-muted-foreground">{stat.label}</div>
               </div>
             </motion.div>
@@ -162,9 +162,12 @@ export default function IntelligencePage() {
           </div>
         )}
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Installed Models</span>
-        </div>
+        {/* Nothing to list while Ollama can't be reached; the notice above says what to do. */}
+        {data?.reachable && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Installed Models</span>
+          </div>
+        )}
 
         {data?.reachable && models.length === 0 && (
           <p className="text-sm text-muted-foreground">No models pulled yet. Run <code className="font-mono">ollama pull llama3.2</code> to get started.</p>
