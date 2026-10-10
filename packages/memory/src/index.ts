@@ -816,6 +816,11 @@ export class MemoryStore {
   /**
    * Reciprocal Rank Fusion (RRF) to merge dense (vector) and sparse (keyword) search results.
    * RRF score formula: RRF(d) = sum_{m in rankers} w_m / (k + rank_m(d))
+   *
+   * RRF decides the order only. The score that is returned is the better of the item's own
+   * vector similarity and keyword coverage, so it means the same as in a single-source search.
+   * Dividing by the top RRF score gave the first result 1.0 whatever it was, which let an
+   * unrelated memory through every relevance threshold.
    */
   reciprocalRankFusion(
     vectorResults: MemoryQueryResult[],
@@ -824,7 +829,8 @@ export class MemoryStore {
     kConstant: number = 60,
     weights = { vector: 1.0, keyword: 1.0 }
   ): MemoryQueryResult[] {
-    const scoreMap = new Map<string, { item: MemoryQueryResult; rrfScore: number; sources: Set<string> }>();
+    const scoreMap = new Map<string, { item: MemoryQueryResult; rrfScore: number; best: number; sources: Set<string> }>();
+    const relevance = (item: MemoryQueryResult) => (Number.isFinite(item.score) ? Math.min(1, Math.max(0, item.score)) : 0);
 
     vectorResults.forEach((item, index) => {
       const rank = index + 1;
@@ -832,11 +838,13 @@ export class MemoryStore {
       const existing = scoreMap.get(item.id);
       if (existing) {
         existing.rrfScore += rankScore;
+        existing.best = Math.max(existing.best, relevance(item));
         existing.sources.add('vector');
       } else {
         scoreMap.set(item.id, {
           item: { ...item },
           rrfScore: rankScore,
+          best: relevance(item),
           sources: new Set(['vector']),
         });
       }
@@ -848,20 +856,21 @@ export class MemoryStore {
       const existing = scoreMap.get(item.id);
       if (existing) {
         existing.rrfScore += rankScore;
+        existing.best = Math.max(existing.best, relevance(item));
         existing.sources.add('keyword');
       } else {
         scoreMap.set(item.id, {
           item: { ...item },
           rrfScore: rankScore,
+          best: relevance(item),
           sources: new Set(['keyword']),
         });
       }
     });
 
     const fusedList = Array.from(scoreMap.values()).sort((a, b) => b.rrfScore - a.rrfScore);
-    const maxRRF = fusedList.length > 0 ? fusedList[0].rrfScore : 1;
 
-    return fusedList.slice(0, topK).map(({ item, rrfScore, sources }) => {
+    return fusedList.slice(0, topK).map(({ item, best, sources }) => {
       const type: 'vector' | 'keyword' | 'hybrid_rrf' =
         sources.has('vector') && sources.has('keyword')
           ? 'hybrid_rrf'
@@ -873,7 +882,7 @@ export class MemoryStore {
         id: item.id,
         content: item.content,
         source: item.source,
-        score: Number((rrfScore / maxRRF).toFixed(4)),
+        score: Number(best.toFixed(4)),
         retrievalType: type,
         createdAt: item.createdAt,
       };

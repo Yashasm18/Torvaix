@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse } from '@/lib/agent-proxy';
+import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse, readJson } from '@/lib/agent-proxy';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await readJson(req);
     const { instructions, workspaceId = 'default', priority = 'medium', pendingActionId } = body;
 
     if (!instructions && !pendingActionId) {

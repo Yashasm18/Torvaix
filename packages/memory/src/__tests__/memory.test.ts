@@ -372,13 +372,24 @@ describe('MemoryStore — Hybrid Retrieval & RRF', () => {
     // doc-1 appeared in both vector and keyword results, so it should be ranked highest as hybrid_rrf
     expect(fused[0].id).toBe('doc-1');
     expect(fused[0].retrievalType).toBe('hybrid_rrf');
-    expect(fused[0].score).toBe(1.0); // max normalized score
+    expect(fused[0].score).toBe(0.9); // the better of its own two scores
 
     // doc-2 was vector-only, doc-3 was keyword-only
     const doc2 = fused.find(r => r.id === 'doc-2');
     const doc3 = fused.find(r => r.id === 'doc-3');
     expect(doc2?.retrievalType).toBe('vector');
     expect(doc3?.retrievalType).toBe('keyword');
+    expect(doc2?.score).toBe(0.8);
+    expect(doc3?.score).toBe(0.85);
+  });
+
+  it('does not turn a weak top match into a perfect score when fusing', () => {
+    const fused = store.reciprocalRankFusion(
+      [{ id: 'doc-1', content: 'unrelated', source: 'test', score: 0.21 }],
+      [{ id: 'doc-1', content: 'unrelated', source: 'test', score: 0.25 }],
+      5
+    );
+    expect(fused[0].score).toBe(0.25);
   });
 
   it('keeps exactly one FTS row per memory across store re-initialisation', async () => {

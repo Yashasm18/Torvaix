@@ -100,6 +100,16 @@ describe('@torvaix/intelligence — MemoryConsolidator', () => {
     expect(recentScore).toBeGreaterThan(50);
   });
 
+  it('reads database timestamps as UTC whatever the computer\'s time zone', () => {
+    const now = new Date('2026-09-14T16:10:20Z');
+    const memory = { id: 'm', workspaceId: 'w', source: 'chat', content: 'x', retrievalCount: 0 };
+    const sqlite = consolidator.calculateMemoryDecayScore({ ...memory, createdAt: '2026-09-07 16:10:20' }, now);
+    const iso = consolidator.calculateMemoryDecayScore({ ...memory, createdAt: '2026-09-07T16:10:20.000Z' }, now);
+
+    expect(sqlite).toBe(iso);
+    expect(consolidator.calculateMemoryDecayScore({ ...memory, createdAt: 'not a date' }, now)).toBe(100);
+  });
+
   it('computes workspace health metrics', () => {
     const memories: MemoryRecord[] = [
       { id: '1', workspaceId: 'w', source: 'chat', content: 'TypeScript preferred', createdAt: new Date().toISOString(), retrievalCount: 3 },

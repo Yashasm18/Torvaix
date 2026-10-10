@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { AGENT_SERVER_URL, agentFailureResponse } from '@/lib/agent-proxy';
+import { AGENT_SERVER_URL, agentFailureResponse, readJson } from '@/lib/agent-proxy';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = await readJson(req);
 
     const agentRes = await fetch(`${AGENT_SERVER_URL}/api/agent/approve`, {
       method: 'POST',

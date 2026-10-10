@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse } from '@/lib/agent-proxy';
+import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse, readJson } from '@/lib/agent-proxy';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +9,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const { content } = await req.json();
+    const { content } = await readJson(req);
 
     if (!content || typeof content !== 'string') {
       return NextResponse.json({ error: 'Content is required' }, { status: 400 });

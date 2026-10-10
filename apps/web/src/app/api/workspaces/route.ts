@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse } from '@/lib/agent-proxy';
+import { AGENT_SERVER_URL, agentErrorResponse, agentFailureResponse, readJson } from '@/lib/agent-proxy';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const { id, name } = await req.json();
+    const { id, name } = await readJson(req);
 
     if (!id || typeof id !== 'string' || !name || typeof name !== 'string') {
       return NextResponse.json({ error: 'Workspace id and name are required' }, { status: 400 });

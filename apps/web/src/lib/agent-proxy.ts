@@ -42,3 +42,13 @@ export function agentFailureResponse(error: unknown): NextResponse {
   const message = error instanceof Error && error.message ? error.message : "Internal server error"
   return NextResponse.json({ error: message }, { status: 500 })
 }
+
+/**
+ * The JSON object sent with a request, or `{}` when there is no body, it isn't valid JSON, or it
+ * isn't an object. Routes then report the field that is missing (400) instead of failing with
+ * the parser's or a TypeError's message (500).
+ */
+export async function readJson(req: Request): Promise<Record<string, any>> {
+  const body = await req.json().catch(() => null)
+  return body && typeof body === "object" && !Array.isArray(body) ? body : {}
+}

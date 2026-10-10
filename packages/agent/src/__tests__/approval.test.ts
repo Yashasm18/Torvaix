@@ -309,6 +309,15 @@ describe('runs that end in failure', () => {
     expect(state.error).toBe(state.output);
   });
 
+  it('is an error when the model cannot be reached for a plain reply', async () => {
+    const llm = { complete: vi.fn(async () => { throw new Error('model offline'); }), getDefaultModel: () => 'test-model' } as any;
+    const state = await new AgentOrchestrator(store, { llm, model: 'test-model' })
+      .run({ workspaceId: 'default', instructions: 'hello there', nextNode: 'conversation' } as any);
+
+    expect(state.output).toBe('I hit an error while thinking that through: model offline');
+    expect(state.error).toBe(state.output);
+  });
+
   it('is not an error when the model repeats a call that worked: the answer is simply already there', async () => {
     const state = await run(scriptedLlm([readFile('a.txt'), readFile('a.txt')]));
 
