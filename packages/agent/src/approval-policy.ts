@@ -26,71 +26,26 @@ const FIND_ACTIONS = /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls
 const PLAIN_FLAG = /^-[A-Za-z0-9]+$/;
 const PYTHON = /^python3?$/;
 
-/** Modules whose public functions only calculate. */
-const CALC_MODULES = new Set(['math', 'cmath', 'statistics', 'fractions', 'decimal']);
-/** Built-ins that only calculate or print. Nothing here can reach an attribute, a file or other code. */
-const CALC_NAMES = new Set([
-  'print', 'abs', 'round', 'min', 'max', 'sum', 'pow', 'int', 'float', 'complex', 'bool', 'divmod', 'len', 'range', 'sorted',
-  'True', 'False', 'None', 'for', 'in', 'if', 'else', 'and', 'or', 'not',
-]);
+/** The only names arithmetic may use. None of them can import, read, write or reach an attribute. */
+const CALC_NAMES = new Set(['print', 'abs', 'round', 'min', 'max', 'pow', 'int', 'float', 'divmod']);
+const NUMBER = /^(\d+\.?\d*|\.\d+|0[xX][0-9a-fA-F]+)$/;
 
 /**
- * Python that only calculates. This is an allow-list, not a search for dangerous words: a list
- * of forbidden names can be got around by building a name from pieces of text
- * (`attrgetter('_' + '_class_' + '_')`). So the code may contain no text at all (no quotes),
- * only numbers, arithmetic, names from the lists above, its own variables, and
- * `module.function` on a calculation module. Anything else is not "calculation only".
+ * Python that is one line of plain arithmetic, such as `print(583 / 156)`.
+ *
+ * Deliberately tiny. Earlier versions allowed imports, variables and comprehensions, and each
+ * of those was a way out: a loop variable named like a built-in made that built-in pass the
+ * check, and `import statistics` runs a `statistics.py` the model wrote into the workspace. So
+ * there are no imports, no assignments, no loops, no text, no brackets and no attribute access:
+ * only numbers, arithmetic operators, parentheses, commas and the names above.
  */
 export function isCalculationOnly(code: string): boolean {
-  if (!code.trim() || code.length > 2000) return false;
-  if (!/^[A-Za-z0-9_ \t\n;.,+\-*\/%()<>=!\[\]:]*$/.test(code)) return false;
-
-  const modules = new Set<string>();
-  const variables = new Set<string>();
-  for (const statement of code.split(/[\n;]/).map(s => s.trim()).filter(Boolean)) {
-    const imported = /^import\s+(\w+(?:\s*,\s*\w+)*)$/.exec(statement);
-    if (imported) {
-      for (const name of imported[1].split(',').map(m => m.trim())) {
-        if (!CALC_MODULES.has(name)) return false;
-        modules.add(name);
-      }
-      continue;
-    }
-    const assigned = /^([A-Za-z]\w*)\s*=(?!=)/.exec(statement);
-    const expression = assigned ? statement.slice(assigned[0].length) : statement;
-
-    // Loop variables of a comprehension are used before the `for` that names them.
-    for (const loop of expression.matchAll(/\bfor\s+([A-Za-z]\w*)\s+in\b/g)) {
-      if (CALC_NAMES.has(loop[1]) || modules.has(loop[1])) return false;
-      variables.add(loop[1]);
-    }
-
-    // Names, each with what comes just before it: a dot means it is an attribute of something.
-    const names = /(\.\s*)?([A-Za-z_]\w*)/g;
-    let previous: { name: string; attribute: boolean } | null = null;
-    let lastEnd = 0;
-    for (let m = names.exec(expression); m; m = names.exec(expression)) {
-      const [, dot, name] = m;
-      if (name.startsWith('_')) return false;
-      // A digit straight before a name is a number such as 1e5 or 0x1f, not a name.
-      const afterDigit = !dot && m.index > 0 && /[0-9.]/.test(expression[m.index - 1]);
-      if (afterDigit) { lastEnd = names.lastIndex; continue; }
-      if (dot) {
-        // Only `module.name`, with nothing between the module and the dot, and never a second level.
-        const direct = previous !== null && !previous.attribute && modules.has(previous.name) && expression.slice(lastEnd, m.index).trim() === '';
-        if (!direct) return false;
-      } else if (!CALC_NAMES.has(name) && !modules.has(name) && !variables.has(name)) {
-        return false;
-      }
-      previous = { name, attribute: Boolean(dot) };
-      lastEnd = names.lastIndex;
-    }
-    if (assigned) {
-      if (CALC_NAMES.has(assigned[1]) || CALC_MODULES.has(assigned[1])) return false;
-      variables.add(assigned[1]);
-    }
-  }
-  return true;
+  const line = code.trim();
+  if (!line || line.length > 300) return false;
+  if (!/^[A-Za-z0-9_ .,+\-*\/%()]*$/.test(line)) return false;
+  // Every run of letters, digits and dots is either a number or an allowed name. That rules out
+  // attribute access ("x.real", "1 .real") and any name not on the list in one go.
+  return (line.match(/[A-Za-z0-9_.]+/g) ?? []).every(token => NUMBER.test(token) || CALC_NAMES.has(token));
 }
 
 /** Splits a command into words, or null when it uses anything a shell would act on. */
@@ -105,7 +60,7 @@ function plainWords(command: string): string[] | null {
     if (quote) {
       if (ch === quote) quote = null;
       // Inside double quotes the shell still expands these.
-      else if (quote === '"' && (ch === '$' || ch === '`' || ch === '\\')) return null;
+      else if (quote === '"' && /[$`\\%^!]/.test(ch)) return null;
       else word += ch;
     } else if (ch === '"' || ch === "'") {
       quote = ch;
@@ -114,7 +69,7 @@ function plainWords(command: string): string[] | null {
       if (inWord) words.push(word);
       word = '';
       inWord = false;
-    } else if (/[;&|<>`$(){}\\\n\r~!#]/.test(ch)) {
+    } else if (/[;&|<>`$(){}\\\n\r~!#%^]/.test(ch)) {
       return null;
     } else {
       word += ch;
@@ -150,6 +105,8 @@ function staysInside(workspaceRoot: string, arg: string): boolean {
  * where it will run; without it nothing that names a file passes.
  */
 export function isReadOnlyCommand(command: string, workspaceRoot?: string): boolean {
+  // The list below assumes a POSIX shell. cmd.exe expands %VAR% and has different commands.
+  if (process.platform === 'win32') return false;
   const words = plainWords(command.trim());
   if (!words || words.length === 0) return false;
   const [name, ...args] = words;
