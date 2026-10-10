@@ -89,6 +89,8 @@ export interface AgentState {
   iteration: number;
   trace?: TraceCollector;
   final?: boolean;
+  /** The reply was already sent to the chat piece by piece, so it must not be sent again whole. */
+  streamedReply?: boolean;
   pulse: KnowledgePulseData;
 }
 
@@ -229,7 +231,7 @@ export class AgentOrchestrator {
 
   private async callLLM(
     messages: LLMMessage[],
-    opts?: { temperature?: number; maxTokens?: number }
+    opts?: { temperature?: number; maxTokens?: number; onToken?: (text: string) => void }
   ): Promise<LLMResponse> {
     const start = performance.now();
     try {
@@ -238,6 +240,7 @@ export class AgentOrchestrator {
         maxTokens: opts?.maxTokens ?? 4096,
         signal: this.signal,
         provider: this.provider,
+        onToken: opts?.onToken,
       });
       const durationMs = performance.now() - start;
       // Trace the LLM call
@@ -360,7 +363,7 @@ export class AgentOrchestrator {
 CATEGORIES:
 - "knowledge" = The user is TELLING you a fact to STORE/SAVE for later. Keywords: "remember that", "note that", "save this", "my favorite is", "I prefer", "keep in mind".
 - "memory" = The user is ASKING you to RECALL/RETRIEVE something previously stored. Keywords: "what is my", "do you remember", "what did I say", "recall", "what do you know about me".
-- "execution" = The user wants you to perform an ACTION on the machine: run code, read/write files, search the web for live info. Keywords: "run", "create a file", "read the file", "search the web".
+- "execution" = The user wants you to perform an ACTION on the machine: run code, read/write files, search the web for live info. Keywords: "run", "create a file", "read the file", "search the web". Asking to SEE or be GIVEN code is NOT execution.
 - "conversation" = The user wants an explanation, answer, opinion, or general help that does NOT need a tool or stored memory. This is the DEFAULT for questions and chat. Keywords: "explain", "what is", "how does", "why", "can you help", "tell me about".
 
 EXAMPLES:
@@ -375,6 +378,9 @@ EXAMPLES:
 - "Can you explain this to me?" → conversation
 - "What is the capital of France?" → conversation
 - "Help me brainstorm names for my app" → conversation
+- "Give me Java code for the sum of two arrays" → conversation
+- "Write a function that reverses a string" → conversation
+- "Write a script to rename my files and run it" → execution
 
 REQUEST: "${state.instructions}"
 
@@ -525,12 +531,24 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
     ];
     (messages as any).__trace = state.trace;
 
+    // Send the reply to the chat as it is written. A local model takes a while to finish a long
+    // answer, and showing nothing until the end made every reply feel slow.
+    const onToken = this.emit
+      ? (piece: string) => {
+          state.streamedReply = true;
+          this.emit!(`0:${JSON.stringify(piece)}\n`);
+        }
+      : undefined;
+
     try {
-      const res = await this.callLLM(messages, { temperature: 0.6 });
+      const res = await this.callLLM(messages, { temperature: 0.6, onToken });
       state.output = res.text.trim() || "Could you tell me a bit more about what you'd like help with?";
+      if (!res.text.trim()) state.streamedReply = false;
       endTrace({ memHit });
     } catch (e: any) {
       state.output = `I hit an error while thinking that through: ${e.message}`;
+      // Part of a reply may already be on screen; the error then goes under it.
+      if (state.streamedReply) this.emit!(`0:${JSON.stringify(`\n\n${state.output}`)}\n`);
       state.error = state.output;
       endTrace({ error: e.message });
       state.trace!.recordError('conversation', e.message);

@@ -16,6 +16,7 @@ import {
   resolveModel,
   pickInstalledModel,
   matchInstalledTag,
+  readOllamaStream,
   describeHttpError,
   isProviderId,
   isOpenAIReasoningModel,
@@ -322,5 +323,28 @@ describe('OpenAI reasoning models', () => {
     const ordinary = JSON.parse(mockFetch.mock.calls[1][1].body);
     expect(ordinary).toMatchObject({ max_tokens: 50, temperature: 0.2 });
     expect(ordinary).not.toHaveProperty('max_completion_tokens');
+  });
+});
+
+describe('readOllamaStream', () => {
+  const streamOf = (...chunks: string[]) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
+        controller.close();
+      },
+    });
+  const line = (content: string) => JSON.stringify({ message: { content } }) + '\n';
+
+  it('passes on each piece and returns the whole text, even when a line is split across chunks', async () => {
+    const pieces: string[] = [];
+    const whole = line('Hello') + line(', wör') + line('ld');
+    const text = await readOllamaStream(streamOf(whole.slice(0, 20), whole.slice(20, 41), whole.slice(41), '{"done":true}'), p => pieces.push(p));
+    expect(text).toBe('Hello, wörld');
+    expect(pieces).toEqual(['Hello', ', wör', 'ld']);
+  });
+
+  it('throws an error the stream reports', async () => {
+    await expect(readOllamaStream(streamOf(line('Hi'), '{"error":"out of memory"}\n'), () => {})).rejects.toThrow('Ollama error: out of memory');
   });
 });
