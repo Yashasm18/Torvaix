@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.4.0](https://github.com/Yashasm18/Torvaix/compare/v0.3.0...v0.4.0) (2026-10-10)
+
+
+### Features
+
+* **app:** clearer UI across the workspace app ([c71082a](https://github.com/Yashasm18/Torvaix/commit/c71082a92b64342b67de9c457f94da246884b0e4))
+* **chat:** approval modes, a live view of what Torvaix is doing, and less clutter ([e24f0ef](https://github.com/Yashasm18/Torvaix/commit/e24f0ef981ec41d9070f9789fb73312af7394263))
+* **chat:** replace Knowledge Pulse with "How I answered" ([62901dc](https://github.com/Yashasm18/Torvaix/commit/62901dc65e7a7311e28eb11e4d28f3dc8f93ad83))
+* custom agents you can run on a task, pick in a chat, or schedule ([8d6c27a](https://github.com/Yashasm18/Torvaix/commit/8d6c27aa95749baf15a4d8029845d2da4a98df84))
+* **landing:** animated workspace stories section ([2bd353d](https://github.com/Yashasm18/Torvaix/commit/2bd353d059a7aff042984e9d91497a60f78d2f81))
+* **landing:** replace workspace stories with a deadpan customer-reviews carousel ([bf83340](https://github.com/Yashasm18/Torvaix/commit/bf83340fc46f98323c1627b255d95004205bc751))
+* one-command install, API keys and model choice in Settings ([8f987be](https://github.com/Yashasm18/Torvaix/commit/8f987be212ccb30c9faf288b06949bd41bd13148))
+
+
+### Bug Fixes
+
+* **agent:** a model name in .env now matches the installed tag of that model ([37e1bcc](https://github.com/Yashasm18/Torvaix/commit/37e1bccf3186ade49b09094fe866186e0445c2cb))
+* **agent:** make Auto mode's "safe command" check an allow-list that can't be talked around ([e5a0394](https://github.com/Yashasm18/Torvaix/commit/e5a0394e50ba468c8de1386fed8c1e36b7b0ecbb))
+* **agent:** require approval for every bash/python call; add Docker smoke test ([49c0211](https://github.com/Yashasm18/Torvaix/commit/49c02116b392d4024297363dfaad7a86150a3813))
+* automations that break on bad settings, unknown workspaces, graph scores, tool results ([f7fb559](https://github.com/Yashasm18/Torvaix/commit/f7fb55938db2c3eb91dcfd4c50946ae18c4b5a13))
+* bugs found in a hunt across the app (security, Docker, layout, tools, wording) ([14e7205](https://github.com/Yashasm18/Torvaix/commit/14e7205854f0afea10ed48158ea4e502d3b5a66b))
+* **graph:** bound the entity lookup by a fixed word count and ignore non-text input ([8f2f5f0](https://github.com/Yashasm18/Torvaix/commit/8f2f5f080a581e51f87e19e2b2f78efa5990a0a2))
+* **graph:** readable knowledge graph (names, spacing, relation labels) ([392dd7a](https://github.com/Yashasm18/Torvaix/commit/392dd7a3288df69be2d47e3c829ef713ed1353a1))
+* **graph:** retry opening the graph database when another process has it ([15af6a2](https://github.com/Yashasm18/Torvaix/commit/15af6a21a209eb051b2c56ec00f8c56b85efcbed))
+* keep the web app local-only, load .env, fix the Docker image's SQLite binding ([6b0897a](https://github.com/Yashasm18/Torvaix/commit/6b0897ab2f297b316e22c139254dd83186b7a3b2))
+* pages that hide load failures, a file-tool escape through broken symlinks, NLP relations ([6101707](https://github.com/Yashasm18/Torvaix/commit/61017077d58154c5477b369c9cda3bfdd8416dd2))
+* rebuild better-sqlite3 automatically after a Node version change ([94d1505](https://github.com/Yashasm18/Torvaix/commit/94d15055eae470b24f2fc4a0a2929986ac37dd11))
+* run approved commands exactly, stop whole process trees on timeout, resolve symlinks, validate API input ([dc535db](https://github.com/Yashasm18/Torvaix/commit/dc535db8b0dbefb129ab8a523cdf619104c57bbe))
+* security updates for dependencies, and bugs found while testing the running app ([a81cffa](https://github.com/Yashasm18/Torvaix/commit/a81cffa8c03522728b7f11b215b50e06eaaff203))
+* show the command on approval cards, stop killing unrelated processes on startup ([0fcb35b](https://github.com/Yashasm18/Torvaix/commit/0fcb35ba7dd3666630bbaab1ce62f92a7888d6c7))
+* Stop really stops the agent; recover when Qdrant or Ollama start later ([2d33c3c](https://github.com/Yashasm18/Torvaix/commit/2d33c3c9ee34dfaa7a7a9236d188403f505da934))
+* **ui:** honest model status, and layouts that hold up in a narrow window ([addf832](https://github.com/Yashasm18/Torvaix/commit/addf8325c465edc3b28c1413fdeef874f67fbfc8))
+* upgrade Next.js past critical advisories, drop unused vulnerable packages, clearer model errors ([1fa4b66](https://github.com/Yashasm18/Torvaix/commit/1fa4b66bc00447c487aea2828f6fc148ca2766a6))
+* wire up automation events, make the graph indexer write, fix blank npm start, honest landing page ([0fd8dd2](https://github.com/Yashasm18/Torvaix/commit/0fd8dd2ec10b699a02410c9169d5c2a01c5d59e5))
+
+
+### Documentation
+
+* rewrite README, SECURITY and CONTRIBUTING to match the code ([17f08c3](https://github.com/Yashasm18/Torvaix/commit/17f08c37ce74f30d3704dd58cf42d18b2487f4b9))
+
+
+### Maintenance
+
+* clear known issues (vulnerable dev tools, uuid, build warnings, stale docs) ([d895686](https://github.com/Yashasm18/Torvaix/commit/d8956860ec8ad6f8b304e2c13daaeaab6a361262))
+
 ## [0.3.0](https://github.com/Yashasm18/Torvaix/compare/v0.2.0...v0.3.0) (2026-09-15)
 
 
