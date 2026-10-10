@@ -9,6 +9,7 @@
  * - All existing APIs preserved: agent, memory, companion
  */
 
+import { normalizeApprovalMode } from './approval-policy';
 import './load-env'; // must stay first: other modules read process.env when imported
 import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
@@ -715,7 +716,8 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
         pendingActionId,
       },
       isStream ? write : undefined,
-      { signal: cancel.signal }
+      // The chat's own setting. Agent runs, tasks and automations don't send one, so they ask.
+      { signal: cancel.signal, approvalMode: normalizeApprovalMode(req.body.approvalMode) }
     );
 
     if (cancel.signal.aborted) {

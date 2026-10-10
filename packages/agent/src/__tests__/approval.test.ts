@@ -340,3 +340,58 @@ describe('runs that end in failure', () => {
     expect(state.error).toBe(state.output);
   });
 });
+
+describe('approval modes in a run', () => {
+  let store: MemoryStore;
+  const bash = (command: string) => `{"thought": "I will run it.", "done": false, "tool": "bash", "args": {"command": "${command}"}}`;
+  const done = '{"done": true, "message": "All done."}';
+  const run = (replies: string[], approvalMode: 'ask' | 'auto' | 'bypass', onChunk?: (c: string) => void) =>
+    new AgentOrchestrator(store, { llm: scriptedLlm(replies), model: 'test-model' })
+      .run({ workspaceId: 'default', instructions: 'do it', nextNode: 'execution' } as any, onChunk, { approvalMode });
+
+  beforeEach(() => {
+    callTool.mockReset();
+    callTool.mockImplementation(async () => ({ content: [{ type: 'text', text: '\u001b[35mnotes.txt\u001b[0m' }] }));
+    store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+  });
+
+  it('ask: a command waits for approval', async () => {
+    const state = await run([bash('ls')], 'ask');
+    expect(callTool).not.toHaveBeenCalled();
+    expect(state.pendingActionId).toBeTruthy();
+  });
+
+  it('auto: a read-only command runs at once, and one that changes things still waits', async () => {
+    const listed = await run([bash('ls'), done], 'auto');
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(listed.pendingActionId).toBeUndefined();
+    expect(listed.output).toBe('All done.');
+
+    callTool.mockClear();
+    const removed = await run([bash('rm notes.txt')], 'auto');
+    expect(callTool).not.toHaveBeenCalled();
+    expect(removed.pendingActionId).toBeTruthy();
+  });
+
+  it('bypass: nothing waits', async () => {
+    const state = await run([bash('rm notes.txt'), done], 'bypass');
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(state.pendingActionId).toBeUndefined();
+  });
+
+  it('reports what it is doing while it works, and removes terminal colour codes from output', async () => {
+    const chunks: string[] = [];
+    await run([bash('ls'), done], 'bypass', c => chunks.push(c));
+
+    const progress = chunks
+      .filter(c => c.startsWith('2:') && c.includes('torvaixProgress'))
+      .map(c => JSON.parse(c.slice(2))[0].torvaixProgress);
+    expect(progress.map(p => p.label)).toEqual(['Planning the next step', 'Thinking', 'Running bash', 'Planning the next step']);
+    expect(progress[1].detail).toBe('I will run it.');
+    expect(progress[2].detail).toBe('ls');
+    expect(new Set(progress.map(p => p.runId)).size).toBe(1);
+
+    const result = chunks.find(c => c.startsWith('a:'))!;
+    expect(JSON.parse(result.slice(2)).result.output).toBe('notes.txt');
+  });
+});

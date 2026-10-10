@@ -9,6 +9,7 @@
  * - Message history trimming to prevent context overflow
  */
 
+import { needsApproval, type ApprovalMode } from './approval-policy';
 import crypto from 'crypto';
 import { LLMClient, type LLMMessage, type LLMResponse, type ProviderId } from '@torvaix/providers';
 import { MemoryStore } from '@torvaix/memory';
@@ -112,6 +113,19 @@ export function clipForModel(text: string, max = MAX_TOOL_CONTEXT_CHARS): string
   return `${text.slice(0, head)}\n… [${text.length - max} characters left out] …\n${text.slice(-tail)}`;
 }
 
+/** What each stage of a run is doing, in the words the chat shows while it waits. */
+const STEP_LABELS: Record<string, string> = {
+  router: 'Working out what you are asking',
+  memory: 'Searching your memories',
+  knowledge: 'Saving this to memory',
+  conversation: 'Writing a reply',
+  repo_analysis: 'Scanning the workspace',
+  execution: 'Planning the next step',
+};
+
+/** Terminal colour codes, which commands print and a chat bubble shows as "[35m". */
+const ANSI_CODES = /\u001b\[[0-9;?]*[A-Za-z]/g;
+
 export class AgentOrchestrator {
   private memoryStore: MemoryStore;
   private llm: LLMClient;
@@ -121,6 +135,10 @@ export class AgentOrchestrator {
   private readonly maxIterations = 10;
   /** Aborted when the user presses Stop or the client disconnects. */
   private signal?: AbortSignal;
+  /** How this run treats shell commands and Python code; see approval-policy.ts. */
+  private approvalMode: ApprovalMode = 'ask';
+  private emit?: (chunk: string) => void;
+  private runId = '';
   private readonly maxContextChars: number;
   /** The custom agent this run is for. Without one, Torvaix works as it does in chat. */
   private readonly persona?: AgentPersona;
@@ -197,6 +215,14 @@ export class AgentOrchestrator {
       state.trace?.recordError('execution', `memory recall failed: ${e.message}`);
       return '';
     }
+  }
+
+  /**
+   * Tells the chat what the run is doing right now, while it is still working. Sent as a data
+   * part of the stream, so the page can show the steps as they happen.
+   */
+  private progress(label: string, detail?: string): void {
+    this.emit?.(`2:${JSON.stringify([{ torvaixProgress: { runId: this.runId, label, ...(detail ? { detail: detail.slice(0, 300) } : {}) } }])}\n`);
   }
 
   // ── LLM Helper ──
@@ -276,6 +302,8 @@ export class AgentOrchestrator {
     onStreamChunk?: (chunk: string) => void
   ): Promise<{ ok: boolean; text: string }> {
     const toolCallId = crypto.randomUUID();
+    const what = tool === 'bash' ? args.command : tool === 'web_search' ? args.query : args.filePath;
+    this.progress(`Running ${tool}`, typeof what === 'string' ? what : undefined);
     onStreamChunk?.(`9:${JSON.stringify({ toolCallId, toolName: tool, args })}\n`);
 
     const started = performance.now();
@@ -285,10 +313,10 @@ export class AgentOrchestrator {
       const result = await mcp.callTool(tool, args);
       const output = (result.content ?? []).map(c => c.text).filter(Boolean).join('\n');
       if (result.isError) throw new Error(output || 'Unknown tool error');
-      text = output || 'Tool executed, no output.';
+      text = output.replace(ANSI_CODES, '') || 'Tool executed, no output.';
     } catch (e: any) {
       ok = false;
-      text = `Tool execution failed: ${e.message}`;
+      text = `Tool execution failed: ${String(e.message).replace(ANSI_CODES, '')}`;
       state.trace!.recordError('tool_call', e.message, { tool });
     }
 
@@ -779,11 +807,14 @@ CRITICAL RULES:
 8. After web_search returns results, you MUST immediately respond with {"done": true, "message": "..."} containing a synthesized summary of the search results. NEVER call web_search again after receiving results.
 9. If you run a script or command to get a result for the user, you MUST include the output of that command in your final "message" response.
 
+10. Simple arithmetic and questions you can answer from what you know need no tool: reply with "done": true.
+11. "thought" is one short plain sentence saying what you are about to do and why. The user sees it.
+
 If you need to use a tool, reply:
-{"done": false, "tool": "write_file", "args": {"filePath": "example.txt", "content": "File content"}}
+{"thought": "What you will do next and why, in your own words", "done": false, "tool": "write_file", "args": {"filePath": "example.txt", "content": "File content"}}
 
 If the task is complete (all steps done) or if you want to respond to the user via chat, reply:
-{"done": true, "message": "Your response to the user here"}
+{"thought": "Why the task is finished, in your own words", "done": true, "message": "Your response to the user here"}
 
 Reply with ONLY ONE JSON object. Nothing else.`;
 
@@ -831,6 +862,9 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       }
 
       const decision = JSON.parse(extractedJson);
+      // Small models sometimes just repeat the task back; that isn't a thought worth showing.
+      const thought = typeof decision.thought === 'string' ? decision.thought.trim() : '';
+      if (thought && thought.toLowerCase() !== state.instructions.trim().toLowerCase()) this.progress('Thinking', thought);
 
       if (decision.done === true || !decision.tool) {
         // Small models sometimes put an object or a list in "message"; the chat expects text.
@@ -903,8 +937,9 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       }
       this.lastToolCall = { tool, argsHash };
 
-      // Code execution always waits for the user to approve this exact call.
-      if (isDangerous) {
+      // Code execution waits for the user to approve this exact call, unless the chat's approval
+      // mode lets this one through (see approval-policy.ts).
+      if (isDangerous && needsApproval(this.approvalMode, tool, args)) {
         console.log(`[Execution Agent] Pausing for security confirmation on ${tool}`);
         state.trace!.recordApproval(tool, false);
         const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, args);
@@ -914,6 +949,10 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         endTrace({ tool, status: 'awaiting_approval' });
         state.nextNode = 'end';
         return state;
+      }
+      if (isDangerous) {
+        state.trace!.recordApproval(tool, true);
+        console.log(`[Execution Agent] Running ${tool} without asking (approval mode: ${this.approvalMode})`);
       }
 
       if (this.stopIfAborted(state)) {
@@ -986,9 +1025,11 @@ Reply with ONLY ONE JSON object. Nothing else.`;
   async run(
     initialState: Partial<AgentState>,
     onStreamChunk?: (chunk: string) => void,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; approvalMode?: ApprovalMode }
   ): Promise<AgentState> {
     this.signal = options?.signal;
+    this.approvalMode = options?.approvalMode ?? 'ask';
+    this.emit = onStreamChunk;
     this.recalledForPrompt = null;
     const trace = new TraceCollector();
 
@@ -1018,6 +1059,8 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       },
     };
 
+    this.runId = state.pulse.id;
+
     // Fetch workspace path for isolated MCP execution
     const workspacePath = this.memoryStore.ensureWorkspacePath(state.workspaceId);
 
@@ -1032,6 +1075,8 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         if (state.nextNode === 'repo_analysis' && !this.allowsTool('repo_scan')) state.nextNode = 'execution';
 
         if (state.nextNode !== 'router' && !state.pulse.route) state.pulse.route = state.nextNode;
+
+        this.progress(STEP_LABELS[state.nextNode] ?? 'Working', state.nextNode === 'execution' && state.iteration > 2 ? `Step ${state.iteration - 1}` : undefined);
 
         switch (state.nextNode) {
           case 'router':
