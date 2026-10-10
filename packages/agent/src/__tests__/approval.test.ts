@@ -395,3 +395,31 @@ describe('approval modes in a run', () => {
     expect(JSON.parse(result.slice(2)).result.output).toBe('notes.txt');
   });
 });
+
+describe('a reply that is streamed while it is written', () => {
+  it('sends each piece to the chat and marks the reply as already sent', async () => {
+    const store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+    const llm = {
+      complete: vi.fn(async (_model: string, _messages: any, opts: any) => {
+        opts.onToken?.('Hello');
+        opts.onToken?.(' there');
+        return { text: 'Hello there' };
+      }),
+      getDefaultModel: () => 'test-model',
+    } as any;
+    const chunks: string[] = [];
+    const state = await new AgentOrchestrator(store, { llm, model: 'test-model' })
+      .run({ workspaceId: 'default', instructions: 'hi', nextNode: 'conversation' } as any, c => chunks.push(c));
+
+    expect(chunks.filter(c => c.startsWith('0:')).map(c => JSON.parse(c.slice(2)))).toEqual(['Hello', ' there']);
+    expect(state.streamedReply).toBe(true);
+    expect(state.output).toBe('Hello there');
+  });
+
+  it('is not marked as sent when the model cannot stream', async () => {
+    const store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+    const state = await new AgentOrchestrator(store, { llm: scriptedLlm(['Hello there']), model: 'test-model' })
+      .run({ workspaceId: 'default', instructions: 'hi', nextNode: 'conversation' } as any, () => {});
+    expect(state.streamedReply).toBeFalsy();
+  });
+});

@@ -738,8 +738,9 @@ app.post('/api/agent/run', requireAuth, agentLimiter, async (req: AuthRequest, r
         const pending = memoryStore.getPendingAction(finalState.pendingActionId);
         outputText = formatApprovalRequest(finalState.pendingActionId, pending?.action);
       }
-      // Emit text chunk, then finish markers per Vercel AI SDK data stream protocol
-      res.write(`0:${JSON.stringify(outputText)}\n`);
+      // Emit text chunk, then finish markers per Vercel AI SDK data stream protocol. A reply that
+      // was streamed while it was written is already there.
+      if (!finalState.streamedReply || finalState.pendingActionId) res.write(`0:${JSON.stringify(outputText)}\n`);
       res.write(`e:${JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 }, isContinued: false })}\n`);
       res.write(`d:${JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 } })}\n`);
       res.end();

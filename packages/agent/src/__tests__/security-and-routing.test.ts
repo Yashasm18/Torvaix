@@ -155,3 +155,24 @@ describe('request input validation', () => {
     expect(clampCount(2.9, 5, 50)).toBe(2);
   });
 });
+
+describe('keywordRoute: requests for code', () => {
+  it('answers directly when the user wants to read code', () => {
+    for (const text of [
+      'can u give me a java code for sum of 2 arrays',
+      'Write a function that reverses a string',
+      'show me an example of a binary search',
+      'Please write a SQL query for the top 5 customers',
+      'generate a regex for email addresses',
+    ]) {
+      expect(keywordRoute(text), text).toBe('conversation');
+    }
+  });
+
+  it('still uses tools when the code is to be saved or run', () => {
+    expect(keywordRoute('write a python script to hello.py')).toBe('execution');
+    expect(keywordRoute('write a script that prints hello and run it')).not.toBe('conversation');
+    expect(keywordRoute('write the code into a file')).not.toBe('conversation');
+    expect(keywordRoute('create a script that prints hello')).not.toBe('conversation');
+  });
+});
