@@ -939,7 +939,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
 
       // Code execution waits for the user to approve this exact call, unless the chat's approval
       // mode lets this one through (see approval-policy.ts).
-      if (isDangerous && needsApproval(this.approvalMode, tool, args)) {
+      if (isDangerous && needsApproval(this.approvalMode, tool, args, workspacePath)) {
         console.log(`[Execution Agent] Pausing for security confirmation on ${tool}`);
         state.trace!.recordApproval(tool, false);
         const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, args);
