@@ -35,9 +35,21 @@ export function saveApprovalMode(mode: ApprovalMode): void {
 
 let current: ApprovalMode | null = null
 
+/** Another tab changed the choice: forget the cached one so every tab follows what is saved. */
+function onStorage(event: StorageEvent) {
+  if (event.key !== null && event.key !== KEY) return
+  current = null
+  listeners.forEach((l) => l())
+}
+
 export function subscribeApprovalMode(listener: () => void): () => void {
+  // Without this, turning Bypass off in one tab left it on in the others until they reloaded.
+  if (listeners.size === 0) window.addEventListener("storage", onStorage)
   listeners.add(listener)
-  return () => listeners.delete(listener)
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) window.removeEventListener("storage", onStorage)
+  }
 }
 
 export function currentApprovalMode(): ApprovalMode {

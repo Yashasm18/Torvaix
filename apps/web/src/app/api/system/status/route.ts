@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || 'http://localhost:3001';
+import { AGENT_SERVER_URL } from '@/lib/agent-proxy';
 
 export const dynamic = 'force-dynamic';
 

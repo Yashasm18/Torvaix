@@ -20,8 +20,13 @@ export function normalizeApprovalMode(value: unknown): ApprovalMode {
 
 /** Commands that only print information. Kept short on purpose: each one is a promise. */
 const READ_ONLY_COMMANDS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'echo', 'date', 'whoami', 'uname', 'grep', 'find']);
-/** `find` actions that delete, write a file or run a program. */
-const FIND_ACTIONS = /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/;
+/**
+ * The only `find` options allowed. A list of forbidden ones missed `-follow`, which walks
+ * through links out of the workspace just as the refused `-L` does.
+ */
+const FIND_OPTIONS = new Set(['-name', '-iname', '-type', '-maxdepth', '-mindepth', '-size', '-mtime', '-mmin', '-newer', '-empty', '-print']);
+/** `find` options followed by a plain value such as `f`, `2` or `+10k`. */
+const FIND_VALUE_OPTIONS = new Set(['-type', '-maxdepth', '-mindepth', '-size', '-mtime', '-mmin']);
 /** Flags are short letters only: `--output=file` and `-f/etc/passwd` carry a path past the path check. */
 const PLAIN_FLAG = /^-[A-Za-z0-9]+$/;
 const PYTHON = /^python3?$/;
@@ -120,14 +125,23 @@ export function isReadOnlyCommand(command: string, workspaceRoot?: string): bool
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg.startsWith('-')) {
-      if (!PLAIN_FLAG.test(arg)) return false;
-      if (name === 'find' ? FIND_ACTIONS.test(arg) || arg === '-L' || arg === '-H' : /[LRHrSO]/.test(arg)) return false; // no following links, no recursion
-      continue;
-    }
-    // The pattern after find's -name is not a path, and may use wildcards.
-    if (name === 'find' && /^-i?name$/.test(args[i - 1] ?? '')) {
-      if (arg.includes('/')) return false;
+    if (name === 'find') {
+      const previous = args[i - 1] ?? '';
+      if (FIND_VALUE_OPTIONS.has(previous)) {
+        if (!/^([+-]?\d+[A-Za-z]?|[a-z])$/.test(arg)) return false;
+        continue;
+      }
+      // The pattern after -name is not a path, and may use wildcards.
+      if (previous === '-name' || previous === '-iname') {
+        if (arg.includes('/')) return false;
+        continue;
+      }
+      if (arg.startsWith('-')) {
+        if (!FIND_OPTIONS.has(arg)) return false;
+        continue;
+      }
+    } else if (arg.startsWith('-')) {
+      if (!PLAIN_FLAG.test(arg) || /[LRHrSO]/.test(arg)) return false; // no following links, no recursion
       continue;
     }
     // Everything else may be a path: it has to be a plain one that stays in the workspace.

@@ -79,7 +79,7 @@ Remember that my favorite framework is Next.js
 What is my favorite framework?
 ```
 
-**3. Approve a command.** `bash` and `python` commands always pause for approval, and the approval card shows exactly what will run:
+**3. Approve a command.** With the default **Ask every time** mode (the buttons under the message box), `bash` and `python` commands pause for approval, and the approval card shows exactly what will run. In **Auto** this particular command runs without a card, and in **Bypass** nothing asks; see [Command approval](../../README.md#command-approval).
 
 ```text
 Run the bash command: echo hello from torvaix
@@ -104,7 +104,7 @@ Everything else is optional. Put settings in `.env` in the repository root (see 
 | Variable | Why |
 | --- | --- |
 | `TORVAIX_MODEL` | Use a specific chat model instead of the auto-selected installed one (a model chosen in Settings wins) |
-| `PORT` / `AGENT_PORT` | Run on other ports if 3000 or 3001 are taken. If you change `AGENT_PORT`, set `AGENT_SERVER_URL` to match. |
+| `PORT` / `AGENT_PORT` | Run on other ports if 3000 or 3001 are taken. The web app follows `AGENT_PORT` unless your `.env` sets `AGENT_SERVER_URL`; if it does, change that to match. |
 | `TORVAIX_HOME` | Keep your data somewhere other than `~/.torvaix` |
 | `OPENAI_API_KEY` and friends | Enable cloud models without using Settings |
 

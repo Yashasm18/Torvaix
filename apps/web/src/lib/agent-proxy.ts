@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server"
 
-export const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || "http://localhost:3001"
+/**
+ * Where the agent server is. Unless AGENT_SERVER_URL says otherwise it follows AGENT_PORT, so
+ * moving the agent to another port (the advice when 3001 is taken) doesn't leave the web app
+ * calling the old one and reporting the agent as offline.
+ */
+export const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || `http://localhost:${Number(process.env.AGENT_PORT) || 3001}`
 
 /**
  * Reply for an agent-server response that isn't OK, keeping its status. The agent answers with

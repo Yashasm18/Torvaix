@@ -423,3 +423,40 @@ describe('a reply that is streamed while it is written', () => {
     expect(state.streamedReply).toBeFalsy();
   });
 });
+
+describe('fixes from the error sweep', () => {
+  let store: MemoryStore;
+  beforeEach(() => {
+    callTool.mockReset();
+    callTool.mockImplementation(async () => ({ content: [{ type: 'text', text: 'Package: demo\nDependencies: none' }] }));
+    store = new MemoryStore(':memory:', { qdrantUrl: 'http://127.0.0.1:1' });
+  });
+
+  it('a denied command ends the run without asking the model again', async () => {
+    const llm = scriptedLlm(['{"done": false, "tool": "bash", "args": {"command": "rm -rf build"}}']);
+    const id = store.createPendingAction('default', 'bash', { command: 'rm -rf build' });
+    store.updatePendingActionStatus(id, 'rejected');
+
+    const state = await new AgentOrchestrator(store, { llm, model: 'test-model' })
+      .run({ workspaceId: 'default', instructions: 'clean the build folder', pendingActionId: id });
+
+    expect(state.output).toBe('You denied the command, so nothing was run.');
+    expect(state.pendingActionId).toBeUndefined();
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it('the repo scan only writes parts the chat stream understands, and its result follows its call', async () => {
+    const chunks: string[] = [];
+    await new AgentOrchestrator(store, { llm: scriptedLlm([]), model: 'test-model' })
+      .run({ workspaceId: 'default', instructions: 'scan this repo', nextNode: 'repo_analysis' } as any, c => chunks.push(c));
+
+    expect(chunks.length).toBeGreaterThan(0);
+    for (const chunk of chunks) expect(chunk, chunk.slice(0, 60)).toMatch(/^[0-9a-e]:.*\n$/s);
+    const call = chunks.findIndex(c => c.startsWith('9:'));
+    const result = chunks.findIndex(c => c.startsWith('a:'));
+    expect(call).toBeGreaterThanOrEqual(0);
+    expect(result).toBeGreaterThan(call);
+    expect(JSON.parse(chunks[result].slice(2)).toolCallId).toBe(JSON.parse(chunks[call].slice(2)).toolCallId);
+  });
+});

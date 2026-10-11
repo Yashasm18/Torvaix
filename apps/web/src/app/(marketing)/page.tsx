@@ -37,7 +37,7 @@ const features: Feature[] = [
   {
     icon: <Terminal className="h-5 w-5 text-primary" />,
     title: "Tools with approval",
-    description: "The agent reads and writes files in its workspace folder, searches the web and runs shell or Python commands — each command only after you approve it."
+    description: "The agent reads and writes files in its workspace folder, searches the web and runs shell or Python commands. By default each command waits for your approval."
   },
   {
     icon: <Network className="h-5 w-5 text-primary" />,

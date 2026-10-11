@@ -208,10 +208,12 @@ Everything else is set in `.env`. Copy `.env.example` to `.env` in the repositor
 | `WEB_HOST` | `127.0.0.1` | Interface the web app listens on. Keep it on loopback. |
 | `WEB_ALLOWED_HOSTS` | localhost only | Extra host names the web app answers to, e.g. a LAN address you open it with |
 | `AGENT_PORT` / `AGENT_HOST` | `3001` / `127.0.0.1` | Agent server address. Keep it on loopback. |
-| `AGENT_SERVER_URL` | `http://localhost:3001` | Where the web app sends requests for the agent |
+| `AGENT_SERVER_URL` | `http://localhost:<AGENT_PORT>` | Where the web app sends requests for the agent. Only needed when the agent runs on another machine or host name. |
 | `AGENT_ALLOWED_ORIGINS` / `AGENT_ALLOWED_HOSTS` | localhost only | Extra origins or hosts the agent accepts |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` | none | Enable cloud providers (or add the key in Settings) |
 | `JWT_SECRET` | random at startup | Signs login tokens |
+| `OPENROUTER_REFERER` | `https://torvaix.local` | The `HTTP-Referer` sent with OpenRouter requests |
+| `TORVAIX_SHOW_LANDING` | unset | Set to `1` to see the landing page at `/`. Otherwise `/` opens the chat. Useful when working on that page. |
 
 If `OPENAI_API_KEY` is set in `.env` and Ollama can't produce embeddings, memory text is sent to OpenAI for embeddings. If neither is available, Torvaix uses a local keyword-based embedding.
 
@@ -222,7 +224,7 @@ If `OPENAI_API_KEY` is set in `.env` and Ollama can't produce embeddings, memory
 | **The Model dot is red**, or chat says "Ollama isn't running" | Start Ollama by opening the app, or run `ollama serve`. |
 | **`ollama serve` says "address already in use"** | Ollama is already running. Nothing to do. |
 | **"The model … isn't installed in Ollama"** | Run `ollama pull llama3.2`, or choose an installed model in **Settings → Models & keys**. |
-| **"Port 3000 (or 3001) is already in use"** | Another copy of Torvaix, or another program, is using it. Stop that one, or set `PORT` / `AGENT_PORT` in `.env`. |
+| **"Port 3000 (or 3001) is already in use"** | Another copy of Torvaix, or another program, is using it. Stop that one, or set `PORT` / `AGENT_PORT` in `.env`. If your `.env` also sets `AGENT_SERVER_URL`, change its port to match `AGENT_PORT` or remove that line. |
 | **The Agent dot is red** | The agent server is not running. Start both parts together with `npm run dev`. |
 | **Replies are slow** | A local model's speed depends on your hardware. Try a smaller model, close other heavy apps, or use a cloud model. |
 | **The assistant runs odd commands or loops** | Small local models are weak at multi-step tool use. Keep **Ask every time** on and deny what you do not expect, or switch to a larger or cloud model. |
