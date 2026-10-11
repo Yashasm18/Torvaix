@@ -123,33 +123,51 @@ export function isReadOnlyCommand(command: string, workspaceRoot?: string): bool
   if (!READ_ONLY_COMMANDS.has(name)) return false;
   if (name === 'echo') return true; // it only prints its own words
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (name === 'find') {
-      const previous = args[i - 1] ?? '';
-      if (FIND_VALUE_OPTIONS.has(previous)) {
-        if (!/^([+-]?\d+[A-Za-z]?|[a-z])$/.test(arg)) return false;
-        continue;
-      }
-      // The pattern after -name is not a path, and may use wildcards.
-      if (previous === '-name' || previous === '-iname') {
-        if (arg.includes('/')) return false;
-        continue;
-      }
-      if (arg.startsWith('-')) {
-        if (!FIND_OPTIONS.has(arg)) return false;
-        continue;
-      }
-    } else if (arg.startsWith('-')) {
+  if (name === 'find') return isReadOnlyFind(args, workspaceRoot);
+
+  for (const arg of args) {
+    if (arg.startsWith('-')) {
       if (!PLAIN_FLAG.test(arg) || /[LRHrSO]/.test(arg)) return false; // no following links, no recursion
       continue;
     }
-    // Everything else may be a path: it has to be a plain one that stays in the workspace.
-    // Wildcards are refused because what they expand to (a link, say) can't be checked here.
-    if (/[*?\[\]=]/.test(arg) || arg.startsWith('/') || arg.split('/').includes('..')) return false;
-    if (!workspaceRoot || !staysInside(workspaceRoot, arg)) return false;
+    if (!isWorkspacePath(arg, workspaceRoot)) return false;
   }
   return true;
+}
+
+/**
+ * Whether a word that may be a path is a plain one that stays in the workspace. Wildcards are
+ * refused because what they expand to (a link, say) can't be checked here.
+ */
+function isWorkspacePath(arg: string, workspaceRoot: string | undefined): boolean {
+  if (/[*?\[\]=]/.test(arg) || arg.startsWith('/') || arg.split('/').includes('..')) return false;
+  return Boolean(workspaceRoot) && staysInside(workspaceRoot!, arg);
+}
+
+/**
+ * `find` read left to right the way find itself reads it: each allowed option says what the next
+ * word is. Deciding from the previous word alone was wrong: in `find . -name -name -delete` the
+ * second `-name` is a pattern, so `-delete` is an action, yet it was taken for a pattern too and
+ * never checked.
+ */
+function isReadOnlyFind(args: string[], workspaceRoot: string | undefined): boolean {
+  let next: 'pattern' | 'value' | null = null;
+  for (const arg of args) {
+    if (next === 'value') {
+      if (!/^([+-]?\d+[A-Za-z]?|[a-z])$/.test(arg)) return false;
+      next = null;
+    } else if (next === 'pattern') {
+      // A name pattern may use wildcards, but is never a path and never looks like an option.
+      if (arg.startsWith('-') || arg.includes('/')) return false;
+      next = null;
+    } else if (arg.startsWith('-')) {
+      if (!FIND_OPTIONS.has(arg)) return false;
+      next = FIND_VALUE_OPTIONS.has(arg) ? 'value' : arg === '-name' || arg === '-iname' ? 'pattern' : null;
+    } else if (!isWorkspacePath(arg, workspaceRoot)) {
+      return false; // a starting folder, or the file after -newer
+    }
+  }
+  return next === null; // an option left without its value is not something to guess about
 }
 
 /** Whether this call has to wait for the user. Only `bash` and `python` ever do. */
