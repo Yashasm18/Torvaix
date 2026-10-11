@@ -3,6 +3,12 @@
  * Matches exact test contract.
  */
 
+/*
+ * Each event has `timestamp` (wall clock, whole milliseconds, when it was recorded) and
+ * `startedAt` (performance.now(), sub-millisecond, when the step began). Order steps by
+ * `startedAt`: working a start time out as `timestamp - durationMs` mixes the two precisions,
+ * so two steps that end in the same millisecond came out in the wrong order.
+ */
 export class TraceCollector {
   private events: any[] = [];
   private startedAt = Date.now();
@@ -14,6 +20,7 @@ export class TraceCollector {
       action,
       metadata,
       timestamp: Date.now(),
+      startedAt: performance.now(),
     });
   }
 
@@ -25,6 +32,7 @@ export class TraceCollector {
         action: description,
         metadata: metadata || {},
         timestamp: Date.now(),
+        startedAt: phaseStart,
         durationMs: performance.now() - phaseStart,
       });
     };
@@ -51,6 +59,7 @@ export class TraceCollector {
       phase: "llm_call",
       action: `LLM call: ${model}`,
       durationMs,
+      startedAt: performance.now() - durationMs,
       tokens,
       metadata: {
         model,
@@ -70,6 +79,7 @@ export class TraceCollector {
       phase: "tool_call",
       action: `Tool: ${tool}`,
       durationMs,
+      startedAt: performance.now() - durationMs,
       metadata: {
         tool,
         status,
@@ -87,6 +97,7 @@ export class TraceCollector {
         : `Awaiting approval: ${tool}`,
       metadata,
       timestamp: Date.now(),
+      startedAt: performance.now(),
     });
   }
 
@@ -99,6 +110,7 @@ export class TraceCollector {
         ...metadata,
       },
       timestamp: Date.now(),
+      startedAt: performance.now(),
     });
   }
 

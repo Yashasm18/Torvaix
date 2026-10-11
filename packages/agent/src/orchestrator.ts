@@ -655,10 +655,6 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
     console.log('[STEP START] nodeRepoAnalysis — deterministic bypass');
     const toolCallId = `repo_scan_${crypto.randomUUID()}`;
     const endTrace = state.trace!.startPhase('repo_analysis', 'Deterministic repo scan');
-    if (onStreamChunk) {
-      onStreamChunk(`> Running instantaneous repository analysis...\n`);
-    }
-
     if (this.stopIfAborted(state)) {
       endTrace({ cancelled: true });
       return state;
@@ -676,7 +672,11 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       
       console.log('[TOOL EXECUTED] repo_scan');
 
+      // A result part must follow the call part with the same id. This used to send a bare text
+      // line and a result with no call, both of which the chat's stream parser rejects, so
+      // "Summarise this repo" always ended in "Failed to parse stream string".
       if (onStreamChunk) {
+        onStreamChunk(`9:${JSON.stringify({ toolCallId, toolName: 'repo_scan', args: {} })}\n`);
         onStreamChunk(`a:${JSON.stringify({ toolCallId, result: { output: resultText } })}\n`);
       }
 
@@ -782,9 +782,15 @@ ${structure}
         return state;
       } else if (pending && pending.status === 'rejected') {
         console.log(`[Execution Agent] Action rejected by user: ${pending.action}`);
-        state.messages.push({ role: 'system', content: `User rejected the execution of ${pending.action}.` });
         state.pendingActionId = undefined;
         state.trace!.recordApproval(pending.action, false, { rejected: true });
+        // No means no: stop here. Planning again with the same task usually proposed the same
+        // command, so denying it brought up the same approval card again.
+        state.output = 'You denied the command, so nothing was run.';
+        state.final = true;
+        state.nextNode = 'end';
+        endTrace({ tool: pending.action, status: 'rejected' });
+        return state;
       } else {
         console.warn(`[Execution Agent] Ignoring pending action ${state.pendingActionId}: not approved for this workspace, or already executed`);
         state.pendingActionId = undefined;
@@ -1156,7 +1162,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         .filter(e => stepPhases.has(e.phase) || e.phase === 'tool_call')
         // Events are recorded when a step ends; list them in the order they started, so a step
         // comes before the tool calls and sub-steps that ran inside it.
-        .map((e, index) => ({ e, index, startedAt: e.timestamp - (e.durationMs ?? 0) }))
+        .map((e, index) => ({ e, index, startedAt: e.startedAt ?? e.timestamp - (e.durationMs ?? 0) }))
         .sort((a, b) => a.startedAt - b.startedAt || a.index - b.index)
         .map(({ e }) => ({ phase: e.phase, action: e.action, durationMs: e.durationMs }));
       state.pulse.totalMs = trace.getTotalDurationMs();

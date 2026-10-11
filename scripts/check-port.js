@@ -77,7 +77,8 @@ async function main() {
     : '  (could not identify the process)';
   console.error(
     `\n❌ Port ${port} is already in use, so the Torvaix ${name} can't start.\n${who}\n` +
-      `   Stop that program, or run Torvaix on another port by setting ${env} (in .env or your shell).\n`
+      `   Stop that program, or run Torvaix on another port by setting ${env} (in .env or your shell).\n` +
+      (name === 'agent' ? `   If your .env also sets AGENT_SERVER_URL, change its port to match or remove that line.\n` : '')
   );
   process.exit(1);
 }

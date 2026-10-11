@@ -45,9 +45,12 @@ import { MemoryModal } from "@/components/chat/memory-modal";
 import { ApprovalModePicker, useApprovalMode } from "@/components/chat/approval-mode-picker";
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator";
 import { latestProgress } from "@/lib/progress";
+import { MAX_MESSAGE_CHARS } from "@/lib/chat-request";
 import { MarkdownMessage } from "@/components/chat/markdown";
 
 const MAX_ATTACHMENT_BYTES = 100_000;
+/** Characters of a command's output shown on its card. */
+const TOOL_OUTPUT_PREVIEW = 500;
 const TEXT_FILE = /\.(txt|md|markdown|json|csv|tsv|log|ya?ml|toml|ini|env|xml|html?|css|scss|js|jsx|mjs|cjs|ts|tsx|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|php|sh|bash|zsh|sql|swift|dart|vue|svelte)$/i;
 
 /** Resolves the workspace's current chat (creating one if needed) and mounts a session for it. */
@@ -174,6 +177,23 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     saveChatMessages(chatId, messages);
   }, [messages, isLoading, chatId, saveChatMessages]);
 
+  // Leaving this chat (another chat, another page) while a reply is still being written: this
+  // component is the only thing that saves the reply and the only one that can stop it. Left
+  // running, the finished reply was never saved, and Stop did nothing after coming back.
+  // So stop it and keep what has arrived.
+  const live = useRef({ messages, stop });
+  useEffect(() => {
+    live.current = { messages, stop };
+  });
+  useEffect(
+    () => () => {
+      const { messages: latest, stop: stopNow } = live.current;
+      stopNow();
+      if (latest.length > 0 && messagesSignature(latest) !== lastSaved.current) saveChatMessages(chatId, latest);
+    },
+    [chatId, saveChatMessages]
+  );
+
   useEffect(() => {
     useAnswerDetailsStore.getState().reset();
   }, []);
@@ -231,7 +251,12 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
       return;
     }
     const text = await file.text();
-    setInput(`${input}${input ? '\n\n' : ''}${formatAttachment(file.name, text)}\n`);
+    const next = `${input}${input ? '\n\n' : ''}${formatAttachment(file.name, text)}\n`;
+    if (next.length > MAX_MESSAGE_CHARS) {
+      setNotice(`${file.name} would make this message too long to send. Send what you have first, or attach a smaller file.`);
+      return;
+    }
+    setInput(next);
     setNotice(null);
   };
 
@@ -239,9 +264,14 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
   // What the agent says it is doing, while the newest reply is still being worked out.
   const progressSteps = useMemo(() => latestProgress(streamData), [streamData]);
 
+  // Follow the conversation only while the user is at the bottom. A reply now arrives in many
+  // small pieces, and scrolling on each one pulled the view back down whenever the user scrolled
+  // up to read. Sending a message always goes back to the bottom.
+  const followReply = useRef(true);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (messages[messages.length - 1]?.role === 'user') followReply.current = true;
+    if (followReply.current) messagesEndRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth' });
+  }, [messages, isLoading]);
 
   // Read the "How I answered" details from the stream's data parts (prefix 2:)
   useEffect(() => {
@@ -388,7 +418,13 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
       </motion.div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div
+        className="flex-1 overflow-y-auto p-4 space-y-4"
+        onScroll={(e) => {
+          const box = e.currentTarget;
+          followReply.current = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+        }}
+      >
         {messages.length === 0 ? (
           <motion.div
             className="flex flex-col items-center justify-center h-full text-center px-8"
@@ -480,12 +516,13 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                                  tool.toolName === 'python' ? `> python script` :
                                  tool.toolName === 'read_file' ? `> cat ${tool.args?.filePath}` :
                                  tool.toolName === 'web_search' ? `> search "${tool.args?.query}"` :
+                                 tool.toolName === 'repo_scan' ? `> scan the workspace folder` :
                                  JSON.stringify(tool.args)}
 
                                 {tool.state === 'result' && tool.result && tool.result.output && (
                                   <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
-                                    {String(tool.result.output).substring(0, 500)}
-                                    {String(tool.result.output).length > 500 && '... [output truncated]'}
+                                    {String(tool.result.output).substring(0, TOOL_OUTPUT_PREVIEW)}
+                                    {String(tool.result.output).length > TOOL_OUTPUT_PREVIEW && '... [output truncated]'}
                                   </div>
                                 )}
                               </div>
@@ -516,8 +553,12 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
 
                         if (message.role === 'assistant') {
                           // When the reply is just the command's output again, the card above already shows it.
+                          // Only when the card shows all of it: the card cuts long output off.
                           const repeatsOutput = (message.toolInvocations ?? []).some(
-                            (tool) => tool.state === 'result' && String(tool.result?.output ?? '').trim() === message.content.trim()
+                            (tool) =>
+                              tool.state === 'result' &&
+                              String(tool.result?.output ?? '').length <= TOOL_OUTPUT_PREVIEW &&
+                              String(tool.result?.output ?? '').trim() === message.content.trim()
                           );
                           return (
                             <>
