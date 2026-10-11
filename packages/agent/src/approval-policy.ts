@@ -76,6 +76,12 @@ function plainWords(command: string): string[] | null {
       inWord = false;
     } else if (/[;&|<>`$(){}\\\n\r~!#%^]/.test(ch)) {
       return null;
+    } else if (/[*?\[\]]/.test(ch)) {
+      // An unquoted wildcard is replaced by the shell with the names of files in the workspace
+      // before the command sees it, and the model can create files with any name. A file called
+      // "-delete" would then arrive as an option. Wildcards are fine inside quotes, where the
+      // shell leaves them alone (find's -name "*.ts").
+      return null;
     } else {
       word += ch;
       inWord = true;
@@ -157,7 +163,8 @@ function isReadOnlyFind(args: string[], workspaceRoot: string | undefined): bool
       if (!/^([+-]?\d+[A-Za-z]?|[a-z])$/.test(arg)) return false;
       next = null;
     } else if (next === 'pattern') {
-      // A name pattern may use wildcards, but is never a path and never looks like an option.
+      // A name pattern may use wildcards (they can only get here quoted, see plainWords), but is
+      // never a path and never looks like an option.
       if (arg.startsWith('-') || arg.includes('/')) return false;
       next = null;
     } else if (arg.startsWith('-')) {
