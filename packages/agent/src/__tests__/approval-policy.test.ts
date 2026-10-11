@@ -46,12 +46,12 @@ describe('approval modes', () => {
       'echo hello there',
       'pwd',
       'python3 --version',
-      'python3 -c "import math; print(math.pow(2, 583/156))"',
+      'python3 -c "print(pow(2, 583/156))"',
       "python3 -c 'print(583/156)'",
     ]) {
       expect(needsApproval('auto', 'bash', { command }, root), command).toBe(false);
     }
-    expect(needsApproval('auto', 'python', { code: 'import fractions\nprint(fractions.Fraction(583, 156))' })).toBe(false);
+    expect(needsApproval('auto', 'python', { code: 'print(583 / 156)' })).toBe(false);
   });
 
   it('in auto mode still asks for anything that writes, deletes, chains, or leaves the workspace', () => {
@@ -87,6 +87,9 @@ describe('approval modes', () => {
       'python3 script.py',
       'python3 -c "import os; os.remove(1)"',
       'python3 -c import llama3.2',
+      'python3 -c "import math; print(math.pi)"',
+      'echo %PATH%',
+      'echo "%USERPROFILE%"',
       'python3 -c "print(1); import os"',
       "python3 -c 'print(chr(95))'",
       'git status',
@@ -102,50 +105,45 @@ describe('approval modes', () => {
     expect(needsApproval('auto', 'bash', { command: 'cat notes.txt' })).toBe(true);
   });
 
-  it('treats Python as a calculation only when it is numbers, arithmetic and known maths functions', () => {
-    for (const code of [
-      'print(2 ** 10)',
-      'import math, statistics\nprint(math.pi * 2)',
-      'x = 583 / 156\nprint(round(x, 3))',
-      'print(sum([n * n for n in range(10)]))',
-      'print(1e5 + 0x1f)',
-      'import statistics; print(statistics.mean([1, 2, 3]))',
-    ]) {
+  it('treats Python as a calculation only when it is one line of plain arithmetic', () => {
+    for (const code of ['print(2 ** 10)', 'print(583 / 156)', 'print(round(583 / 156, 3))', 'print(pow(2, 0.5) + abs(-3) % 2)', 'print(0x1f + .5 + 2.)', '2 + 2']) {
       expect(isCalculationOnly(code), code).toBe(true);
     }
   });
 
-  it('refuses anything else, including ways around a list of forbidden words', () => {
+  it('refuses everything else, including every way out found in review', () => {
     for (const code of [
+      // imports: a module of that name in the workspace would be run
+      'import math',
+      'import statistics; print(statistics.mean(1, 2))',
       'import os',
-      'import math, subprocess',
       'from os import system',
-      'from math import pi',
-      'import operator',
-      "__import__('os')",
-      "open('x')",
+      // a loop variable or assignment named like a built-in
+      'print([0 for exec in [0]]); exec(bytes([112]))',
+      '[0 for open in (0, 1)]',
+      'x = 1',
+      'print = 3',
+      // text, attributes, other names
       "print('text')",
       'print("text")',
-      // Building a forbidden name from pieces needs text, and text is not allowed at all.
-      "import operator; operator.attrgetter('_' + '_class_' + '_')(1)",
+      "__import__('os')",
       'print(().__class__)',
       'print((1).real)',
-      'import math; print(math.pi.real)',
-      'import statistics; print(statistics.sys.modules)',
-      'import statistics; s = statistics.sys; print(s.modules)',
-      'import math; print(math._something)',
-      'print(undefined_name)',
-      'print = 3',
-      'math = 3',
-      'x = lambda: 1',
+      'print(1 .real)',
+      'print(1e5)',
+      'open(0)',
+      'exec(1)',
       'eval(1)',
-      'getattr(1, 2)',
-      'vars()',
-      'import math; print(math . pi . real)',
+      'input()',
+      'breakpoint()',
+      'print(sum([1, 2]))',
+      'print(undefined_name)',
+      'lambda: 1',
+      'print(1); print(2)',
+      'print(1)\nprint(2)',
       'print(\u0435val)', // a look-alike letter
-      'x = [e for e in range(3)]; print(e.real)',
       '',
-      'print(1)' + ' '.repeat(2000),
+      'print(1)' + ' + 1'.repeat(100),
     ]) {
       expect(isCalculationOnly(code), code).toBe(false);
     }

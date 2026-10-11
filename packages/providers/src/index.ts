@@ -53,6 +53,11 @@ export interface LLMOptions {
    * otherwise be taken for local Ollama models (e.g. a newly released cloud model).
    */
   provider?: ProviderId;
+  /**
+   * Called with each piece of the reply as it is written, for providers that can stream (Ollama
+   * today). The full text is still returned at the end. Providers that can't stream ignore it.
+   */
+  onToken?: (text: string) => void;
 }
 
 export const PROVIDER_IDS: readonly ProviderId[] = ['ollama', 'openai', 'anthropic', 'google', 'groq', 'openrouter'];
@@ -180,6 +185,39 @@ export interface LLMClientConfig {
   ollamaUrl?: string;
   defaultModel?: string;
   timeoutMs?: number;
+}
+
+/**
+ * Reads Ollama's streamed chat reply: one JSON object per line, each with the next piece of
+ * text. Returns the whole text. An `error` line (the model ran out of memory, say) is thrown.
+ */
+export async function readOllamaStream(body: ReadableStream<Uint8Array>, onToken: (text: string) => void): Promise<string> {
+  const decoder = new TextDecoder();
+  let buffered = '';
+  let text = '';
+  const take = (line: string) => {
+    if (!line.trim()) return;
+    let part: { message?: { content?: string }; error?: string };
+    try {
+      part = JSON.parse(line);
+    } catch {
+      return; // a partial or non-JSON line carries no text
+    }
+    if (part.error) throw new Error(`Ollama error: ${part.error}`);
+    const piece = part.message?.content;
+    if (piece) {
+      text += piece;
+      onToken(piece);
+    }
+  };
+  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+    buffered += decoder.decode(chunk, { stream: true });
+    const lines = buffered.split('\n');
+    buffered = lines.pop() ?? '';
+    lines.forEach(take);
+  }
+  take(buffered + decoder.decode());
+  return text;
 }
 
 // ── Unified LLM Client ──
@@ -448,7 +486,7 @@ export class LLMClient {
       body: JSON.stringify({
         model,
         messages: messages.map(m => ({ role: m.role, content: m.content })),
-        stream: false,
+        stream: Boolean(opts.onToken),
         options: {
           temperature: opts.temperature ?? 0.7,
           num_predict: opts.maxTokens ?? 4096,
@@ -464,6 +502,8 @@ export class LLMClient {
       }
       throw new Error(`Ollama error ${res.status}: ${text}`);
     }
+    if (opts.onToken && res.body) return { text: await readOllamaStream(res.body, opts.onToken), model };
+
     const data = await res.json();
     return {
       text: data.message?.content ?? data.response ?? '',

@@ -662,7 +662,6 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                 >
                   <BrainCircuit className="h-4 w-4" />
                 </Button>
-                <ApprovalModePicker disabled={isLoading} />
               </div>
 
               {isLoading ? (
@@ -689,6 +688,8 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
               )}
             </div>
           </div>
+
+          <ApprovalModePicker disabled={isLoading} />
 
           <div className="flex items-center justify-between gap-3 px-2 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-3 min-w-0">
