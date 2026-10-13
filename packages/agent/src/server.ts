@@ -1005,7 +1005,8 @@ app.post('/api/automations', requireAuth, async (req: AuthRequest, res) => {
       (description !== undefined && (typeof description !== 'string' || description.length > LIMITS.descriptionChars)
         ? `description must be text of at most ${LIMITS.descriptionChars} characters`
         : null) ??
-      validateAutomationInput({ triggerType, triggerConfig, actionType, actionConfig, status });
+      validateAutomationInput({ triggerType, triggerConfig, actionType, actionConfig, status }) ??
+      agentRuns.automationAgentError(actionType, actionConfig, workspaceId);
     if (invalid) {
       res.status(400).json({ error: invalid });
       return;
@@ -1065,7 +1066,11 @@ app.put('/api/automations/:id', requireAuth, async (req: AuthRequest, res) => {
         actionType: updates.actionType ?? existing.actionType,
         actionConfig: updates.actionConfig ?? parseConfig(existing.actionConfig),
         status: updates.status ?? existing.status,
-      });
+      }) ??
+      // Only a newly chosen agent: pausing an automation whose agent was deleted must still work.
+      (updates.actionConfig?.agentId !== undefined && updates.actionConfig.agentId !== parseConfig(existing.actionConfig)?.agentId
+        ? agentRuns.automationAgentError(updates.actionType ?? existing.actionType, updates.actionConfig, existing.workspaceId)
+        : null);
     if (invalid) {
       res.status(400).json({ error: invalid });
       return;
