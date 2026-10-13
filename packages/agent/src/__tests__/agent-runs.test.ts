@@ -514,6 +514,20 @@ describe('choosing an agent', () => {
     }
   });
 
+  it('accepts an automation that runs as an agent of its own workspace, or as no agent', () => {
+    expect(ctx.agentRuns.automationAgentError('agent_task', { agentId: ctx.agent.id }, 'default')).toBeNull();
+    expect(ctx.agentRuns.automationAgentError('agent_task', { prompt: 'x' }, 'default')).toBeNull();
+    expect(ctx.agentRuns.automationAgentError('agent_task', { agentId: '' }, 'default')).toBeNull();
+    expect(ctx.agentRuns.automationAgentError('agent_task', undefined, 'default')).toBeNull();
+    // Only agent tasks run as an agent.
+    expect(ctx.agentRuns.automationAgentError('consolidate_memory', { agentId: 'no-such-agent' }, 'default')).toBeNull();
+  });
+
+  it('refuses an automation that names an unknown agent or one from another workspace', () => {
+    expect(ctx.agentRuns.automationAgentError('agent_task', { agentId: 'no-such-agent' }, 'default')).toMatch(/does not exist/);
+    expect(ctx.agentRuns.automationAgentError('agent_task', { agentId: ctx.agent.id }, 'elsewhere')).toMatch(/does not exist/);
+  });
+
   it('describes an agent to the orchestrator by its name, instructions and tools', () => {
     expect(ctx.agentRuns.personaOf(ctx.agent)).toEqual({ name: 'Shell helper', instructions: 'Run the commands the user asks for.', tools: ['bash', 'read_file', 'write_file'] });
   });

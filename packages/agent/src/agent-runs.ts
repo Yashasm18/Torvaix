@@ -143,6 +143,18 @@ export function createAgentRuns({ store, newOrchestrator, events }: AgentRunDeps
     return agent && agent.workspaceId === workspaceId ? agent : null;
   }
 
+  /**
+   * Why an automation can't run as the agent it names, or null when it can (or names none).
+   * Checked when the automation is saved: otherwise a scheduled run would only fail hours later,
+   * with "the agent for this automation no longer exists" for an agent that never did.
+   */
+  function automationAgentError(actionType: unknown, actionConfig: unknown, workspaceId: string): string | null {
+    if (actionType !== 'agent_task') return null;
+    const agentId = (actionConfig as { agentId?: unknown } | null | undefined)?.agentId;
+    if (agentId === undefined || agentId === null || agentId === '') return null;
+    return resolveAgentForWorkspace(agentId, workspaceId) ? null : 'That agent does not exist in this workspace. Choose one from the Agents page.';
+  }
+
   function createAgentWithinLimit(workspaceId: string, fields: AgentFields): { agent: AgentRecord } | { error: string } {
     if (store.countAgents(workspaceId) >= LIMITS.agentsPerWorkspace) {
       return { error: `A workspace can have at most ${LIMITS.agentsPerWorkspace} agents. Delete one to add another.` };
@@ -225,7 +237,7 @@ export function createAgentRuns({ store, newOrchestrator, events }: AgentRunDeps
     };
   }
 
-  return { personaOf, resolveAgentForWorkspace, createAgentWithinLimit, startRun, hasWaitingRun, resumeRun, settleDecision, taskOfRun };
+  return { personaOf, resolveAgentForWorkspace, automationAgentError, createAgentWithinLimit, startRun, hasWaitingRun, resumeRun, settleDecision, taskOfRun };
 }
 
 export type AgentRuns = ReturnType<typeof createAgentRuns>;
