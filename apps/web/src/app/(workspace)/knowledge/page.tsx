@@ -305,10 +305,11 @@ export default function KnowledgePage() {
               </DialogHeader>
               <form onSubmit={handleAddMemory} className="space-y-4 pt-2">
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
+                  <label htmlFor="memory-content" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
                     Content
                   </label>
                   <textarea
+                    id="memory-content"
                     required
                     rows={4}
                     value={newContent}
@@ -318,10 +319,11 @@ export default function KnowledgePage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
+                  <label htmlFor="memory-source" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
                     Source
                   </label>
                   <input
+                    id="memory-source"
                     type="text"
                     value={newSource}
                     onChange={(e) => setNewSource(e.target.value)}

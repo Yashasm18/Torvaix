@@ -278,10 +278,11 @@ export default function TasksPage() {
 
               <form onSubmit={handleDispatchTask} className="space-y-4 pt-2">
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
+                  <label htmlFor="task-instructions" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
                     Instructions
                   </label>
                   <textarea
+                    id="task-instructions"
                     required
                     rows={4}
                     value={instructions}

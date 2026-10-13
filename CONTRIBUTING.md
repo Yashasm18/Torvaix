@@ -83,6 +83,14 @@ npm run build
 npx tsc --noEmit -p apps/web/tsconfig.json
 ```
 
+### End-to-end tests
+
+`npm run test:e2e` builds the web app, starts it with the agent server on their own ports and data folder, and uses it in Chromium the way people do: chat, approvals, agents, automations, tasks, knowledge, workspaces and settings. A scripted stand-in for Ollama (`e2e/fake-model.mjs`) plays the model, so no model is needed. The first time, install the browser with `npx playwright install chromium`.
+
+- `E2E_SKIP_BUILD=1` reuses the last build.
+- `npx playwright test e2e/chat.spec.ts` runs one file.
+- A failed test leaves a trace in `test-results/`. Open it with `npx playwright show-trace <path>/trace.zip`.
+
 `npm test` starts Vitest in watch mode, which is handy while you work. Put tests next to the code in `__tests__` folders.
 
 ## Making changes

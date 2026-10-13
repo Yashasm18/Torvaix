@@ -40,3 +40,15 @@ export function chatModelState(status: ModelStatusInput | null): ChatModelState 
     ? { ready: true, local, problem: null }
     : { ready: false, local, problem: `${provider?.name ?? status.model.provider} has no API key. Add one in Settings, under Models & keys.` }
 }
+
+/**
+ * The entry in `options` that is the model `id`, or undefined. For Ollama a name without a tag
+ * means `:latest`, the tag `ollama pull llama3.2` installs, so the model in use ("llama3.2")
+ * is the installed "llama3.2:latest". Comparing the names as they are showed the model picker
+ * on "Another model…" for exactly the model the README tells people to pull.
+ */
+export function findListedModel(provider: string, options: string[], id: string): string | undefined {
+  if (provider !== "ollama") return options.find((option) => option === id)
+  const withTag = (name: string) => (name.includes(":") ? name : `${name}:latest`)
+  return options.find((option) => option === id) ?? options.find((option) => withTag(option) === withTag(id))
+}

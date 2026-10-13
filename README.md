@@ -211,6 +211,8 @@ Everything else is set in `.env`. Copy `.env.example` to `.env` in the repositor
 | `AGENT_SERVER_URL` | `http://localhost:<AGENT_PORT>` | Where the web app sends requests for the agent. Only needed when the agent runs on another machine or host name. |
 | `AGENT_ALLOWED_ORIGINS` / `AGENT_ALLOWED_HOSTS` | localhost only | Extra origins or hosts the agent accepts |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` | none | Enable cloud providers (or add the key in Settings) |
+| `TORVAIX_RATE_LIMIT` | `60` | Changes (saves, approvals, new chats) the agent server accepts per minute, shared by everyone using it |
+| `TORVAIX_AGENT_RATE_LIMIT` | `30` | Agent runs (chat replies, tasks, agent runs and model tests) allowed per minute, shared by everyone using this server |
 | `JWT_SECRET` | random at startup | Signs login tokens |
 | `OPENROUTER_REFERER` | `https://torvaix.local` | The `HTTP-Referer` sent with OpenRouter requests |
 | `TORVAIX_SHOW_LANDING` | unset | Set to `1` to see the landing page at `/`. Otherwise `/` opens the chat. Useful when working on that page. |

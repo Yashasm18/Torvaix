@@ -35,6 +35,37 @@ jobs:
     - name: Build project
       run: npm run build
 
+  e2e:
+    # Uses the app in a browser the way people do (chat, approvals, agents, automations, tasks,
+    # knowledge, workspaces, settings), against the real agent server and a scripted model.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22.x
+        cache: 'npm'
+    - name: Install dependencies
+      run: npm ci
+    - name: Install the browser
+      run: npx playwright install --with-deps chromium
+    - name: Build the web app
+      run: npm run build -w web
+    - name: Run the end-to-end tests
+      run: npm run test:e2e
+      env:
+        E2E_SKIP_BUILD: '1'
+    - name: Keep the report and traces
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: e2e-report
+        path: |
+          playwright-report/
+          test-results/
+        retention-days: 14
+
   docker-smoke:
     # Builds the production image and checks that it actually starts and can write to its database.
     runs-on: ubuntu-latest

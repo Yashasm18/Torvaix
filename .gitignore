@@ -51,3 +51,8 @@ BENCHMARKS.md
 # Media/Demo
 media_*.png
 *.gif
+
+# Playwright end-to-end test output
+/test-results/
+/playwright-report/
+/blob-report/

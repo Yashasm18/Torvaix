@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { refreshSystemStatus } from "@/hooks/use-system-status"
 import { NO_RESPONSE, responseError } from "@/lib/api-error"
+import { findListedModel } from "@/lib/model-status"
 
 interface ProviderInfo {
   id: string
@@ -111,7 +112,8 @@ export function ModelSettings() {
   const providerName = (id: string) => (id === OLLAMA ? "Ollama (on this computer)" : data.providers.find((p) => p.id === id)?.name ?? id)
   const options =
     provider === OLLAMA ? installed : data.suggestedModels.filter((m) => m.provider === provider).map((m) => m.id)
-  const isListed = options.includes(model)
+  const listed = findListedModel(provider, options, model)
+  const isListed = listed !== undefined
   const chosenModel = (isListed ? model : customModel || model).trim()
   const unchanged = data.model.source === "saved" && data.model.provider === provider && data.model.id === chosenModel
 
@@ -169,7 +171,7 @@ export function ModelSettings() {
                 id="model-id"
                 className={SELECT_CLASS}
                 disabled={busy !== null}
-                value={isListed ? model : OTHER}
+                value={listed ?? OTHER}
                 onChange={(e) => {
                   setTest(null)
                   if (e.target.value === OTHER) {

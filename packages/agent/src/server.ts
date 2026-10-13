@@ -57,8 +57,10 @@ const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 // service name) accepted besides loopback. See http-security.ts.
 const allowedOrigins = parseList(process.env.AGENT_ALLOWED_ORIGINS, DEFAULT_ALLOWED_ORIGINS);
 const allowedHosts = parseList(process.env.AGENT_ALLOWED_HOSTS, []);
-const RATE_LIMIT_MAX = 60; // requests per window per user
-const AGENT_RATE_LIMIT_MAX = 30; // stricter for agent runs
+// Writes per minute, and the stricter limit on agent runs. The environment can raise them, e.g.
+// for the end-to-end tests, which do far more a minute than a person.
+const RATE_LIMIT_MAX = Number(process.env.TORVAIX_RATE_LIMIT) || 60;
+const AGENT_RATE_LIMIT_MAX = Number(process.env.TORVAIX_AGENT_RATE_LIMIT) || 30;
 
 import os from 'os';
 import fs from 'fs';

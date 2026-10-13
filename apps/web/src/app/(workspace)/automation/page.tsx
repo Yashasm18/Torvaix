@@ -346,6 +346,8 @@ export default function AutomationPage() {
           status: data.log.status,
         });
         fetchAutomations();
+        // Opened while the run was going, the history would still say it hasn't run.
+        if (logsFor.current === automation.id) loadLogs(automation.id);
       } else {
         setLastExecutionResult({
           id: automation.id,
@@ -361,21 +363,32 @@ export default function AutomationPage() {
     }
   };
 
-  const handleOpenLogs = async (automation: Automation) => {
-    setSelectedWorkflowForLogs(automation);
+  // Which automation's history is open, read by requests that finish later.
+  const logsFor = useRef<string | null>(null);
+  const closeLogs = () => {
+    logsFor.current = null;
+    setSelectedWorkflowForLogs(null);
+  };
+
+  const loadLogs = async (automationId: string) => {
     try {
-      setLogsLoading(true);
-      setLogs([]); // not the previous automation's runs while these load
-      const res = await fetch(`/api/automations/${automation.id}/logs?limit=25`);
-      if (res.ok) {
+      const res = await fetch(`/api/automations/${automationId}/logs?limit=25`);
+      if (res.ok && logsFor.current === automationId) {
         const data = await res.json();
         setLogs(data.logs || []);
       }
     } catch (err) {
       console.error("Failed to fetch logs:", err);
-    } finally {
-      setLogsLoading(false);
     }
+  };
+
+  const handleOpenLogs = async (automation: Automation) => {
+    setSelectedWorkflowForLogs(automation);
+    logsFor.current = automation.id;
+    setLogsLoading(true);
+    setLogs([]); // not the previous automation's runs while these load
+    await loadLogs(automation.id);
+    if (logsFor.current === automation.id) setLogsLoading(false);
   };
 
   const handleCreateAutomation = async (e: React.FormEvent) => {
@@ -516,8 +529,9 @@ export default function AutomationPage() {
 
                 <form onSubmit={handleCreateAutomation} className="space-y-4 pt-2">
                   <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Name</label>
+                    <label htmlFor="automation-name" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Name</label>
                     <input
+                      id="automation-name"
                       type="text"
                       required
                       placeholder="e.g. Weekly summary"
@@ -528,8 +542,9 @@ export default function AutomationPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</label>
+                    <label htmlFor="automation-description" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</label>
                     <textarea
+                      id="automation-description"
                       placeholder="What is this automation for?"
                       value={newDescription}
                       onChange={e => setNewDescription(e.target.value)}
@@ -540,8 +555,9 @@ export default function AutomationPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">When it runs</label>
+                      <label htmlFor="automation-trigger" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">When it runs</label>
                       <select
+                        id="automation-trigger"
                         value={newTriggerType}
                         onChange={e => setNewTriggerType(e.target.value as any)}
                         className="w-full mt-1.5 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
@@ -553,8 +569,9 @@ export default function AutomationPage() {
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">What it does</label>
+                      <label htmlFor="automation-action" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">What it does</label>
                       <select
+                        id="automation-action"
                         value={newActionType}
                         onChange={e => setNewActionType(e.target.value as any)}
                         className="w-full mt-1.5 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
@@ -592,8 +609,9 @@ export default function AutomationPage() {
 
                       {newScheduleFreq === "interval" && (
                         <div>
-                          <label className="text-xs text-muted-foreground">Interval (minutes)</label>
+                          <label htmlFor="automation-interval" className="text-xs text-muted-foreground">Interval (minutes)</label>
                           <input
+                            id="automation-interval"
                             type="number"
                             min={1}
                             max={10080}
@@ -606,8 +624,9 @@ export default function AutomationPage() {
 
                       {newScheduleFreq === "weekly" && (
                         <div>
-                          <label className="text-xs text-muted-foreground">Day of week</label>
+                          <label htmlFor="automation-weekday" className="text-xs text-muted-foreground">Day of week</label>
                           <select
+                            id="automation-weekday"
                             value={newDayOfWeek}
                             onChange={e => setNewDayOfWeek(Number(e.target.value))}
                             className="w-full mt-1 px-3 py-1.5 bg-background border border-border rounded-md text-sm text-foreground"
@@ -621,8 +640,9 @@ export default function AutomationPage() {
 
                       {(newScheduleFreq === "daily" || newScheduleFreq === "weekly") && (
                         <div>
-                          <label className="text-xs text-muted-foreground">Time</label>
+                          <label htmlFor="automation-time" className="text-xs text-muted-foreground">Time</label>
                           <input
+                            id="automation-time"
                             type="time"
                             value={newTimeOfDay}
                             onChange={e => setNewTimeOfDay(e.target.value)}
@@ -636,8 +656,9 @@ export default function AutomationPage() {
                   {newTriggerType === "event" && (
                     <div className="p-3.5 rounded-lg border border-border/60 bg-background/50 space-y-3">
                       <div>
-                        <label className="text-xs font-medium text-muted-foreground">Event</label>
+                        <label htmlFor="automation-event" className="text-xs font-medium text-muted-foreground">Event</label>
                         <select
+                          id="automation-event"
                           value={newEventName}
                           onChange={e => setNewEventName(e.target.value)}
                           className="w-full mt-1.5 px-3 py-1.5 bg-background border border-border rounded-md text-sm text-foreground"
@@ -652,8 +673,9 @@ export default function AutomationPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="text-xs font-medium text-muted-foreground">Only when it contains (optional)</label>
+                        <label htmlFor="automation-filter" className="text-xs font-medium text-muted-foreground">Only when it contains (optional)</label>
                         <input
+                          id="automation-filter"
                           type="text"
                           placeholder="e.g., React, TypeScript, Architecture"
                           value={newFilterPattern}
@@ -691,8 +713,9 @@ export default function AutomationPage() {
                   {/* Agent Task prompt input */}
                   {newActionType === "agent_task" && (
                     <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Instructions for the agent</label>
+                      <label htmlFor="automation-prompt" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Instructions for the agent</label>
                       <textarea
+                        id="automation-prompt"
                         required
                         placeholder="What should the agent do each time this runs?"
                         value={newPrompt}
@@ -1033,7 +1056,7 @@ export default function AutomationPage() {
       </div>
 
       {/* Execution Logs Drawer / Modal */}
-      <Dialog open={!!selectedWorkflowForLogs} onOpenChange={open => !open && setSelectedWorkflowForLogs(null)}>
+      <Dialog open={!!selectedWorkflowForLogs} onOpenChange={open => !open && closeLogs()}>
         <DialogContent className="sm:max-w-2xl bg-surface border-border max-h-[85vh] flex flex-col">
           <DialogHeader>
             <div className="flex items-center gap-2">
