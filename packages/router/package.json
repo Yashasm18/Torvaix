@@ -6,5 +6,8 @@
   "dependencies": {
     "@torvaix/types": "*",
     "@torvaix/providers": "*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
   }
 }
