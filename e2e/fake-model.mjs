@@ -78,9 +78,9 @@ export function reply(messages) {
     const task = prompt.match(/Current task: "([\s\S]*?)"\n/)?.[1] ?? '';
     return step(task, historyOf(prompt));
   }
-  const memories = prompt.match(/I retrieved the following memories:\n([\s\S]*?)\n\nSynthesize/);
+  const memories = prompt.match(/\n\nSaved memories:\n([\s\S]*)$/);
   if (memories) {
-    const first = memories[1].split('\n')[0].replace(/^\[Score: [^\]]*\]\s*/, '');
+    const first = memories[1].split('\n')[0].replace(/^- /, '').replace(/ \(saved \d{4}-\d{2}-\d{2}\)$/, '');
     return `From your memories: ${first}`;
   }
   const asked = prompt.match(/The user asked: "([\s\S]*?)"/)?.[1];

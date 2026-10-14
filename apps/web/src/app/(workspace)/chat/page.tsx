@@ -13,7 +13,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Send, User, Loader2, Shield, Search, Database, BookOpen, CheckCircle2, Paperclip, BrainCircuit, Terminal, ChevronDown, Cpu, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X } from "lucide-react";
+import { Send, User, Loader2, Shield, Search, Database, FilePlus, CheckCircle2, Paperclip, BrainCircuit, Terminal, ChevronDown, Cpu, Plus, Trash2, Square, AlertCircle, RotateCcw, Check, X, Copy, ChevronRight } from "lucide-react";
 import { useActiveWorkspace } from "@/hooks/use-active-workspace";
 import { chatModelState } from '@/lib/model-status';
 import { useSystemStatus } from "@/hooks/use-system-status";
@@ -250,6 +250,18 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     []
   );
 
+  // Ask again for the last reply. Not after an approval: that would replay the approval.
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+  const canRegenerate = !isLoading && Boolean(lastUser) && !lastUser!.content.includes(ACTION_MARKER);
+  const reloadRef = useRef(reload);
+  useEffect(() => {
+    reloadRef.current = reload;
+  });
+  const regenerate = useCallback(() => {
+    setNotice(null);
+    reloadRef.current();
+  }, []);
+
   const attachFile = async (file: File) => {
     const isText = file.type.startsWith('text/') || /json|xml|javascript|typescript|yaml|x-sh/.test(file.type) || TEXT_FILE.test(file.name);
     if (!isText) {
@@ -318,7 +330,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     { icon: BrainCircuit, text: "What do you remember?", hint: "Recall saved memories", command: "What do you remember about me?" },
     { icon: Search, text: "Search the web", hint: "Live results", command: "Search the web for the latest news about local AI models" },
     { icon: Terminal, text: "List workspace files", hint: "Runs after you approve", command: "List the files in this workspace folder" },
-    { icon: BookOpen, text: "Create a file", hint: "Written to the workspace", command: "Create a file named notes.md with a short to-do list" },
+    { icon: FilePlus, text: "Create a file", hint: "Written to the workspace", command: "Create a file named notes.md with a short to-do list" },
     { icon: Cpu, text: "Summarise this repo", hint: "Scans the workspace folder", command: "Scan this repo and summarise its structure" },
   ];
 
@@ -492,6 +504,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                   hasAnswerDetails={Boolean(turnsByMessage[message.id])}
                   workspaceId={workspaceId}
                   onResolve={resolveActionStable}
+                  onRegenerate={index === messages.length - 1 && canRegenerate ? regenerate : undefined}
                 />
               )
             ))}
@@ -557,7 +570,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
             <Textarea
               value={input}
               onChange={handleInputChange}
-              placeholder={`Ask ${agentName === REMEMBERED_AGENT_NAME ? 'your agent' : agentName}...`}
+              placeholder={isLoading ? 'Type your next message while Torvaix replies…' : `Ask ${agentName === REMEMBERED_AGENT_NAME ? 'your agent' : agentName}...`}
               aria-label="Message"
               ref={messageBox}
               className="flex-1 min-h-[60px] max-h-48 resize-none bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 px-2 py-2"
@@ -567,7 +580,6 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                   if (input.trim() && !isLoading) handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
                 }
               }}
-              disabled={isLoading}
             />
 
             {/* Input Toolbar */}
@@ -601,8 +613,8 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                   size="icon"
                   onClick={() => setMemoryOpen(true)}
                   className="h-8 w-8 text-muted-foreground hover:text-purple-400 transition-colors"
-                  title="Context & Memory"
-                  aria-label="Context & Memory"
+                  title="What Torvaix remembers"
+                  aria-label="What Torvaix remembers"
                 >
                   <BrainCircuit className="h-4 w-4" />
                 </Button>
@@ -665,6 +677,7 @@ const ChatMessage = memo(function ChatMessage({
   hasAnswerDetails,
   workspaceId,
   onResolve,
+  onRegenerate,
 }: {
   message: Message;
   isLast: boolean;
@@ -674,6 +687,8 @@ const ChatMessage = memo(function ChatMessage({
   hasAnswerDetails: boolean;
   workspaceId: string;
   onResolve: (pendingId: string, status: 'approved' | 'rejected') => Promise<boolean>;
+  /** Set on the last reply when it can be asked for again. */
+  onRegenerate?: () => void;
 }) {
   return (
     <motion.div
@@ -701,34 +716,7 @@ const ChatMessage = memo(function ChatMessage({
             {message.toolInvocations && message.toolInvocations.length > 0 && (
               <div className="flex flex-col gap-3 w-full font-mono text-sm">
                 {message.toolInvocations.map((tool) => (
-                  <div key={tool.toolCallId} className="bg-background border border-border rounded-lg p-4 text-muted-foreground relative overflow-hidden">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary/50" />
-                    <div className="flex items-center gap-2 mb-2">
-                      {tool.state === 'result' ? (
-                        toolFailed(tool) ? <AlertCircle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-primary" />
-                      ) : (
-                        <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                      )}
-                      <span className={tool.state === 'result' ? 'text-foreground font-semibold' : 'text-primary font-semibold'}>
-                        {tool.state !== 'result' ? `Running ${tool.toolName}` : toolFailed(tool) ? `${tool.toolName} failed` : `Ran ${tool.toolName}`}
-                      </span>
-                    </div>
-                    <div className="pl-6 pt-2 pb-1 overflow-x-auto whitespace-pre">
-                      {tool.toolName === 'bash' ? `> ${tool.args?.command}` :
-                       tool.toolName === 'python' ? `> python script` :
-                       tool.toolName === 'read_file' ? `> cat ${tool.args?.filePath}` :
-                       tool.toolName === 'web_search' ? `> search "${tool.args?.query}"` :
-                       tool.toolName === 'repo_scan' ? `> scan the workspace folder` :
-                       JSON.stringify(tool.args)}
-
-                      {tool.state === 'result' && tool.result && tool.result.output && (
-                        <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
-                          {String(tool.result.output).substring(0, TOOL_OUTPUT_PREVIEW)}
-                          {String(tool.result.output).length > TOOL_OUTPUT_PREVIEW && '... [output truncated]'}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <ToolCard key={tool.toolCallId} tool={tool} />
                 ))}
               </div>
             )}
@@ -765,18 +753,33 @@ const ChatMessage = memo(function ChatMessage({
                 return (
                   <>
                     {!repeatsOutput && <MarkdownMessage content={message.content} />}
-                    {hasAnswerDetails && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const store = useAnswerDetailsStore.getState();
-                          store.select(message.id);
-                          store.requestOpen();
-                        }}
-                        className="self-start text-xs text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        How I answered
-                      </button>
+                    {!busy && (
+                      <div className="flex items-center gap-1 -mb-2 -ml-2 text-xs text-muted-foreground">
+                        <CopyButton text={message.content} />
+                        {onRegenerate && (
+                          <button
+                            type="button"
+                            onClick={onRegenerate}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-muted hover:text-foreground transition-colors"
+                            title="Ask for this reply again"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" /> Regenerate
+                          </button>
+                        )}
+                        {hasAnswerDetails && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const store = useAnswerDetailsStore.getState();
+                              store.select(message.id);
+                              store.requestOpen();
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-muted hover:text-primary transition-colors"
+                          >
+                            How I answered
+                          </button>
+                        )}
+                      </div>
                     )}
                   </>
                 );
@@ -795,3 +798,87 @@ const ChatMessage = memo(function ChatMessage({
     </motion.div>
   );
 });
+
+/** Copies a reply's text, and says so for a moment. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* the clipboard is unavailable (an insecure page or a denied permission) */
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-muted hover:text-foreground transition-colors"
+      aria-label={copied ? "Copied" : "Copy reply"}
+      title="Copy reply"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
+
+/** What a tool call did, in the words of a terminal line. */
+function toolCommand(tool: ToolInvocation): string {
+  const args = (tool.args ?? {}) as Record<string, unknown>;
+  switch (tool.toolName) {
+    case 'bash': return `> ${args.command}`;
+    case 'python': return '> python script';
+    case 'read_file': return `> cat ${args.filePath}`;
+    case 'write_file': return `> write ${args.filePath}`;
+    case 'web_search': return `> search "${args.query}"`;
+    case 'repo_scan': return '> scan the workspace folder';
+    default: return JSON.stringify(args);
+  }
+}
+
+/** One tool call: what ran and its output. Long output can be opened in full. */
+function ToolCard({ tool }: { tool: ToolInvocation }) {
+  const [expanded, setExpanded] = useState(false);
+  const failed = toolFailed(tool);
+  const output = tool.state === 'result' ? String((tool.result as { output?: unknown } | undefined)?.output ?? '') : '';
+  const long = output.length > TOOL_OUTPUT_PREVIEW;
+  return (
+    <div className="bg-background border border-border rounded-lg p-4 text-muted-foreground relative overflow-hidden">
+      <div className={`absolute left-0 top-0 bottom-0 w-1 ${failed ? 'bg-red-500/60' : 'bg-primary/50'}`} />
+      <div className="flex items-center gap-2 mb-2">
+        {tool.state === 'result' ? (
+          failed ? <AlertCircle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-primary" />
+        ) : (
+          <Loader2 className="w-4 h-4 text-primary animate-spin" />
+        )}
+        <span className={tool.state === 'result' ? 'text-foreground font-semibold' : 'text-primary font-semibold'}>
+          {tool.state !== 'result' ? `Running ${tool.toolName}` : failed ? `${tool.toolName} failed` : `Ran ${tool.toolName}`}
+        </span>
+      </div>
+      <div className="pl-6 pt-2 pb-1 overflow-x-auto whitespace-pre">
+        {toolCommand(tool)}
+        {output && (
+          <div className={`mt-3 pt-3 border-t border-border text-xs text-muted-foreground ${expanded ? 'max-h-96 overflow-y-auto' : ''}`}>
+            {expanded || !long ? output : `${output.substring(0, TOOL_OUTPUT_PREVIEW)}…`}
+          </div>
+        )}
+      </div>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="ml-6 mt-2 inline-flex items-center gap-1 font-sans text-xs text-primary hover:underline underline-offset-2"
+        >
+          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+          {expanded ? 'Show less' : `Show all output (${output.length.toLocaleString()} characters)`}
+        </button>
+      )}
+    </div>
+  );
+}

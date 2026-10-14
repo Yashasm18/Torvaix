@@ -35,6 +35,20 @@ Core identity rules:
 - You can read files, write files, search, reason, remember, and execute tasks.
 - You are built for developers and knowledge workers who value privacy and control.`;
 
+/**
+ * Today's date for the system prompt. Without it a model answers "what's the date", "this year"
+ * or "how long ago" from its training data. Uses the server's own clock and time zone.
+ */
+export function todayLine(now = new Date()): string {
+  const date = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return `Today is ${date}.`;
+}
+
+/** How chat replies should look: the app renders Markdown. */
+const REPLY_STYLE =
+  'Format replies in Markdown: lead with the answer, keep paragraphs short, use lists or tables only ' +
+  'where they help, and put code in fenced blocks with a language tag.';
+
 /** An agent the user set up: its own instructions and the only tools it may use. */
 export interface AgentPersona {
   name: string;
@@ -75,6 +89,8 @@ export interface KnowledgePulseData {
   relationships: { source: string; relation: string; target: string; confidence?: number }[];
   graphActivity: { nodesAdded: number; relationshipsAdded: number; updated: boolean };
   agentSteps: string[];
+  /** Why the turn failed, when it did (the model was unreachable, a step errored). */
+  error?: string | null;
 }
 
 export interface AgentState {
@@ -225,6 +241,18 @@ export class AgentOrchestrator {
    */
   private progress(label: string, detail?: string): void {
     this.emit?.(`2:${JSON.stringify([{ torvaixProgress: { runId: this.runId, label, ...(detail ? { detail: detail.slice(0, 300) } : {}) } }])}\n`);
+  }
+
+  /**
+   * Sends the reply to the chat as it is written. A local model takes a while to finish a long
+   * answer, and showing nothing until the end made every reply feel slow.
+   */
+  private streamReply(state: AgentState): ((piece: string) => void) | undefined {
+    if (!this.emit) return undefined;
+    return (piece: string) => {
+      state.streamedReply = true;
+      this.emit!(`0:${JSON.stringify(piece)}\n`);
+    };
   }
 
   // ── LLM Helper ──
@@ -436,22 +464,36 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       }));
 
       const hit = results.length > 0;
+      // Most relevant first, each with the day it was saved, so "when did I…" and conflicting
+      // memories (an older and a newer preference) can be answered.
       const context = hit
-        ? results.map(r => `[Score: ${r.score.toFixed(2)}] ${r.content}`).join('\n')
-        : 'No relevant memories found.';
+        ? results.map(r => `- ${r.content}${r.createdAt ? ` (saved ${r.createdAt.slice(0, 10)})` : ''}`).join('\n')
+        : 'No saved memories match this question.';
 
+      // The conversation so far, so a follow-up ("and the other one?") makes sense.
+      const history = this.trimMessages(state.messages.filter(m => m.role === 'user' || m.role === 'assistant'));
       const messages: LLMMessage[] = [
-        { role: 'system', content: `${TORVAIX_SYSTEM_PROMPT}\n\nYou have access to the user's persistent memory store. Use retrieved memories to give personalized, context-aware answers.${this.personaPrompt()}` },
-        { role: 'user', content: `The user asked: "${state.instructions}"\n\nI retrieved the following memories:\n${context}\n\nSynthesize a helpful answer.` },
+        {
+          role: 'system',
+          content:
+            `${TORVAIX_SYSTEM_PROMPT}\n${todayLine()}\n\n` +
+            `You have access to the user's persistent memory store. Answer from the saved memories below. ` +
+            `If two memories disagree, prefer the newer one. If none of them answers the question, say so plainly ` +
+            `and suggest the user tells you, rather than guessing. ${REPLY_STYLE}${this.personaPrompt()}`,
+        },
+        ...history,
+        { role: 'user', content: `${state.instructions}\n\nSaved memories:\n${context}` },
       ];
       (messages as any).__trace = state.trace;
 
-      const res = await this.callLLM(messages);
-      state.output = res.text;
+      const res = await this.callLLM(messages, { onToken: this.streamReply(state) });
+      state.output = res.text.trim() || (hit ? results.map(r => `- ${r.content}`).join('\n') : "I don't have anything saved about that yet.");
+      if (!res.text.trim()) state.streamedReply = false;
       state.nextNode = 'end';
       endTrace({ hit, resultCount: results.length, topScore: results[0]?.score });
     } catch (e: any) {
-      state.output = `Memory Error: ${e.message}`;
+      state.output = `I couldn't look through your memories: ${e.message}`;
+      if (state.streamedReply) this.emit!(`0:${JSON.stringify(`\n\n${state.output}`)}\n`);
       state.error = state.output;
       state.nextNode = 'end';
       endTrace({ hit: false, error: e.message });
@@ -517,33 +559,25 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       {
         role: 'system',
         content:
-          `${TORVAIX_SYSTEM_PROMPT}\n\n` +
+          `${TORVAIX_SYSTEM_PROMPT}\n${todayLine()}\n\n` +
           `You are in a normal conversation with the user. Answer their question or request directly, ` +
           `clearly, and helpfully in natural language. Do NOT output JSON, tool calls, or apologies about ` +
           `missing memory. If the message is vague, give your best helpful answer and, if truly needed, ask ` +
-          `one short clarifying question.${memoryContext}${this.personaPrompt()}`,
+          `one short clarifying question. If you are not sure of a fact, say so instead of guessing. ` +
+          `${REPLY_STYLE}${memoryContext}${this.personaPrompt()}`,
       },
       ...history,
       { role: 'user', content: state.instructions },
     ];
     (messages as any).__trace = state.trace;
 
-    // Send the reply to the chat as it is written. A local model takes a while to finish a long
-    // answer, and showing nothing until the end made every reply feel slow.
-    const onToken = this.emit
-      ? (piece: string) => {
-          state.streamedReply = true;
-          this.emit!(`0:${JSON.stringify(piece)}\n`);
-        }
-      : undefined;
-
     try {
-      const res = await this.callLLM(messages, { temperature: 0.6, onToken });
+      const res = await this.callLLM(messages, { temperature: 0.6, onToken: this.streamReply(state) });
       state.output = res.text.trim() || "Could you tell me a bit more about what you'd like help with?";
       if (!res.text.trim()) state.streamedReply = false;
       endTrace({ memHit });
     } catch (e: any) {
-      state.output = `I hit an error while thinking that through: ${e.message}`;
+      state.output = `Couldn't get an answer from the model: ${e.message}`;
       // Part of a reply may already be on screen; the error then goes under it.
       if (state.streamedReply) this.emit!(`0:${JSON.stringify(`\n\n${state.output}`)}\n`);
       state.error = state.output;
@@ -594,7 +628,7 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
       state.nextNode = 'end';
       endTrace({ stored: true, enriched: !!intel });
     } catch (e: any) {
-      state.output = `Knowledge Error: ${e.message}`;
+      state.output = `Couldn't save that to memory: ${e.message}`;
       state.error = state.output;
       state.nextNode = 'end';
       endTrace({ stored: false, error: e.message });
@@ -852,7 +886,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       const res = await this.callLLM(messages, { json: true });
       rawResponse = stripThinking(res.text);
     } catch (err: any) {
-      state.output = `LLM Error: ${err.message}`;
+      state.output = `Couldn't get an answer from the model: ${err.message}`;
       state.error = state.output;
       state.nextNode = 'end';
       endTrace({ error: err.message });
@@ -1165,6 +1199,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         .sort((a, b) => a.startedAt - b.startedAt || a.index - b.index)
         .map(({ e }) => ({ phase: e.phase, action: e.action, durationMs: e.durationMs }));
       state.pulse.totalMs = trace.getTotalDurationMs();
+      state.pulse.error = state.error ?? null;
 
       if (onStreamChunk) {
         const traceJson = trace.serialize(state.iteration);

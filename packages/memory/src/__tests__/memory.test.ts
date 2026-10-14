@@ -539,6 +539,15 @@ describe('MemoryStore — Automation Workflows & Logs', () => {
     expect(seeded.find(s => s.name === 'Daily research digest')?.status).toBe('paused');
   });
 
+  it('seeds the starter automations only once, so deleting them all sticks', () => {
+    const wsId = store.createWorkspace('Seed once WS');
+    store.seedDefaultAutomations(wsId);
+    for (const a of store.listAutomations(wsId)) store.deleteAutomation(a.id);
+
+    store.seedDefaultAutomations(wsId);
+    expect(store.listAutomations(wsId)).toHaveLength(0);
+  });
+
   it('renames untouched legacy default automations and leaves edited ones alone', () => {
     const wsId = store.createWorkspace('Legacy WS');
     const untouched = store.createAutomation({

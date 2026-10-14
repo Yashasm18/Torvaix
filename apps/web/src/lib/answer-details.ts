@@ -36,6 +36,8 @@ export interface AnswerTurn {
   savedUndone: boolean
   awaitingApproval: string | null
   steps: TurnStep[]
+  /** Why the turn failed, or null. Older agent servers don't send it. */
+  error?: string | null
   entities: { text: string; type: string }[]
   relationships: { source: string; relation: string; target: string }[]
 }
@@ -80,6 +82,7 @@ export function normalizeTurn(raw: unknown): AnswerTurn | null {
         action: s.action as string,
         durationMs: typeof s.durationMs === "number" ? s.durationMs : undefined,
       })),
+    error: typeof r.error === "string" && r.error ? r.error : null,
     entities: asArray(r.detectedEntities)
       .filter((e) => typeof e.text === "string")
       .map((e) => ({ text: e.text as string, type: typeof e.type === "string" ? e.type : "" })),
@@ -100,6 +103,7 @@ export function toolsUsed(turn: AnswerTurn): string[] {
 /** One sentence saying what the answer was based on. */
 export function summarizeTurn(turn: AnswerTurn): string {
   if (turn.awaitingApproval) return `Waiting for your approval to run ${turn.awaitingApproval}.`
+  if (turn.error) return "Something went wrong before an answer was ready. The reply says what."
 
   const memories = turn.retrievedMemories.length
   switch (turn.route) {

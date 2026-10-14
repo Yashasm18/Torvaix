@@ -38,7 +38,6 @@ import { useDBStore } from "@/store/db-store"
 import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { SettingsDialog } from "../settings/settings-dialog"
 import { CreateWorkspaceDialog } from "./create-workspace-dialog"
-import { MemoryModal } from "../chat/memory-modal"
 import { chatModelState } from "@/lib/model-status"
 import { useSystemStatus } from "@/hooks/use-system-status"
 import {
@@ -67,7 +66,6 @@ export function AppSidebar() {
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = React.useState(false)
   const { workspace: activeWorkspace, workspaceId } = useActiveWorkspace()
   const [settingsOpen, setSettingsOpen] = React.useState(false)
-  const [memoryOpen, setMemoryOpen] = React.useState(false)
 
   const systemStatus = useSystemStatus()
   const chatModel = systemStatus?.model
@@ -112,7 +110,7 @@ export function AppSidebar() {
 
   const handleCreateWorkspace = () => setCreateWorkspaceOpen(true)
 
-  // Handle Command Palette trigger (we will implement global listener later)
+  // The page switcher listens for ⌘K (components/command-palette.tsx).
   const openCommandPalette = () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
   }
@@ -184,24 +182,22 @@ export function AppSidebar() {
             <SidebarMenu className="gap-1">
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <Link href={item.href} className="w-full">
-                    <SidebarMenuButton
-                      tooltip={item.title}
-                      isActive={isActiveRoute(pathname, item.href)}
-                      aria-current={isActiveRoute(pathname, item.href) ? "page" : undefined}
-                      className="flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium"
-                    >
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </SidebarMenuButton>
-                  </Link>
+                  <SidebarMenuButton
+                    render={<Link href={item.href} />}
+                    tooltip={item.title}
+                    isActive={isActiveRoute(pathname, item.href)}
+                    aria-current={isActiveRoute(pathname, item.href) ? "page" : undefined}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium"
+                  >
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.title}</span>
+                  </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
 
-          {/* Debug Tools (Phase 2A Verification) */}
           <SidebarGroup>
             <SidebarGroupLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">
               Developer tools
@@ -209,20 +205,28 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <Link href="/debug/memory" className="w-full">
-                    <SidebarMenuButton tooltip={PAGE_TITLES["/debug/memory"]} isActive={isActiveRoute(pathname, "/debug/memory")} className="data-[active=true]:bg-primary/10 data-[active=true]:text-primary">
-                      <Database className="w-4 h-4" />
-                      <span>{PAGE_TITLES["/debug/memory"]}</span>
-                    </SidebarMenuButton>
-                  </Link>
+                  <SidebarMenuButton
+                    render={<Link href="/debug/memory" />}
+                    tooltip={PAGE_TITLES["/debug/memory"]}
+                    isActive={isActiveRoute(pathname, "/debug/memory")}
+                    aria-current={isActiveRoute(pathname, "/debug/memory") ? "page" : undefined}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium"
+                  >
+                    <Database className="h-4 w-4" />
+                    <span>{PAGE_TITLES["/debug/memory"]}</span>
+                  </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <Link href="/debug/context" className="w-full">
-                    <SidebarMenuButton tooltip={PAGE_TITLES["/debug/context"]} isActive={isActiveRoute(pathname, "/debug/context")} className="data-[active=true]:bg-primary/10 data-[active=true]:text-primary">
-                      <Activity className="w-4 h-4" />
-                      <span>{PAGE_TITLES["/debug/context"]}</span>
-                    </SidebarMenuButton>
-                  </Link>
+                  <SidebarMenuButton
+                    render={<Link href="/debug/context" />}
+                    tooltip={PAGE_TITLES["/debug/context"]}
+                    isActive={isActiveRoute(pathname, "/debug/context")}
+                    aria-current={isActiveRoute(pathname, "/debug/context") ? "page" : undefined}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:font-medium"
+                  >
+                    <Activity className="h-4 w-4" />
+                    <span>{PAGE_TITLES["/debug/context"]}</span>
+                  </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
@@ -278,7 +282,6 @@ export function AppSidebar() {
 
         <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
         <CreateWorkspaceDialog open={createWorkspaceOpen} onOpenChange={setCreateWorkspaceOpen} />
-        <MemoryModal open={memoryOpen} onOpenChange={setMemoryOpen} />
       </SidebarFooter>
     </Sidebar>
   )

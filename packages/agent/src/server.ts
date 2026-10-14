@@ -645,6 +645,9 @@ app.post('/api/workspaces', requireAuth, (req: AuthRequest, res) => {
     }
 
     const createdId = memoryStore.createWorkspace(name, settings, id);
+    // Seeded now rather than when the Automations page is first opened, so the knowledge-graph
+    // automation links memories saved before then, and the counts are right from the start.
+    memoryStore.seedDefaultAutomations(createdId);
     res.status(201).json({ success: true, id: createdId });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to create workspace' });
@@ -1032,6 +1035,7 @@ app.post('/api/automations', requireAuth, async (req: AuthRequest, res) => {
 app.get('/api/automations/stats', requireAuth, async (req: AuthRequest, res) => {
   try {
     const workspaceId = (req.query.workspaceId as string) || 'default';
+    memoryStore.seedDefaultAutomations(workspaceId);
     const stats = memoryStore.getAutomationStats(workspaceId);
     res.json({ success: true, stats });
   } catch (error: any) {

@@ -46,7 +46,11 @@ export default function MemoryDebugPage() {
 
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [searchResults, setSearchResults] = useState<QueryResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Which request is running, so only its button shows a spinner.
+  const [busy, setBusy] = useState<"load" | "store" | "search" | "update" | "delete" | null>(null);
+  const loading = busy !== null;
+  /** The query of the last search, or null before the first one. */
+  const [searchedFor, setSearchedFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Form states
@@ -59,8 +63,8 @@ export default function MemoryDebugPage() {
   const [updateContent, setUpdateContent] = useState("");
 
   /** Run a request with the shared loading/error state; returns false when it failed. */
-  const run = useCallback(async (task: () => Promise<void>) => {
-    setLoading(true);
+  const run = useCallback(async (task: () => Promise<void>, kind: NonNullable<typeof busy> = "load") => {
+    setBusy(kind);
     try {
       await task();
       setError(null);
@@ -69,7 +73,7 @@ export default function MemoryDebugPage() {
       setError(e.message || "Request failed");
       return false;
     } finally {
-      setLoading(false);
+      setBusy(null);
     }
   }, []);
 
@@ -85,13 +89,15 @@ export default function MemoryDebugPage() {
     // Rows and search results belong to the workspace they were loaded for.
     setMemories([]);
     setSearchResults([]);
+    setSearchedFor(null);
     loadAllMemories();
   }, [loadAllMemories]);
 
   const handleStore = async (e: React.FormEvent) => {
     e.preventDefault();
     const ok = await run(() =>
-      requestJson("/api/memory", jsonInit("POST", { workspaceId, content: storeContent, source: storeSource || "Memory Inspector" }))
+      requestJson("/api/memory", jsonInit("POST", { workspaceId, content: storeContent, source: storeSource || "Memory Inspector" })),
+      "store"
     );
     if (ok) {
       setStoreContent("");
@@ -105,11 +111,13 @@ export default function MemoryDebugPage() {
     await run(async () => {
       const data = await requestJson("/api/memory/query", jsonInit("POST", { workspaceId, query: searchQuery, topK: 5, record: false }));
       setSearchResults(data.results ?? []);
-    });
+      setSearchedFor(searchQuery.trim());
+    }, "search");
   };
 
   const handleDelete = async (id: string) => {
-    if (await run(() => requestJson(`/api/memory/${encodeURIComponent(id)}`, { method: "DELETE" }))) {
+    if (!window.confirm("Delete this memory? This can't be undone.")) return;
+    if (await run(() => requestJson(`/api/memory/${encodeURIComponent(id)}`, { method: "DELETE" }), "delete")) {
       await loadAllMemories();
     }
   };
@@ -117,7 +125,8 @@ export default function MemoryDebugPage() {
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     const ok = await run(() =>
-      requestJson(`/api/memory/${encodeURIComponent(updateId.trim())}`, jsonInit("PUT", { content: updateContent }))
+      requestJson(`/api/memory/${encodeURIComponent(updateId.trim())}`, jsonInit("PUT", { content: updateContent })),
+      "update"
     );
     if (ok) {
       setUpdateId("");
@@ -155,6 +164,7 @@ export default function MemoryDebugPage() {
             <form onSubmit={handleStore} className="space-y-4">
               <Textarea
                 placeholder="What should be remembered?"
+                aria-label="Memory to store"
                 value={storeContent}
                 onChange={e => setStoreContent(e.target.value)}
                 required
@@ -162,12 +172,13 @@ export default function MemoryDebugPage() {
               />
               <Input
                 placeholder="Source (optional), e.g. Meeting notes"
+                aria-label="Source"
                 value={storeSource}
                 onChange={e => setStoreSource(e.target.value)}
                 className="bg-background border-border"
               />
               <Button type="submit" disabled={loading || !workspaceId} className="w-full">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Store"}
+                {busy === "store" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Store"}
               </Button>
             </form>
           </div>
@@ -180,15 +191,20 @@ export default function MemoryDebugPage() {
             <form onSubmit={handleSearch} className="space-y-4">
               <Input
                 placeholder="Search for…"
+                aria-label="Search for"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 required
                 className="bg-background border-border"
               />
               <Button type="submit" variant="secondary" disabled={loading || !workspaceId} className="w-full bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Search"}
+                {busy === "search" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Search"}
               </Button>
             </form>
+
+            {searchedFor !== null && searchResults.length === 0 && (
+              <p className="mt-4 text-sm text-muted-foreground">No memories match &ldquo;{searchedFor}&rdquo;.</p>
+            )}
 
             {searchResults.length > 0 && (
               <div className="mt-4 space-y-3">
@@ -214,6 +230,7 @@ export default function MemoryDebugPage() {
             <form onSubmit={handleUpdate} className="space-y-4">
               <Input
                 placeholder="Memory ID (click the edit icon on a memory)"
+                aria-label="Memory ID"
                 value={updateId}
                 onChange={e => setUpdateId(e.target.value)}
                 required
@@ -221,13 +238,14 @@ export default function MemoryDebugPage() {
               />
               <Textarea
                 placeholder="New text for this memory"
+                aria-label="New text"
                 value={updateContent}
                 onChange={e => setUpdateContent(e.target.value)}
                 required
                 className="bg-background border-border"
               />
               <Button type="submit" variant="secondary" disabled={loading} className="w-full bg-orange-500/10 text-orange-400 hover:bg-orange-500/20">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Update"}
+                {busy === "update" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Update"}
               </Button>
             </form>
           </div>
@@ -248,7 +266,7 @@ export default function MemoryDebugPage() {
           <div className="flex-1 overflow-y-auto space-y-3 pr-2">
             {memories.map((m) => (
               <div key={m.id} className="p-4 bg-background border border-border rounded-lg relative group">
-                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex gap-2">
+                <div className="absolute top-4 right-4 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex gap-2">
                   <Button variant="ghost" size="icon" aria-label="Edit memory" className="h-8 w-8 text-muted-foreground" onClick={() => {
                     setUpdateId(m.id);
                     setUpdateContent(m.content);

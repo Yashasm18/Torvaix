@@ -321,8 +321,8 @@ describe('an agent only uses its own tools', () => {
     const llm = { complete: vi.fn(async () => { throw new Error('model is down'); }), getDefaultModel: () => 'test-model' } as any;
     const state = await runExecution(new AgentOrchestrator(store, { llm, model: 'test-model', persona: persona(['read_file']) }));
 
-    expect(state.output).toBe('LLM Error: model is down');
-    expect(state.error).toBe('LLM Error: model is down');
+    expect(state.output).toBe("Couldn't get an answer from the model: model is down");
+    expect(state.error).toBe("Couldn't get an answer from the model: model is down");
   });
 });
 
@@ -546,5 +546,51 @@ describe('an automation that runs as an agent', () => {
     expect(validateAutomationInput({ ...base, actionConfig: { agentId: 5 } })).toMatch(/agentId/);
     expect(validateAutomationInput({ ...base, actionConfig: { agentId: { id: 'x' } } })).toMatch(/agentId/);
     expect(validateAutomationInput({ ...base, actionConfig: { agentId: 'x'.repeat(201) } })).toMatch(/agentId/);
+  });
+});
+
+describe('answering from memories', () => {
+  const runMemory = (agent: AgentOrchestrator, instructions: string, messages: Sent = [], emit?: (chunk: string) => void) =>
+    agent.run({ workspaceId: 'default', instructions, nextNode: 'memory', messages } as any, emit);
+
+  it('gives the model the conversation so far, the saved memories with their dates, and today\'s date', async () => {
+    const store = newStore();
+    await store.storeMemory('default', 'My favourite editor is Helix', 'User Chat');
+    const llm = scriptedLlm(['Helix.']);
+    const state = await runMemory(
+      new AgentOrchestrator(store, { llm, model: 'test-model' }),
+      'What is my favourite editor?',
+      [{ role: 'user', content: 'Hi there' }, { role: 'assistant', content: 'Hello!' }]
+    );
+
+    const sent = sentTo(llm);
+    expect(sent.map(m => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
+    expect(sent[0].content).toMatch(/Today is \w+day, \d{1,2} \w+ \d{4}\./);
+    expect(sent[0].content).toContain('prefer the newer one');
+    expect(sent[3].content).toMatch(/^What is my favourite editor\?\n\nSaved memories:\n- My favourite editor is Helix \(saved \d{4}-\d{2}-\d{2}\)$/);
+    expect(state.output).toBe('Helix.');
+  });
+
+  it('streams the answer as it is written', async () => {
+    const store = newStore();
+    await store.storeMemory('default', 'My favourite editor is Helix', 'User Chat');
+    const llm = {
+      complete: vi.fn(async (_m: string, _msgs: unknown, opts: { onToken?: (t: string) => void }) => {
+        opts.onToken?.('Hel');
+        opts.onToken?.('ix');
+        return { text: 'Helix' };
+      }),
+      getDefaultModel: () => 'test-model',
+    } as any;
+    const sent: string[] = [];
+    const state = await runMemory(
+      new AgentOrchestrator(store, { llm, model: 'test-model' }),
+      'What is my favourite editor?',
+      [],
+      (chunk) => sent.push(chunk)
+    );
+
+    expect(sent.filter(c => c.startsWith('0:'))).toEqual(['0:"Hel"\n', '0:"ix"\n']);
+    expect(state.streamedReply).toBe(true);
   });
 });

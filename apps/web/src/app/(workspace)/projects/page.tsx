@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Folder, Plus, Search, Clock, Star, MoreHorizontal, Trash2, Pause, Play, Archive } from "lucide-react";
+import { Folder, Plus, Search, Clock, Star, MoreHorizontal, Trash2, Pause, Play, Archive, Pencil } from "lucide-react";
 import type { Project, ProjectStatus } from "@torvaix/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,8 @@ export default function ProjectsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
+  /** The project being edited, or null when the dialog makes a new one. */
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const query = searchQuery.trim().toLowerCase();
   const projects = allProjects
@@ -70,16 +72,27 @@ export default function ProjectsPage() {
     );
 
   const openCreate = () => {
+    setEditingId(null);
     setName("");
     setDescription("");
     setTags("");
     setDialogOpen(true);
   };
 
-  const handleCreate = (e: React.FormEvent) => {
+  const openEdit = (project: Project) => {
+    setEditingId(project.id);
+    setName(project.name);
+    setDescription(project.description);
+    setTags(project.tags.join(", "));
+    setDialogOpen(true);
+  };
+
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!workspaceId || !name.trim()) return;
-    createProject(workspaceId, { name: name.trim(), description: description.trim(), tags: parseTags(tags) });
+    const fields = { name: name.trim(), description: description.trim(), tags: parseTags(tags) };
+    if (editingId) updateProject(editingId, fields);
+    else createProject(workspaceId, fields);
     setDialogOpen(false);
   };
 
@@ -104,7 +117,7 @@ export default function ProjectsPage() {
         </div>
         <Button onClick={openCreate} disabled={!workspaceId} className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg">
           <Plus className="w-4 h-4" />
-          New Project
+          New project
         </Button>
       </motion.div>
 
@@ -172,6 +185,9 @@ export default function ProjectsPage() {
                         <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent className="w-44 bg-popover border-border">
+                        <DropdownMenuItem onClick={() => openEdit(project)} className="cursor-pointer">
+                          <Pencil className="mr-2 h-4 w-4" /> Edit
+                        </DropdownMenuItem>
                         {project.status !== "active" && (
                           <DropdownMenuItem onClick={() => updateProject(project.id, { status: "active" })} className="cursor-pointer">
                             <Play className="mr-2 h-4 w-4" /> Mark active
@@ -231,7 +247,7 @@ export default function ProjectsPage() {
                 <Plus className="w-6 h-6 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
               <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
-                {projects.length === 0 ? "Create your first project" : "Create New Project"}
+                {projects.length === 0 ? "Create your first project" : "New project"}
               </span>
             </button>
           )}
@@ -240,9 +256,9 @@ export default function ProjectsPage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md bg-card border-border">
-          <form onSubmit={handleCreate} className="space-y-4">
+          <form onSubmit={handleSave} className="space-y-4">
             <DialogHeader>
-              <DialogTitle>New Project</DialogTitle>
+              <DialogTitle>{editingId ? "Edit project" : "New project"}</DialogTitle>
               <DialogDescription>Projects are saved in this browser, inside {workspace?.name ?? "the current workspace"}.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
@@ -260,7 +276,7 @@ export default function ProjectsPage() {
             </div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={!name.trim()}>Create Project</Button>
+              <Button type="submit" disabled={!name.trim()}>{editingId ? "Save changes" : "Create project"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

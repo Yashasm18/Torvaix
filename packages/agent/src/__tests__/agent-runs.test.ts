@@ -125,8 +125,8 @@ describe('starting a run', () => {
 
     const run = await agentRuns.startRun(agent, 'Do it', announced);
 
-    expect(run).toMatchObject({ status: 'error', output: 'LLM Error: model is down' });
-    expect(store.getAgentRun(run.id)).toMatchObject({ status: 'error', output: 'LLM Error: model is down' });
+    expect(run).toMatchObject({ status: 'error', output: "Couldn't get an answer from the model: model is down" });
+    expect(store.getAgentRun(run.id)).toMatchObject({ status: 'error', output: "Couldn't get an answer from the model: model is down" });
   });
 
   it('turns an orchestrator that throws into a run with status error, not a throw', async () => {

@@ -72,6 +72,12 @@ describe("normalizeTurn agent", () => {
 })
 
 describe("summarizeTurn", () => {
+  it("says the turn failed when it did, whatever the route", () => {
+    expect(summarizeTurn(turn({ route: "execution", error: "Couldn't get an answer from the model: offline" }))).toMatch(/went wrong/)
+    expect(normalizeTurn({ id: "t", error: "boom" })?.error).toBe("boom")
+    expect(normalizeTurn({ id: "t" })?.error).toBeNull()
+  })
+
   it("says what a chat answer was based on", () => {
     expect(summarizeTurn(turn())).toBe("Answered from the model alone. No saved memory matched.")
     expect(summarizeTurn(turn({ retrievedMemories: [memory("a")] }))).toBe("Answered using 1 saved memory.")

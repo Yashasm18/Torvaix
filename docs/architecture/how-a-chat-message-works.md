@@ -24,7 +24,7 @@ sequenceDiagram
 3. **The agent server picks a route.** `packages/agent/src/orchestrator.ts` runs fixed steps, at most 10 per message. Clear requests are routed by keyword rules (`routing.ts`). For anything else the model is asked for one word (memory, knowledge, execution or conversation). A reply that names no category, or several, is treated as a conversation.
 4. **The route does the work:**
    - **conversation:** answers with the history, up to 3 matching memories, and up to 8 knowledge-graph relations. The answer streams as it is written.
-   - **memory:** finds up to 5 memories, or the 5 most recent, and answers from them.
+   - **memory:** finds up to 5 memories, or the 5 most recent, and answers from them with the history. Each memory carries the day it was saved, and the model is told to prefer the newer one when two disagree. The answer streams as it is written.
    - **knowledge:** saves the message as a memory and adds what it mentions to the graph.
    - **execution:** asks the model for one JSON step at a time, either a tool call or "done". Each tool result goes back into the next step's prompt. `bash` and `python` wait for approval unless the approval mode allows them.
 5. **The stream comes back.** The browser shows the reply, the progress lines ("Planning the next step"), the tool cards and approval requests, and "How I answered".
@@ -37,6 +37,8 @@ sequenceDiagram
 | One tool result | 6,000 characters. It keeps the start and the end, where errors and totals usually are. |
 | Memories | 3 in a conversation, 5 for a recall, 500 characters each for an agent |
 | Reply length | Up to 4,096 tokens |
+
+Conversation and recall prompts also carry today's date (from the agent server's clock), so questions about "today" or "how long ago" aren't answered from the model's training data.
 
 A tool step's prompt includes the rules and tool list, the task, the history and any memories. It comes to about 3,500 tokens. A conversation prompt with a full history is about 3,000 tokens.
 

@@ -158,7 +158,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               disabled={!workspaceName.trim() || isCreating}
               className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
             >
-              {isCreating ? "Provisioning Workspace..." : "Create Workspace"}
+              {isCreating ? "Creating workspace…" : "Create workspace"}
             </button>
           </form>
         </motion.div>

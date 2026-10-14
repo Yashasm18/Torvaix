@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Cpu, Server, HardDrive, Activity, RefreshCw, Wifi, WifiOff, AlertTriangle, Loader2 } from "lucide-react";
+import { Cpu, Server, HardDrive, Activity, RefreshCw, Wifi, WifiOff, AlertTriangle, Loader2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useSystemStatus } from "@/hooks/use-system-status";
+import { refreshSystemStatus, useSystemStatus } from "@/hooks/use-system-status";
 import { formatRelativeTime } from "@/lib/relative-time";
 
 interface OllamaModel {
@@ -45,6 +45,30 @@ export default function IntelligencePage() {
   const [data, setData] = useState<ModelsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+
+  // Makes an installed model the chat model, the same setting as Settings → Model.
+  const chooseChatModel = async (name: string) => {
+    setSwitching(name);
+    setSwitchError(null);
+    try {
+      const res = await fetch("/api/settings/model", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "ollama", model: name }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      await refreshSystemStatus();
+    } catch (e: any) {
+      setSwitchError(`Couldn't switch to ${name}: ${e.message}`);
+    } finally {
+      setSwitching(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,12 +94,10 @@ export default function IntelligencePage() {
   const loadedModels = models.filter((m) => m.loaded);
   const vram = loadedModels.reduce((sum, m) => sum + m.sizeVram, 0);
   const chatIsLocal = chatModel?.provider === "ollama";
-  const missing = data?.reachable
-    ? [
-        ...(chatModel && chatIsLocal && !models.some((m) => sameModel(m.name, chatModel.id)) ? [chatModel.id] : []),
-        ...(!models.some((m) => sameModel(m.name, EMBED_MODEL)) ? [EMBED_MODEL] : []),
-      ]
-    : [];
+  // The chat model is needed to chat at all. The embedding model only adds search by meaning:
+  // without it memories are still found by keyword, so it is suggested, not required.
+  const chatMissing = Boolean(data?.reachable && chatModel && chatIsLocal && !models.some((m) => sameModel(m.name, chatModel.id)));
+  const embedMissing = Boolean(data?.reachable && !models.some((m) => sameModel(m.name, EMBED_MODEL)));
 
   const stats = [
     { label: "Installed", value: data?.reachable ? models.length.toString() : "—", icon: Server, color: "text-blue-400" },
@@ -150,16 +172,34 @@ export default function IntelligencePage() {
           </div>
         )}
 
-        {missing.length > 0 && (
-          <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-sm">
+        {chatMissing && chatModel && (
+          <div role="alert" className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-sm">
             <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
             <div className="min-w-0">
-              <div className="text-foreground">Required model{missing.length > 1 ? "s" : ""} not installed</div>
-              {missing.map((name) => (
-                <code key={name} className="block font-mono text-xs text-muted-foreground mt-1">ollama pull {name}</code>
-              ))}
+              <div className="text-foreground">The chat model, {chatModel.id}, isn&apos;t installed, so chat can&apos;t answer yet</div>
+              <div className="text-muted-foreground mt-1">
+                Install it with <code className="font-mono">ollama pull {chatModel.id}</code>
+                {models.length > 0 ? ", or pick one of the models below with Use for chat." : "."}
+              </div>
             </div>
           </div>
+        )}
+
+        {embedMissing && (
+          <div className="flex items-start gap-3 p-4 rounded-xl border border-border bg-surface text-sm">
+            <Info className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-foreground">Optional: search memories by meaning</div>
+              <div className="text-muted-foreground mt-1">
+                Memories are found by keyword now. Install <code className="font-mono">{EMBED_MODEL}</code> to also find them by meaning:{" "}
+                <code className="font-mono">ollama pull {EMBED_MODEL}</code>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {switchError && (
+          <p role="alert" className="text-sm text-red-400">{switchError}</p>
         )}
 
         {/* Nothing to list while Ollama can't be reached; the notice above says what to do. */}
@@ -204,7 +244,19 @@ export default function IntelligencePage() {
                     </div>
                   </div>
 
-                  <div className="shrink-0">
+                  <div className="shrink-0 flex items-center gap-3">
+                    {!isChat && !isEmbed && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        disabled={switching !== null}
+                        onClick={() => chooseChatModel(model.name)}
+                      >
+                        {switching === model.name && <Loader2 className="w-3 h-3 animate-spin" />}
+                        Use for chat
+                      </Button>
+                    )}
                     {model.loaded ? (
                       <div className="flex items-center gap-1 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-full">
                         <Activity className="w-3 h-3 text-green-500" />

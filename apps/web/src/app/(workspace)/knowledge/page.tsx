@@ -389,7 +389,7 @@ export default function KnowledgePage() {
               Recently used
             </span>
             <span className="text-2xl font-bold text-emerald-400 mt-1">
-              {health?.recencyScore ?? 100}%
+              {memories.length > 0 && health ? `${health.recencyScore}%` : "—"}
             </span>
           </div>
         </div>
@@ -479,14 +479,23 @@ export default function KnowledgePage() {
             {filteredMemories.length === 0 ? (
               <div className="text-center py-12 border border-dashed border-border rounded-xl">
                 <Brain className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
-                <p className="text-sm text-muted-foreground">No memories found matching your search.</p>
-                <Button
-                  variant="link"
-                  onClick={() => setIsAddOpen(true)}
-                  className="text-primary text-xs mt-1"
-                >
-                  Create your first memory
-                </Button>
+                {searchQuery.trim() && memories.length > 0 ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">No memories match &ldquo;{searchQuery.trim()}&rdquo;.</p>
+                    <Button variant="link" onClick={() => setSearchQuery("")} className="text-primary text-xs mt-1">
+                      Clear search
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Nothing saved yet. Add a memory here, or tell Torvaix in chat: &ldquo;Remember that…&rdquo;
+                    </p>
+                    <Button variant="link" onClick={() => setIsAddOpen(true)} className="text-primary text-xs mt-1">
+                      Add your first memory
+                    </Button>
+                  </>
+                )}
               </div>
             ) : (
               <AnimatePresence>
@@ -528,7 +537,8 @@ export default function KnowledgePage() {
                           <button
                             onClick={(e) => handleDeleteMemory(item.id, e)}
                             title="Delete memory"
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all p-1"
+                            aria-label="Delete memory"
+                            className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-red-400 transition-all p-1"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -552,7 +562,7 @@ export default function KnowledgePage() {
                   onClick={handleConsolidate}
                   className="text-primary text-xs mt-1"
                 >
-                  Run memory consolidation now
+                  Find themes now
                 </Button>
               </div>
             ) : (

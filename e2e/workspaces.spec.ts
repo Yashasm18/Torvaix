@@ -33,12 +33,19 @@ test.describe('Workspaces and projects', () => {
     await expect(page.getByText('Fake model reply: Explain reload persistence')).toBeVisible();
   });
 
-  test('creates a project', async ({ page }) => {
+  test('creates and edits a project', async ({ page }) => {
     await openApp(page, '/projects');
-    await page.getByRole('button', { name: 'New Project' }).click();
+    await page.getByRole('button', { name: 'New project', exact: true }).first().click();
     await page.getByLabel('Name').fill('E2E project');
     await page.getByLabel('Description').fill('Made by the end-to-end tests');
-    await page.getByRole('button', { name: 'Create Project' }).click();
+    await page.getByRole('button', { name: 'Create project', exact: true }).click();
     await expect(page.getByText('E2E project')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Project actions' }).click();
+    await page.getByRole('menuitem', { name: 'Edit' }).click();
+    await expect(page.getByLabel('Name')).toHaveValue('E2E project');
+    await page.getByLabel('Name').fill('E2E project renamed');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByText('E2E project renamed')).toBeVisible();
   });
 });

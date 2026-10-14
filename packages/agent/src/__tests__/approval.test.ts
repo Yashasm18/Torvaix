@@ -314,7 +314,7 @@ describe('runs that end in failure', () => {
     const state = await new AgentOrchestrator(store, { llm, model: 'test-model' })
       .run({ workspaceId: 'default', instructions: 'hello there', nextNode: 'conversation' } as any);
 
-    expect(state.output).toBe('I hit an error while thinking that through: model offline');
+    expect(state.output).toBe("Couldn't get an answer from the model: model offline");
     expect(state.error).toBe(state.output);
   });
 

@@ -1389,10 +1389,19 @@ export class MemoryStore {
     for (const [oldName, oldDescription, name, description] of renames) stmt.run(name, description, oldName, oldDescription);
   }
 
+  /**
+   * Every workspace gets the starter automations once. Like the starter agents, seeding is
+   * recorded in the workspace's settings: deleting all of them no longer brings them back.
+   * A workspace that already has automations counts as seeded.
+   */
   seedDefaultAutomations(workspaceId = 'default'): void {
     this.renameLegacyDefaultAutomations();
-    const existing = this.listAutomations(workspaceId);
-    if (existing.length > 0) return;
+    this.seedOnce(workspaceId, 'automationsSeeded', () => {
+      if (this.listAutomations(workspaceId).length === 0) this.createDefaultAutomations(workspaceId);
+    });
+  }
+
+  private createDefaultAutomations(workspaceId: string): void {
 
     this.createAutomation({
       workspaceId,
@@ -1502,17 +1511,24 @@ export class MemoryStore {
    * agent the user deletes is not brought back the next time the list is opened.
    */
   seedDefaultAgents(workspaceId = 'default'): void {
+    this.seedOnce(workspaceId, 'agentsSeeded', () => {
+      for (const starter of DEFAULT_AGENTS) this.createAgent({ workspaceId, ...starter });
+    });
+  }
+
+  /** Runs `seed` the first time only, recording `flag` in the workspace's settings. */
+  private seedOnce(workspaceId: string, flag: string, seed: () => void): void {
     this.ensureWorkspaceRow(workspaceId);
     let settings: Record<string, unknown> = {};
     try {
       const parsed = JSON.parse(this.getWorkspace(workspaceId)?.settings || '{}');
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) settings = parsed;
     } catch { /* unreadable settings are treated as empty */ }
-    if (settings.agentsSeeded === true) return;
+    if (settings[flag] === true) return;
 
     this.db.transaction(() => {
-      for (const starter of DEFAULT_AGENTS) this.createAgent({ workspaceId, ...starter });
-      settings.agentsSeeded = true;
+      seed();
+      settings[flag] = true;
       this.db.prepare('UPDATE workspaces SET settings = ? WHERE id = ?').run(JSON.stringify(settings), workspaceId);
     })();
   }

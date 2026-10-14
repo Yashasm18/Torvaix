@@ -42,6 +42,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
   const { workspace } = useActiveWorkspace()
   const status = useSystemStatus()
   const [testing, setTesting] = React.useState(false)
+  const [tab, setTab] = React.useState("general")
   const modelState = chatModelState(status)
 
   const testConnection = async () => {
@@ -60,7 +61,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="general" orientation="vertical" className="flex flex-col md:flex-row gap-6 mt-2">
+        <Tabs value={tab} onValueChange={(v) => setTab(String(v))} orientation="vertical" className="flex flex-col md:flex-row gap-6 mt-2">
           <TabsList className="flex flex-row flex-wrap md:flex-col h-auto self-start shrink-0 bg-transparent items-stretch justify-start md:w-40 gap-1 p-0">
             <TabsTrigger value="general" className="flex-none h-9 md:w-full justify-start px-3 data-[state=active]:bg-muted">
               <Monitor className="h-4 w-4 mr-2" /> General
@@ -93,7 +94,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Change the chat model, or add an API key for a cloud provider, under <span className="text-foreground">Models &amp; keys</span>.
+                Change the chat model, or add an API key for a cloud provider, under{" "}
+                <button type="button" onClick={() => setTab("providers")} className="text-primary hover:underline underline-offset-2">
+                  Models &amp; keys
+                </button>.
               </p>
               <div className="rounded-xl border border-border p-4 space-y-2">
                 <div className="text-sm">Backup</div>
