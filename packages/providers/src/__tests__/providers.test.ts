@@ -17,6 +17,10 @@ import {
   pickInstalledModel,
   matchInstalledTag,
   readOllamaStream,
+  stripThinking,
+  thinkingFilter,
+  ollamaContextSize,
+  DEFAULT_OLLAMA_CONTEXT,
   describeHttpError,
   isProviderId,
   isOpenAIReasoningModel,
@@ -346,5 +350,94 @@ describe('readOllamaStream', () => {
 
   it('throws an error the stream reports', async () => {
     await expect(readOllamaStream(streamOf(line('Hi'), '{"error":"out of memory"}\n'), () => {})).rejects.toThrow('Ollama error: out of memory');
+  });
+
+  it("leaves out a thinking model's reasoning, even when its tags arrive in pieces", async () => {
+    const pieces: string[] = [];
+    const text = await readOllamaStream(
+      streamOf(line('<thi'), line('nk>Let me see. 2+2'), line(' is 4.</th'), line('ink>\n\nIt is '), line('4.')),
+      p => pieces.push(p)
+    );
+    expect(text).toBe('It is 4.');
+    expect(pieces.join('')).toBe('It is 4.');
+  });
+});
+
+describe('thinking models', () => {
+  it('removes reasoning before the answer, and nothing else', () => {
+    expect(stripThinking('<think>\nhmm\n</think>\n\nexecution')).toBe('execution');
+    expect(stripThinking('  <think>a</think>{"done": true}')).toBe('{"done": true}');
+    expect(stripThinking('An answer that mentions <think> tags')).toBe('An answer that mentions <think> tags');
+    expect(stripThinking('<think>never finished')).toBe('');
+  });
+
+  it('streams an ordinary reply unchanged, including one starting with "<"', () => {
+    const plain = thinkingFilter();
+    expect(['Hel', 'lo'].map(p => plain.push(p)).join('')).toBe('Hello');
+    const tag = thinkingFilter();
+    expect(['<', 'div> is an element'].map(p => tag.push(p)).join('')).toBe('<div> is an element');
+  });
+});
+
+describe('Ollama requests', () => {
+  const okFetch = (body: object = { message: { content: 'hi' } }) =>
+    vi.fn().mockResolvedValue({ ok: true, json: async () => body });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('asks for a context window big enough for Torvaix prompts, the same every time', async () => {
+    const mockFetch = okFetch();
+    vi.stubGlobal('fetch', mockFetch);
+    await new LLMClient().complete('llama3.2', [{ role: 'user', content: 'hi' }]);
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).options.num_ctx).toBe(DEFAULT_OLLAMA_CONTEXT);
+  });
+
+  it('follows TORVAIX_NUM_CTX, and leaves the size to Ollama when it is 0', async () => {
+    expect(ollamaContextSize('16384')).toBe(16384);
+    expect(ollamaContextSize('0')).toBe(0);
+    expect(ollamaContextSize('lots')).toBe(DEFAULT_OLLAMA_CONTEXT);
+    const mockFetch = okFetch();
+    vi.stubGlobal('fetch', mockFetch);
+    await new LLMClient({ ollamaContext: 0 }).complete('llama3.2', [{ role: 'user', content: 'hi' }]);
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).options).not.toHaveProperty('num_ctx');
+  });
+
+  it('asks for JSON only when the caller needs it', async () => {
+    const mockFetch = okFetch();
+    vi.stubGlobal('fetch', mockFetch);
+    const client = new LLMClient();
+    await client.complete('llama3.2', [{ role: 'user', content: 'hi' }], { json: true });
+    await client.complete('llama3.2', [{ role: 'user', content: 'hi' }]);
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).format).toBe('json');
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).not.toHaveProperty('format');
+  });
+
+  it('reports the tokens Ollama counted', async () => {
+    vi.stubGlobal('fetch', okFetch({ message: { content: 'hi' }, prompt_eval_count: 1200, eval_count: 30 }));
+    const res = await new LLMClient().complete('llama3.2', [{ role: 'user', content: 'hi' }]);
+    expect(res.usage).toEqual({ promptTokens: 1200, completionTokens: 30, totalTokens: 1230 });
+  });
+
+  it('waits longer for a local model than for a cloud one, and follows TORVAIX_MODEL_TIMEOUT', async () => {
+    vi.useFakeTimers();
+    try {
+      const hang = (_url: string, init: RequestInit) =>
+        new Promise((_, reject) => init.signal!.addEventListener('abort', () => reject(new Error('aborted'))));
+      vi.stubGlobal('fetch', vi.fn(hang));
+      const local = new LLMClient().complete('llama3.2', [{ role: 'user', content: 'hi' }]);
+      const localDone = expect(local).rejects.toThrow('within 300 seconds');
+      await vi.advanceTimersByTimeAsync(300_000);
+      await localDone;
+
+      vi.stubEnv('TORVAIX_MODEL_TIMEOUT', '30');
+      const custom = new LLMClient().complete('llama3.2', [{ role: 'user', content: 'hi' }]);
+      const customDone = expect(custom).rejects.toThrow('within 30 seconds');
+      await vi.advanceTimersByTimeAsync(30_000);
+      await customDone;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

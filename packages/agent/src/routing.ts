@@ -1,3 +1,5 @@
+import { stripThinking } from '@torvaix/providers';
+
 /**
  * Deterministic fast paths for the router. Only unambiguous requests are routed here;
  * anything else returns null and goes to the LLM classifier.
@@ -54,4 +56,19 @@ export function keywordRoute(instructions: string): KeywordRoute | null {
   if (CODE_REQUEST.test(text) && !FILE_ACTION.test(text) && !WANTS_ACTION.test(text)) return 'conversation';
   if (!QUESTION.test(text) && (FILE_ACTION.test(text) || TOOL_ACTION.test(text))) return 'execution';
   return null;
+}
+
+const ROUTES = ['memory', 'knowledge', 'execution', 'conversation'] as const;
+export type ClassifiedRoute = (typeof ROUTES)[number];
+
+/**
+ * Reads the classifier's one-word answer. Local models rarely reply with the bare word: they
+ * write "Execution.", "**memory**", "Category: knowledge" or reason first. Those all became
+ * "conversation", so a request to act on the machine got a chatty reply instead. Ambiguous
+ * replies (no category, or several) still become a conversation.
+ */
+export function parseRoute(reply: string): ClassifiedRoute {
+  const text = stripThinking(reply).toLowerCase();
+  const found = ROUTES.filter((route) => new RegExp(`\\b${route}\\b`).test(text));
+  return found.length === 1 ? found[0] : 'conversation';
 }

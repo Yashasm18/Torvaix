@@ -58,6 +58,8 @@ export interface LLMOptions {
    * today). The full text is still returned at the end. Providers that can't stream ignore it.
    */
   onToken?: (text: string) => void;
+  /** Asks for a reply that is one JSON object, for providers that can enforce it (Ollama today). */
+  json?: boolean;
 }
 
 export const PROVIDER_IDS: readonly ProviderId[] = ['ollama', 'openai', 'anthropic', 'google', 'groq', 'openrouter'];
@@ -184,7 +186,83 @@ export interface LLMClientConfig {
   apiKeys?: Partial<Record<ProviderId, string>>;
   ollamaUrl?: string;
   defaultModel?: string;
+  /** How long to wait for a reply. Defaults to 5 minutes for Ollama and 2 for cloud providers. */
   timeoutMs?: number;
+  /**
+   * The context window, in tokens, to ask Ollama for (TORVAIX_NUM_CTX). 0 leaves it to Ollama.
+   * Defaults to 8192.
+   */
+  ollamaContext?: number;
+}
+
+/** Context window asked of Ollama unless TORVAIX_NUM_CTX says otherwise. */
+export const DEFAULT_OLLAMA_CONTEXT = 8192;
+
+/**
+ * The context window to ask Ollama for. Ollama's own default is small (a few thousand tokens), and
+ * Torvaix's prompts alone (instructions, tools, the conversation so far) can fill most of it: Ollama
+ * then silently drops part of the prompt, and the model forgets the task or the reply format.
+ * The same value goes with every request, since a different one makes Ollama reload the model.
+ */
+export function ollamaContextSize(configured: number | string | undefined): number {
+  if (configured === undefined || configured === '') return DEFAULT_OLLAMA_CONTEXT;
+  const n = Math.floor(Number(configured));
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_OLLAMA_CONTEXT;
+}
+
+/** Waiting time for a model's reply, from TORVAIX_MODEL_TIMEOUT (seconds) when it is set. */
+function modelTimeoutMs(configured: string | undefined, fallbackMs: number): number {
+  const seconds = Number(configured);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : fallbackMs;
+}
+
+const THINK_OPEN = '<think>';
+const THINK_CLOSE = '</think>';
+
+/**
+ * Removes the reasoning that thinking models (DeepSeek-R1, Qwen3 and others) write before their
+ * answer, as `<think>…</think>`, when the Ollama version puts it in the reply itself. Torvaix
+ * reads replies as one word (the router) or one JSON object (tool steps), and the reasoning made
+ * both fail; in the chat it showed up as part of the answer.
+ */
+export function stripThinking(text: string): string {
+  const start = text.search(/\S/);
+  if (start === -1 || !text.startsWith(THINK_OPEN, start)) return text;
+  const end = text.indexOf(THINK_CLOSE, start);
+  return end === -1 ? '' : text.slice(end + THINK_CLOSE.length).replace(/^\s+/, '');
+}
+
+/**
+ * The same for a reply that arrives in pieces: holds back text while it may still be reasoning,
+ * and passes on the rest. `push` returns what can be shown now.
+ */
+export function thinkingFilter(): { push(piece: string): string } {
+  let state: 'undecided' | 'thinking' | 'answer' = 'undecided';
+  let held = '';
+  return {
+    push(piece: string) {
+      if (state === 'answer') return piece;
+      held += piece;
+      if (state === 'undecided') {
+        const lead = held.trimStart();
+        if (!lead) return '';
+        if (THINK_OPEN.startsWith(lead.slice(0, THINK_OPEN.length)) && lead.length < THINK_OPEN.length) return '';
+        if (!lead.startsWith(THINK_OPEN)) {
+          state = 'answer';
+          const out = held;
+          held = '';
+          return out;
+        }
+        state = 'thinking';
+      }
+      const end = held.indexOf(THINK_CLOSE);
+      if (end === -1) return '';
+      state = 'answer';
+      const out = held.slice(end + THINK_CLOSE.length).replace(/^\s+/, '');
+      held = '';
+      return out;
+    },
+  };
 }
 
 /**
@@ -193,6 +271,7 @@ export interface LLMClientConfig {
  */
 export async function readOllamaStream(body: ReadableStream<Uint8Array>, onToken: (text: string) => void): Promise<string> {
   const decoder = new TextDecoder();
+  const thinking = thinkingFilter();
   let buffered = '';
   let text = '';
   const take = (line: string) => {
@@ -204,7 +283,7 @@ export async function readOllamaStream(body: ReadableStream<Uint8Array>, onToken
       return; // a partial or non-JSON line carries no text
     }
     if (part.error) throw new Error(`Ollama error: ${part.error}`);
-    const piece = part.message?.content;
+    const piece = part.message?.content ? thinking.push(part.message.content) : '';
     if (piece) {
       text += piece;
       onToken(piece);
@@ -225,7 +304,9 @@ export class LLMClient {
   private apiKeys: Partial<Record<ProviderId, string>>;
   private ollamaUrl: string;
   private defaultModel: string;
-  private timeoutMs: number;
+  /** Undefined: 5 minutes for Ollama, 2 for cloud providers (see fetchTimeoutMs). */
+  private timeoutMs?: number;
+  private ollamaContext: number;
 
   constructor(config: LLMClientConfig = {}) {
     this.apiKeys = {
@@ -238,7 +319,16 @@ export class LLMClient {
     };
     this.ollamaUrl = config.ollamaUrl ?? process.env.OLLAMA_URL ?? 'http://localhost:11434';
     this.defaultModel = config.defaultModel ?? process.env.TORVAIX_MODEL ?? 'llama3.2';
-    this.timeoutMs = config.timeoutMs ?? 120000;
+    this.timeoutMs = config.timeoutMs;
+    this.ollamaContext = config.ollamaContext ?? ollamaContextSize(process.env.TORVAIX_NUM_CTX);
+  }
+
+  /**
+   * A local model on a laptop without a GPU can take minutes to load and read a long prompt, and
+   * 2 minutes failed such runs with "didn't respond". Cloud providers answer faster or not at all.
+   */
+  private fetchTimeoutMs(isOllama: boolean): number {
+    return this.timeoutMs ?? modelTimeoutMs(process.env.TORVAIX_MODEL_TIMEOUT, isOllama ? 300_000 : 120_000);
   }
 
   /** Complete a chat conversation with the specified model. */
@@ -487,10 +577,12 @@ export class LLMClient {
         model,
         messages: messages.map(m => ({ role: m.role, content: m.content })),
         stream: Boolean(opts.onToken),
+        ...(opts.json ? { format: 'json' } : {}),
         options: {
           temperature: opts.temperature ?? 0.7,
           num_predict: opts.maxTokens ?? 4096,
           top_p: opts.topP ?? 1,
+          ...(this.ollamaContext > 0 ? { num_ctx: this.ollamaContext } : {}),
         },
       }),
     });
@@ -505,15 +597,21 @@ export class LLMClient {
     if (opts.onToken && res.body) return { text: await readOllamaStream(res.body, opts.onToken), model };
 
     const data = await res.json();
+    const promptTokens = typeof data.prompt_eval_count === 'number' ? data.prompt_eval_count : undefined;
+    const completionTokens = typeof data.eval_count === 'number' ? data.eval_count : undefined;
     return {
-      text: data.message?.content ?? data.response ?? '',
+      text: stripThinking(data.message?.content ?? data.response ?? ''),
+      ...(promptTokens !== undefined || completionTokens !== undefined
+        ? { usage: { promptTokens: promptTokens ?? 0, completionTokens: completionTokens ?? 0, totalTokens: (promptTokens ?? 0) + (completionTokens ?? 0) } }
+        : {}),
       model,
     };
   }
 
   private async _fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeoutMs = this.fetchTimeoutMs(url.startsWith(this.ollamaUrl));
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const signal = init.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal;
     try {
       const res = await fetch(url, { ...init, signal });
@@ -527,7 +625,7 @@ export class LLMClient {
       const isOllama = url.startsWith(this.ollamaUrl);
       const name = isOllama ? `Ollama at ${target.origin}` : target.host;
       if (controller.signal.aborted) {
-        throw new Error(`${name} didn't respond within ${Math.round(this.timeoutMs / 1000)} seconds.`);
+        throw new Error(`${name} didn't respond within ${Math.round(timeoutMs / 1000)} seconds.`);
       }
       throw new Error(
         isOllama

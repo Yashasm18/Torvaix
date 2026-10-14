@@ -13,6 +13,11 @@
  *     "run the command `CMD`"                      -> bash CMD, then done with its output
  * - Anything else is answered with "Fake model reply: <the request>".
  *
+ * It answers the way local models often do, not the tidy way a prompt asks for: the category
+ * comes as "Category: **knowledge**.", and chat replies stream in small pieces after a
+ * thinking model's <think>…</think> reasoning. GET /fake/requests lists what Torvaix sent
+ * (kind of call, options, format, prompt size), so tests can check the context window.
+ *
  * Listens on FAKE_MODEL_PORT (default 11435, so a real Ollama on 11434 is left alone).
  */
 import http from 'node:http';
@@ -24,7 +29,7 @@ const lastUser = (messages) => [...messages].reverse().find((m) => m.role === 'u
 
 function classify(request) {
   const text = request.toLowerCase();
-  if (/\b(remember that|note that|keep in mind)\b/.test(text)) return 'knowledge';
+  if (/\b(remember that|note that|keep in mind|my favou?rite \w+ is)\b/.test(text)) return 'knowledge';
   if (/\b(what is my|what's my|do you remember|recall)\b/.test(text)) return 'memory';
   if (/\b(create a file|read the file|run the command|list the files)\b/.test(text)) return 'execution';
   return 'conversation';
@@ -67,7 +72,7 @@ export function reply(messages) {
 
   if (/query classifier/i.test(system)) {
     const request = prompt.match(/REQUEST: "([\s\S]*?)"\n/)?.[1] ?? prompt;
-    return classify(request);
+    return `Category: **${classify(request)}**.`;
   }
   if (/Execution Agent/.test(prompt)) {
     const task = prompt.match(/Current task: "([\s\S]*?)"\n/)?.[1] ?? '';
@@ -87,12 +92,26 @@ function send(res, status, body, type = 'application/json') {
   res.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
 
+/** What Torvaix asked for, most recent last. */
+const requests = [];
+
+function kindOf(messages) {
+  const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
+  if (/query classifier/i.test(system)) return 'router';
+  if (/Execution Agent/.test(lastUser(messages))) return 'execution';
+  return 'chat';
+}
+
+/** A reply in pieces, the way a model writes it. */
+const pieces = (text) => text.match(/[\s\S]{1,12}/g) ?? [''];
+
 const server = http.createServer((req, res) => {
   let raw = '';
   req.on('data', (chunk) => (raw += chunk));
   req.on('end', () => {
     if (req.url === '/api/tags') return send(res, 200, { models: [{ name: MODEL, model: MODEL, size: 2_000_000_000 }] });
     if (req.url === '/api/ps') return send(res, 200, { models: [] });
+    if (req.url === '/fake/requests') return send(res, 200, { requests });
     if (req.url === '/api/version') return send(res, 200, { version: '0.0.0-fake' });
     if (req.url === '/api/chat' && req.method === 'POST') {
       let body;
@@ -101,10 +120,18 @@ const server = http.createServer((req, res) => {
       } catch {
         return send(res, 400, { error: 'invalid JSON' });
       }
-      const text = reply(Array.isArray(body.messages) ? body.messages : []);
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const promptChars = messages.reduce((n, m) => n + String(m.content ?? '').length, 0);
+      requests.push({ kind: kindOf(messages), stream: Boolean(body.stream), format: body.format ?? null, options: body.options ?? {}, promptChars });
+      if (requests.length > 200) requests.shift();
+      const text = reply(messages);
       if (!body.stream) return send(res, 200, { model: body.model, message: { role: 'assistant', content: text }, done: true });
       const lines = [
-        { model: body.model, message: { role: 'assistant', content: text }, done: false },
+        ...pieces(`<think>The user said something. I should answer it.</think>\n\n${text}`).map((piece) => ({
+          model: body.model,
+          message: { role: 'assistant', content: piece },
+          done: false,
+        })),
         { model: body.model, message: { role: 'assistant', content: '' }, done: true },
       ];
       return send(res, 200, lines.map((l) => JSON.stringify(l)).join('\n') + '\n', 'application/x-ndjson');

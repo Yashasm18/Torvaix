@@ -11,12 +11,12 @@
 
 import { needsApproval, type ApprovalMode } from './approval-policy';
 import crypto from 'crypto';
-import { LLMClient, type LLMMessage, type LLMResponse, type ProviderId } from '@torvaix/providers';
+import { LLMClient, stripThinking, type LLMMessage, type LLMResponse, type ProviderId } from '@torvaix/providers';
 import { MemoryStore } from '@torvaix/memory';
 import { getMcpClient } from '@torvaix/mcp';
 import { ingestKnowledgeGraph, findMentionedEntities, getNeighbors, type MLIntelligencePayload } from '@torvaix/graph';
 import { TraceCollector } from './trace';
-import { keywordRoute } from './routing';
+import { keywordRoute, parseRoute } from './routing';
 import { normalizeAgentTools, toolsPromptBlock, type AgentToolId } from './agent-tools';
 
 // Intelligence (NLP) service — spaCy + sentence-transformers. Best-effort; never blocks a write.
@@ -231,7 +231,7 @@ export class AgentOrchestrator {
 
   private async callLLM(
     messages: LLMMessage[],
-    opts?: { temperature?: number; maxTokens?: number; onToken?: (text: string) => void }
+    opts?: { temperature?: number; maxTokens?: number; onToken?: (text: string) => void; json?: boolean }
   ): Promise<LLMResponse> {
     const start = performance.now();
     try {
@@ -241,6 +241,7 @@ export class AgentOrchestrator {
         signal: this.signal,
         provider: this.provider,
         onToken: opts?.onToken,
+        json: opts?.json,
       });
       const durationMs = performance.now() - start;
       // Trace the LLM call
@@ -394,12 +395,8 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
 
     try {
       const res = await this.callLLM(messages);
-      let decision = res.text.trim().toLowerCase();
-
-      if (!['memory', 'knowledge', 'execution', 'conversation'].includes(decision)) {
-        // Anything ambiguous becomes a normal conversation, not a broken tool plan.
-        decision = 'conversation';
-      }
+      // Anything ambiguous becomes a normal conversation, not a broken tool plan.
+      const decision = parseRoute(res.text);
 
       endTrace({ decision, model: this.model });
       console.log(`[Router Agent] Decision: ${decision}`);
@@ -850,8 +847,10 @@ Reply with ONLY ONE JSON object. Nothing else.`;
 
     let rawResponse: string;
     try {
-      const res = await this.callLLM(messages);
-      rawResponse = res.text;
+      // A tool step is one JSON object. Ollama can hold the model to that, which small local
+      // models need: they often wrapped it in prose or left it unfinished.
+      const res = await this.callLLM(messages, { json: true });
+      rawResponse = stripThinking(res.text);
     } catch (err: any) {
       state.output = `LLM Error: ${err.message}`;
       state.error = state.output;

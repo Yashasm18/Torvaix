@@ -203,6 +203,8 @@ Everything else is set in `.env`. Copy `.env.example` to `.env` in the repositor
 | `TORVAIX_HOME` | `~/.torvaix` | Where databases (`data/`) and workspace folders (`workspaces/`) are stored |
 | `TORVAIX_MODEL` | an installed Ollama model | Chat model ID, local or cloud, unless one is chosen in Settings |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
+| `TORVAIX_NUM_CTX` | `8192` | Context window, in tokens, Torvaix asks Ollama for. `0` keeps Ollama's own setting. See [how a chat message works](docs/architecture/how-a-chat-message-works.md#ollamas-context-window). |
+| `TORVAIX_MODEL_TIMEOUT` | `300` for Ollama, `120` for cloud | Seconds to wait for a model's reply |
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant endpoint |
 | `PYTHON_SERVICE_URL` | `http://localhost:8000` | Optional NLP service for entity extraction |
 | `WEB_HOST` | `127.0.0.1` | Interface the web app listens on. Keep it on loopback. |
@@ -229,6 +231,7 @@ If `OPENAI_API_KEY` is set in `.env` and Ollama can't produce embeddings, memory
 | **"Port 3000 (or 3001) is already in use"** | Another copy of Torvaix, or another program, is using it. Stop that one, or set `PORT` / `AGENT_PORT` in `.env`. If your `.env` also sets `AGENT_SERVER_URL`, change its port to match `AGENT_PORT` or remove that line. |
 | **The Agent dot is red** | The agent server is not running. Start both parts together with `npm run dev`. |
 | **Replies are slow** | A local model's speed depends on your hardware. Try a smaller model, close other heavy apps, or use a cloud model. |
+| **The assistant forgets what you asked, or replies in broken JSON, in a long chat** | The prompt may not fit the model's context window. Raise `TORVAIX_NUM_CTX` (for example to `16384`) if you have the memory, or start a new chat. |
 | **The assistant runs odd commands or loops** | Small local models are weak at multi-step tool use. Keep **Ask every time** on and deny what you do not expect, or switch to a larger or cloud model. |
 | **Memory search misses things** | Start Qdrant and pull `nomic-embed-text` for vector search. |
 | **An error mentioning `better-sqlite3` after changing Node versions** | Run `npm rebuild better-sqlite3`. |
@@ -250,7 +253,7 @@ graph LR
     Agent --> Intel["packages/intelligence<br/>memory consolidation"]
 ```
 
-Each request goes through a fixed sequence of steps rather than an open-ended agent loop. A router classifies the message, first by keyword rules and then with the model if needed, and sends it to one handler:
+Each request goes through a fixed sequence of steps rather than an open-ended agent loop. [How a chat message works](docs/architecture/how-a-chat-message-works.md) follows one message through the app, and covers what the model sees and how much of the conversation fits. A router classifies the message, first by keyword rules and then with the model if needed, and sends it to one handler:
 
 | Route | What it does |
 | --- | --- |

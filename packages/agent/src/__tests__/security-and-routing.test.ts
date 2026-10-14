@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { checkBrowserRequest, hostnameOf, parseList, DEFAULT_ALLOWED_ORIGINS } from '../http-security';
 import { isValidEmail, validateAutomationInput, validateWorkspaceId, validateMessages, validateText, clampCount, LIMITS } from '../validation';
-import { keywordRoute } from '../routing';
+import { keywordRoute, parseRoute } from '../routing';
 
 const opts = { allowedOrigins: DEFAULT_ALLOWED_ORIGINS, allowedHosts: [] as string[] };
 
@@ -174,5 +174,22 @@ describe('keywordRoute: requests for code', () => {
     expect(keywordRoute('write a script that prints hello and run it')).not.toBe('conversation');
     expect(keywordRoute('write the code into a file')).not.toBe('conversation');
     expect(keywordRoute('create a script that prints hello')).not.toBe('conversation');
+  });
+});
+
+describe('parseRoute', () => {
+  it('reads the category however a local model words it', () => {
+    expect(parseRoute('execution')).toBe('execution');
+    expect(parseRoute('Execution.')).toBe('execution');
+    expect(parseRoute('**memory**')).toBe('memory');
+    expect(parseRoute('Category: knowledge\n')).toBe('knowledge');
+    expect(parseRoute('<think>The user wants a file listed, not an explanation.</think>\nexecution')).toBe('execution');
+  });
+
+  it('treats a reply naming no category, or several, as a conversation', () => {
+    expect(parseRoute('I am not sure')).toBe('conversation');
+    expect(parseRoute('either memory or execution')).toBe('conversation');
+    expect(parseRoute('')).toBe('conversation');
+    expect(parseRoute('executions')).toBe('conversation');
   });
 });
