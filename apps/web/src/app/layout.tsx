@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { THEME_IDS } from "@/lib/themes";
 import { GeistSans } from 'geist/font/sans';
 
 const inter = Inter({
@@ -35,10 +36,14 @@ export default function RootLayout({
         className={`${GeistSans.variable} ${inter.variable} ${jetbrainsMono.variable} ${spaceGrotesk.variable} font-sans antialiased bg-background text-foreground`}
       >
         <ThemeProvider
-          attribute="class"
+          attribute="data-theme"
           defaultTheme="dark"
-          enableSystem={false}
-          themes={['dark', 'light', 'cyberpunk', 'aurora', 'terminal']}
+          enableSystem
+          // Each theme sets its own color-scheme in themes.css.
+          enableColorScheme={false}
+          // Switching themes repaints everything at once instead of animating every colour.
+          disableTransitionOnChange
+          themes={THEME_IDS}
         >
           {children}
         </ThemeProvider>

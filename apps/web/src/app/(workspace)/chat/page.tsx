@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { memo, useCallback, useState, useRef, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useChat } from "@ai-sdk/react";
+import { useChat, type Message } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -44,7 +44,7 @@ import { AppLogo } from "@/components/ui/app-logo";
 import { MemoryModal } from "@/components/chat/memory-modal";
 import { ApprovalModePicker, useApprovalMode } from "@/components/chat/approval-mode-picker";
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator";
-import { latestProgress } from "@/lib/progress";
+import { latestProgress, type ProgressStep } from "@/lib/progress";
 import { MAX_MESSAGE_CHARS } from "@/lib/chat-request";
 import { MarkdownMessage } from "@/components/chat/markdown";
 
@@ -239,6 +239,16 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     });
     return true;
   };
+
+  // The same function on every render, so the memoised messages don't re-render because of it.
+  const resolveActionRef = useRef(resolveAction);
+  useEffect(() => {
+    resolveActionRef.current = resolveAction;
+  });
+  const resolveActionStable = useCallback(
+    (pendingId: string, status: 'approved' | 'rejected') => resolveActionRef.current(pendingId, status),
+    []
+  );
 
   const attachFile = async (file: File) => {
     const isText = file.type.startsWith('text/') || /json|xml|javascript|typescript|yaml|x-sh/.test(file.type) || TEXT_FILE.test(file.name);
@@ -472,125 +482,18 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
           <AnimatePresence>
             {messages.map((message, index) => (
               // The message that carries an approval back to the agent is plumbing, not something the user said.
-              message.role === 'user' && message.content.includes(ACTION_MARKER) ? null :
-              <motion.div
-                key={message.id}
-                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className={`max-w-[85%] md:max-w-2xl lg:max-w-3xl xl:max-w-4xl min-w-0 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>
-                  <div className={`flex items-start gap-3 ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm ${message.role === 'user'
-                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                      : 'bg-primary/20 text-primary border border-primary/30'
-                    }`}>
-                      {message.role === 'user' ? ( <User className="w-4 h-4" /> ) : ( <AppLogo size={16} animated={false} /> )}
-                    </div>
-
-                    <div className={`rounded-2xl p-5 min-w-0 ${message.role === 'user'
-                      ? 'bg-blue-500/10 border border-blue-500/20 text-foreground'
-                      : 'bg-surface border border-border text-foreground'
-                    } flex flex-col gap-4 w-full shadow-sm`}>
-
-                      {/* Tool Invocations Timeline */}
-                      {message.toolInvocations && message.toolInvocations.length > 0 && (
-                        <div className="flex flex-col gap-3 w-full font-mono text-sm">
-                          {message.toolInvocations.map((tool) => (
-                            <div key={tool.toolCallId} className="bg-background border border-border rounded-lg p-4 text-muted-foreground relative overflow-hidden">
-                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary/50" />
-                              <div className="flex items-center gap-2 mb-2">
-                                {tool.state === 'result' ? (
-                                  toolFailed(tool) ? <AlertCircle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-primary" />
-                                ) : (
-                                  <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                                )}
-                                <span className={tool.state === 'result' ? 'text-foreground font-semibold' : 'text-primary font-semibold'}>
-                                  {tool.state !== 'result' ? `Running ${tool.toolName}` : toolFailed(tool) ? `${tool.toolName} failed` : `Ran ${tool.toolName}`}
-                                </span>
-                              </div>
-                              <div className="pl-6 pt-2 pb-1 overflow-x-auto whitespace-pre">
-                                {tool.toolName === 'bash' ? `> ${tool.args?.command}` :
-                                 tool.toolName === 'python' ? `> python script` :
-                                 tool.toolName === 'read_file' ? `> cat ${tool.args?.filePath}` :
-                                 tool.toolName === 'web_search' ? `> search "${tool.args?.query}"` :
-                                 tool.toolName === 'repo_scan' ? `> scan the workspace folder` :
-                                 JSON.stringify(tool.args)}
-
-                                {tool.state === 'result' && tool.result && tool.result.output && (
-                                  <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
-                                    {String(tool.result.output).substring(0, TOOL_OUTPUT_PREVIEW)}
-                                    {String(tool.result.output).length > TOOL_OUTPUT_PREVIEW && '... [output truncated]'}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Still working: shown under any finished tool cards, so it stays in view */}
-                      {isLoading && message.role === 'assistant' && !message.content && index === messages.length - 1 && (
-                        <ThinkingIndicator steps={progressSteps} />
-                      )}
-
-                      {/* Text Content */}
-                      {message.content && (() => {
-                        const pendingId = message.role === 'assistant' ? parseApprovalId(message.content) : null;
-
-                        if (pendingId && workspaceId) {
-                          return (
-                            <ApprovalCard
-                              pendingId={pendingId}
-                              workspaceId={workspaceId}
-                              disabled={index < messages.length - 1 || isLoading}
-                              onResolve={resolveAction}
-                            />
-                          );
-                        }
-
-                        if (message.role === 'assistant') {
-                          // When the reply is just the command's output again, the card above already shows it.
-                          // Only when the card shows all of it: the card cuts long output off.
-                          const repeatsOutput = (message.toolInvocations ?? []).some(
-                            (tool) =>
-                              tool.state === 'result' &&
-                              String(tool.result?.output ?? '').length <= TOOL_OUTPUT_PREVIEW &&
-                              String(tool.result?.output ?? '').trim() === message.content.trim()
-                          );
-                          return (
-                            <>
-                              {!repeatsOutput && <MarkdownMessage content={message.content} />}
-                              {turnsByMessage[message.id] && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const store = useAnswerDetailsStore.getState();
-                                    store.select(message.id);
-                                    store.requestOpen();
-                                  }}
-                                  className="self-start text-xs text-muted-foreground hover:text-primary transition-colors"
-                                >
-                                  How I answered
-                                </button>
-                              )}
-                            </>
-                          );
-                        }
-
-                        return (
-                          <p className="text-[15px] whitespace-pre-wrap break-words leading-relaxed text-foreground/90">
-                            {stripActionMarker(message.content)}
-                          </p>
-                        );
-                      })()}
-
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
+              message.role === 'user' && message.content.includes(ACTION_MARKER) ? null : (
+                <ChatMessage
+                  key={message.id}
+                  message={message}
+                  isLast={index === messages.length - 1}
+                  busy={isLoading && index === messages.length - 1}
+                  progressSteps={index === messages.length - 1 ? progressSteps : undefined}
+                  hasAnswerDetails={Boolean(turnsByMessage[message.id])}
+                  workspaceId={workspaceId}
+                  onResolve={resolveActionStable}
+                />
+              )
             ))}
 
             {/* Standalone Thinking Bubble (when request is inflight but assistant message hasn't arrived) */}
@@ -605,7 +508,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                 <div className="max-w-xs md:max-w-2xl lg:max-w-3xl xl:max-w-4xl order-2">
                   <div className="flex items-start gap-3 flex-row">
                     <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm bg-primary/20 text-primary border border-primary/30">
-                      <AppLogo size={16} animated={true} />
+                      <AppLogo size={16} spinning />
                     </div>
 
                     <div className="rounded-2xl p-5 bg-surface border border-border text-foreground flex flex-col gap-4 w-full shadow-sm">
@@ -748,3 +651,147 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     </div>
   );
 }
+
+/**
+ * One message in the chat. Memoised so typing in the message box, and each streamed piece of a
+ * reply, re-renders only the message that changed: re-rendering every earlier message on every
+ * key made typing lag in a long chat.
+ */
+const ChatMessage = memo(function ChatMessage({
+  message,
+  isLast,
+  busy,
+  progressSteps,
+  hasAnswerDetails,
+  workspaceId,
+  onResolve,
+}: {
+  message: Message;
+  isLast: boolean;
+  /** This is the last message and a reply is being written. */
+  busy: boolean;
+  progressSteps?: ProgressStep[];
+  hasAnswerDetails: boolean;
+  workspaceId: string;
+  onResolve: (pendingId: string, status: 'approved' | 'rejected') => Promise<boolean>;
+}) {
+  return (
+    <motion.div
+      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.3 }}
+    >
+      <div className={`max-w-[85%] md:max-w-2xl lg:max-w-3xl xl:max-w-4xl min-w-0 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>
+        <div className={`flex items-start gap-3 ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm ${message.role === 'user'
+            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+            : 'bg-primary/20 text-primary border border-primary/30'
+          }`}>
+            {message.role === 'user' ? ( <User className="w-4 h-4" /> ) : ( <AppLogo size={16} animated={false} /> )}
+          </div>
+
+          <div className={`rounded-2xl p-5 min-w-0 ${message.role === 'user'
+            ? 'bg-blue-500/10 border border-blue-500/20 text-foreground'
+            : 'bg-surface border border-border text-foreground'
+          } flex flex-col gap-4 w-full shadow-sm`}>
+
+            {/* Tool Invocations Timeline */}
+            {message.toolInvocations && message.toolInvocations.length > 0 && (
+              <div className="flex flex-col gap-3 w-full font-mono text-sm">
+                {message.toolInvocations.map((tool) => (
+                  <div key={tool.toolCallId} className="bg-background border border-border rounded-lg p-4 text-muted-foreground relative overflow-hidden">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary/50" />
+                    <div className="flex items-center gap-2 mb-2">
+                      {tool.state === 'result' ? (
+                        toolFailed(tool) ? <AlertCircle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-primary" />
+                      ) : (
+                        <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                      )}
+                      <span className={tool.state === 'result' ? 'text-foreground font-semibold' : 'text-primary font-semibold'}>
+                        {tool.state !== 'result' ? `Running ${tool.toolName}` : toolFailed(tool) ? `${tool.toolName} failed` : `Ran ${tool.toolName}`}
+                      </span>
+                    </div>
+                    <div className="pl-6 pt-2 pb-1 overflow-x-auto whitespace-pre">
+                      {tool.toolName === 'bash' ? `> ${tool.args?.command}` :
+                       tool.toolName === 'python' ? `> python script` :
+                       tool.toolName === 'read_file' ? `> cat ${tool.args?.filePath}` :
+                       tool.toolName === 'web_search' ? `> search "${tool.args?.query}"` :
+                       tool.toolName === 'repo_scan' ? `> scan the workspace folder` :
+                       JSON.stringify(tool.args)}
+
+                      {tool.state === 'result' && tool.result && tool.result.output && (
+                        <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
+                          {String(tool.result.output).substring(0, TOOL_OUTPUT_PREVIEW)}
+                          {String(tool.result.output).length > TOOL_OUTPUT_PREVIEW && '... [output truncated]'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Still working: shown under any finished tool cards, so it stays in view */}
+            {busy && message.role === 'assistant' && !message.content && (
+              <ThinkingIndicator steps={progressSteps ?? []} />
+            )}
+
+            {/* Text Content */}
+            {message.content && (() => {
+              const pendingId = message.role === 'assistant' ? parseApprovalId(message.content) : null;
+
+              if (pendingId && workspaceId) {
+                return (
+                  <ApprovalCard
+                    pendingId={pendingId}
+                    workspaceId={workspaceId}
+                    disabled={!isLast || busy}
+                    onResolve={onResolve}
+                  />
+                );
+              }
+
+              if (message.role === 'assistant') {
+                // When the reply is just the command's output again, the card above already shows it.
+                // Only when the card shows all of it: the card cuts long output off.
+                const repeatsOutput = (message.toolInvocations ?? []).some(
+                  (tool) =>
+                    tool.state === 'result' &&
+                    String(tool.result?.output ?? '').length <= TOOL_OUTPUT_PREVIEW &&
+                    String(tool.result?.output ?? '').trim() === message.content.trim()
+                );
+                return (
+                  <>
+                    {!repeatsOutput && <MarkdownMessage content={message.content} />}
+                    {hasAnswerDetails && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const store = useAnswerDetailsStore.getState();
+                          store.select(message.id);
+                          store.requestOpen();
+                        }}
+                        className="self-start text-xs text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        How I answered
+                      </button>
+                    )}
+                  </>
+                );
+              }
+
+              return (
+                <p className="text-[15px] whitespace-pre-wrap break-words leading-relaxed text-foreground/90">
+                  {stripActionMarker(message.content)}
+                </p>
+              );
+            })()}
+
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+});

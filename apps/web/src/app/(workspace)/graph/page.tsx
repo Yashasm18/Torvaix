@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 import { useTheme } from 'next-themes';
+import { isLightTheme } from '@/lib/themes';
 import { countConnections, escapeHtml, fitZoom, linkEndpointId, nodeRadius, relationLabel, shortLabel } from '@/lib/graph';
 import { useActiveWorkspace } from '@/hooks/use-active-workspace';
 
@@ -37,9 +38,10 @@ export default function GraphPage() {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<any>(null);
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   
-  const isDark = theme !== 'light'; // every theme except "light" has a dark background
+  // The canvas draws its own colours, so it needs to know whether the background is dark.
+  const isDark = !isLightTheme(resolvedTheme);
 
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const { workspace, workspaceId } = useActiveWorkspace();

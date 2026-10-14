@@ -1,154 +1,16 @@
 @import "tailwindcss";
+@import "./themes.css";
 
 @plugin "tailwindcss-animate";
 
-@custom-variant dark (&:is(.dark *));
+/* Every theme except the light ones (see themes.css and src/lib/themes.ts). */
+@custom-variant dark (&:where(:root:not([data-theme="light"], [data-theme="latte"], [data-theme="dawn"], [data-theme="lotus"], [data-theme="sakura"]) *));
 
 :root {
-  /* TORVAIX AI Operating System Theme */
-  --background: #0B1020;
-  --foreground: #F3F4F6;
-  --card: #111827;
-  --card-foreground: #F3F4F6;
-  --popover: #111827;
-  --popover-foreground: #F3F4F6;
-  --brand-color: #00D4AA;
-  --primary: #00D4AA;
-  --primary-foreground: #0A0A0A;
-  --secondary: #1F2937;
-  --secondary-foreground: #F3F4F6;
-  --muted: #1F2937;
-  --muted-foreground: #9CA3AF;
-  --accent: #1F2937;
-  --accent-foreground: #F3F4F6;
-  --destructive: #EF4444;
-  --destructive-foreground: #F9FAFB;
-  --border: #1F2937;
-  --input: #1F2937;
-  --ring: #00D4AA;
   --radius: 0.75rem;
-
-  /* Sidebar Variables */
-  --sidebar-background: #0B1020;
-  --sidebar-foreground: #F3F4F6;
-  --sidebar-primary: #00D4AA;
-  --sidebar-primary-foreground: #0A0A0A;
-  --sidebar-accent: #111827;
-  --sidebar-accent-foreground: #00D4AA;
-  --sidebar-border: #1F2937;
-  --sidebar-ring: #00D4AA;
 }
-
-.theme-light {
-  /* A refined light theme for those who want it */
-  --background: hsl(0, 0%, 100%);
-  --foreground: hsl(240, 10%, 3.9%);
-  --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(240, 10%, 3.9%);
-  --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(240, 10%, 3.9%);
-  --primary: hsl(240, 5.9%, 10%);
-  --primary-foreground: hsl(0, 0%, 98%);
-  --secondary: hsl(240, 4.8%, 95.9%);
-  --secondary-foreground: hsl(240, 5.9%, 10%);
-  --muted: hsl(240, 4.8%, 95.9%);
-  --muted-foreground: hsl(240, 3.8%, 46.1%);
-  --accent: hsl(240, 4.8%, 95.9%);
-  --accent-foreground: hsl(240, 5.9%, 10%);
-  --destructive: hsl(0, 84.2%, 60.2%);
-  --destructive-foreground: hsl(0, 0%, 98%);
-  --border: hsl(240, 5.9%, 90%);
-  --input: hsl(240, 5.9%, 90%);
-  --ring: hsl(240, 10%, 3.9%);
-  
-  --sidebar-background: hsl(0, 0%, 98%);
-  --sidebar-foreground: hsl(240, 5.3%, 26.1%);
-  --sidebar-primary: hsl(240, 5.9%, 10%);
-  --sidebar-primary-foreground: hsl(0, 0%, 98%);
-  --sidebar-accent: hsl(240, 4.8%, 95.9%);
-  --sidebar-accent-foreground: hsl(240, 5.9%, 10%);
-  --sidebar-border: hsl(220, 13%, 91%);
-  --sidebar-ring: hsl(217.2, 91.2%, 59.8%);
-}
-
-.theme-cyberpunk {
-  --background: hsl(0, 0%, 4%);
-  --foreground: hsl(0, 0%, 95%);
-  --card: hsl(0, 0%, 8%);
-  --card-foreground: hsl(0, 0%, 95%);
-  --popover: hsl(0, 0%, 6%);
-  --popover-foreground: hsl(0, 0%, 95%);
-  --primary: hsl(315, 100%, 50%); /* Neon Pink */
-  --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(0, 0%, 12%);
-  --secondary-foreground: hsl(0, 0%, 98%);
-  --muted: hsl(0, 0%, 15%);
-  --muted-foreground: hsl(0, 0%, 70%);
-  --accent: hsl(180, 100%, 50%); /* Cyan */
-  --accent-foreground: hsl(0, 0%, 10%);
-  --destructive: hsl(0, 100%, 40%);
-  --destructive-foreground: hsl(0, 0%, 98%);
-  --border: hsl(315, 50%, 20%);
-  --input: hsl(0, 0%, 10%);
-  --ring: hsl(180, 100%, 50%);
-  
-  --sidebar-background: hsl(0, 0%, 2%);
-  --sidebar-border: hsl(315, 50%, 15%);
-}
-
-.theme-aurora {
-  --background: hsl(210, 40%, 8%);
-  --foreground: hsl(0, 0%, 95%);
-  --card: hsl(210, 30%, 12%);
-  --card-foreground: hsl(0, 0%, 95%);
-  --popover: hsl(210, 35%, 10%);
-  --popover-foreground: hsl(0, 0%, 95%);
-  --primary: hsl(150, 70%, 45%); /* Aurora Green */
-  --primary-foreground: hsl(210, 40%, 10%);
-  --secondary: hsl(210, 30%, 18%);
-  --secondary-foreground: hsl(0, 0%, 98%);
-  --muted: hsl(210, 30%, 20%);
-  --muted-foreground: hsl(210, 20%, 70%);
-  --accent: hsl(270, 70%, 55%); /* Purple shift */
-  --accent-foreground: hsl(0, 0%, 98%);
-  --destructive: hsl(0, 60%, 45%);
-  --destructive-foreground: hsl(0, 0%, 98%);
-  --border: hsl(210, 30%, 25%);
-  --input: hsl(210, 30%, 15%);
-  --ring: hsl(150, 70%, 45%);
-  
-  --sidebar-background: hsl(210, 40%, 6%);
-  --sidebar-border: hsl(210, 30%, 20%);
-}
-
-.theme-terminal {
-  --background: hsl(120, 10%, 4%);
-  --foreground: hsl(120, 100%, 50%); /* Bright Green */
-  --card: hsl(120, 10%, 6%);
-  --card-foreground: hsl(120, 100%, 50%);
-  --popover: hsl(120, 10%, 5%);
-  --popover-foreground: hsl(120, 100%, 50%);
-  --primary: hsl(120, 100%, 40%);
-  --primary-foreground: hsl(120, 10%, 4%);
-  --secondary: hsl(120, 10%, 10%);
-  --secondary-foreground: hsl(120, 100%, 50%);
-  --muted: hsl(120, 10%, 15%);
-  --muted-foreground: hsl(120, 50%, 30%);
-  --accent: hsl(120, 100%, 30%);
-  --accent-foreground: hsl(120, 10%, 4%);
-  --destructive: hsl(0, 100%, 40%);
-  --destructive-foreground: hsl(0, 0%, 98%);
-  --border: hsl(120, 50%, 15%);
-  --input: hsl(120, 10%, 8%);
-  --ring: hsl(120, 100%, 50%);
+[data-theme="terminal"] {
   --radius: 0rem;
-  
-  --sidebar-background: hsl(120, 10%, 2%);
-  --sidebar-border: hsl(120, 50%, 15%);
-  --sidebar-primary: hsl(120, 100%, 50%);
-  --sidebar-primary-foreground: hsl(120, 10%, 4%);
-  --sidebar-accent: hsl(120, 10%, 15%);
-  --sidebar-accent-foreground: hsl(120, 100%, 50%);
 }
 
 @theme inline {
@@ -157,6 +19,7 @@
   --font-sans: var(--font-geist-sans), sans-serif;
   --font-mono: var(--font-jetbrains), monospace;
   --color-background: var(--background);
+  --color-surface: var(--surface);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -360,4 +223,41 @@
 }
 .dot-grid-animated {
   animation: grid-scroll 8s linear infinite;
+}
+
+/* The logo's orbits (components/ui/app-logo.tsx): still unless hovered or working. */
+@keyframes app-logo-orbit {
+  to { transform: rotate(360deg); }
+}
+.app-logo-orbit {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: app-logo-orbit 6s linear infinite paused;
+}
+.app-logo-orbit-slow {
+  animation-duration: 8s;
+  animation-direction: reverse;
+}
+.app-logo-interactive {
+  transition: transform 0.2s ease;
+}
+.app-logo-interactive:hover {
+  transform: scale(1.05);
+}
+.app-logo-interactive:active {
+  transform: scale(0.9) rotate(15deg);
+}
+.app-logo-interactive:hover .app-logo-orbit,
+.app-logo-spinning .app-logo-orbit {
+  animation-play-state: running;
+}
+
+/* People who ask their system for less motion get none of the decorative kind. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

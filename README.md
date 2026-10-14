@@ -63,6 +63,7 @@ The four dots at the bottom of the sidebar show what is running. **Agent**, **Mo
 | **Your own agents** | Give an agent its own instructions and a fixed set of tools, for example a researcher that can only search the web. Use it in chat, run it on a task, or have an automation run as it. |
 | **Automations** | Run work on a schedule, when something happens (such as a memory being saved), or by hand. |
 | **Memory themes** | Finds duplicate and related memories and groups them into themes. |
+| **Colour themes** | 17 themes in **Settings → Appearance**: light and dark Torvaix, the anime-style Sakura and Sakura Night, and themes based on Catppuccin, Rosé Pine, Tokyo Night, Kanagawa, Dracula, Nord and Synthwave '84. Or follow your system's light or dark setting. |
 | **Any model** | Ollama by default; OpenAI, Anthropic, Google, Groq and OpenRouter with an API key. Choose the model in **Settings → Models & keys**. |
 
 ## Using Torvaix

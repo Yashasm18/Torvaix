@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import { Monitor, Key, Shield, HardDrive, Moon, CheckCircle2, XCircle, Loader2, RefreshCw, Download } from "lucide-react"
-import { useTheme } from "next-themes"
 
 import {
   Dialog,
@@ -13,7 +12,7 @@ import {
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { THEMES } from "@/lib/themes"
+import { ThemePicker } from "./theme-picker"
 import { useActiveWorkspace } from "@/hooks/use-active-workspace"
 import { refreshSystemStatus, useSystemStatus } from "@/hooks/use-system-status"
 import { exportWorkspaceAsJSON } from "@/lib/export"
@@ -40,7 +39,6 @@ function StatusLine({ label, ok, detail }: { label: string; ok: boolean | undefi
 }
 
 export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenChange: (o: boolean) => void }) {
-  const { theme, setTheme } = useTheme()
   const { workspace } = useActiveWorkspace()
   const status = useSystemStatus()
   const [testing, setTesting] = React.useState(false)
@@ -118,20 +116,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
 
             <TabsContent value="appearance" className="m-0 space-y-4">
               <h3 className="text-lg font-medium">Theme</h3>
-              <p className="text-sm text-muted-foreground">Choose how Torvaix looks.</p>
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                {THEMES.map((t) => (
-                  <button
-                    type="button"
-                    key={t.id}
-                    className={`text-left border rounded-xl p-4 cursor-pointer transition-all ${theme === t.id ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-muted-foreground/50'}`}
-                    onClick={() => setTheme(t.id)}
-                  >
-                    <div className="font-medium mb-1">{t.name}</div>
-                    <div className="text-xs text-muted-foreground">{t.description}</div>
-                  </button>
-                ))}
-              </div>
+              <p className="text-sm text-muted-foreground">Choose how Torvaix looks. It is saved in this browser.</p>
+              <ThemePicker />
             </TabsContent>
 
             <TabsContent value="providers" className="m-0">
@@ -145,7 +131,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
                 <p>
                   Data leaves this computer only when you use a cloud model (your prompts and relevant memories go to that
                   provider), when the agent searches the web, or when an OpenAI key is set in <code className="font-mono">.env</code> and Ollama can&apos;t create
-                  embeddings. Pages also load one font stylesheet from Fontshare.
+                  embeddings. The landing page also loads one font stylesheet from Fontshare.
                 </p>
                 <p>
                   Memories, automations and execution logs live in <code className="font-mono">~/.torvaix/data</code> on this machine.

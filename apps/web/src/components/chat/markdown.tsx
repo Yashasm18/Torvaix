@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -39,13 +40,19 @@ const components: Components = {
   ),
 }
 
-/** Render assistant replies (markdown from the model) with GitHub-flavoured markdown. */
-export function MarkdownMessage({ content }: { content: string }) {
+const remarkPlugins = [remarkGfm]
+
+/**
+ * Render assistant replies (markdown from the model) with GitHub-flavoured markdown.
+ * Memoised: the chat page re-renders on every key typed and every streamed piece, and parsing
+ * every earlier reply each time made typing lag in a long chat.
+ */
+export const MarkdownMessage = memo(function MarkdownMessage({ content }: { content: string }) {
   return (
     <div className="break-words text-[15px] text-foreground/90">
-      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+      <Markdown remarkPlugins={remarkPlugins} components={components}>
         {content}
       </Markdown>
     </div>
   )
-}
+})
