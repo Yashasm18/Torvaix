@@ -64,7 +64,7 @@ export function ApprovalCard({
           <Shield className="w-4 h-4 text-amber-400" />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-amber-300">Security Approval Required</p>
+          <p className="text-sm font-semibold text-amber-300">Approval needed</p>
           <p className="text-xs text-amber-400/70">
             {state.kind === "pending" ? (
               <>Torvaix wants to run <code className="font-mono">{state.action.action}</code></>
@@ -106,7 +106,7 @@ export function ApprovalCard({
             onClick={() => decide("approved")}
           >
             <CheckCircle2 className="w-4 h-4 mr-2" />
-            Approve Execution
+            Approve and run
           </Button>
           <Button
             size="sm"

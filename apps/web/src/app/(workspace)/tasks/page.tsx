@@ -1,5 +1,6 @@
 "use client";
 
+import { announceActivityChanged } from "@/lib/activity";
 import { useState, useEffect, useRef } from "react";
 import { LoadError } from "@/components/load-error";
 import { NO_RESPONSE, responseError } from "@/lib/api-error";
@@ -149,6 +150,7 @@ export default function TasksPage() {
         return;
       }
       setPendingActions((prev) => prev.filter((a) => a.id !== id));
+      announceActivityChanged();
 
       if (status === "approved") {
         // Approving only records the decision; resume the agent so the action actually runs.
@@ -241,7 +243,7 @@ export default function TasksPage() {
             Tasks
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            The agent&apos;s latest tool runs (up to 60), their output, and commands waiting for your approval.
+            The commands and tools Torvaix ran most recently (up to 60), what they printed, and any waiting for your approval.
           </p>
         </div>
 

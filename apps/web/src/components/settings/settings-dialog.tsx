@@ -102,7 +102,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean, onOpenCh
               <div className="rounded-xl border border-border p-4 space-y-2">
                 <div className="text-sm">Backup</div>
                 <p className="text-xs text-muted-foreground">
-                  Chats, notes and projects are stored in this browser, so clearing site data deletes them.
+                  Chats and projects are stored in this browser, so clearing site data deletes them.
                   Export a copy to keep one.
                 </p>
                 <Button

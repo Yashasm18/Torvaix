@@ -32,7 +32,8 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarGroupLabel
+  SidebarGroupLabel,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { useDBStore } from "@/store/db-store"
 import { useActiveWorkspace } from "@/hooks/use-active-workspace"
@@ -53,6 +54,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { isActiveRoute, PAGE_TITLES } from "@/lib/nav"
 import { AppLogo } from "@/components/ui/app-logo"
+import { ACTIVITY_CHANGED_EVENT } from "@/lib/activity"
 
 const ACTIVITY_REFRESH_MS = 30_000
 
@@ -74,6 +76,9 @@ export function AppSidebar() {
       ? systemStatus?.providers.find((p) => p.id === chatModel.provider) ?? { name: chatModel.provider, ready: false }
       : null
   const pathname = usePathname()
+  // On a phone the sidebar is a sheet over the page: close it once a page is picked.
+  const { setOpenMobile } = useSidebar()
+  const closeOnPhone = () => setOpenMobile(false)
   const [activity, setActivity] = React.useState<WorkspaceActivity | null>(null)
 
   React.useEffect(() => {
@@ -102,9 +107,13 @@ export function AppSidebar() {
 
     loadActivity()
     const interval = setInterval(loadActivity, ACTIVITY_REFRESH_MS)
+    // The chat says when a reply finishes or an approval is answered, so "Pending approvals"
+    // counts a request as soon as it appears instead of up to 30 seconds later.
+    window.addEventListener(ACTIVITY_CHANGED_EVENT, loadActivity)
     return () => {
       cancelled = true
       clearInterval(interval)
+      window.removeEventListener(ACTIVITY_CHANGED_EVENT, loadActivity)
     }
   }, [workspaceId])
 
@@ -112,6 +121,7 @@ export function AppSidebar() {
 
   // The page switcher listens for ⌘K (components/command-palette.tsx).
   const openCommandPalette = () => {
+    closeOnPhone()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
   }
 
@@ -144,7 +154,7 @@ export function AppSidebar() {
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56 bg-popover border-border">
             <DropdownMenuGroup>
-              <DropdownMenuLabel>Switch Workspace</DropdownMenuLabel>
+              <DropdownMenuLabel>Switch workspace</DropdownMenuLabel>
               {workspaces.map((workspace) => (
                 <DropdownMenuItem
                   key={workspace.id}
@@ -158,7 +168,7 @@ export function AppSidebar() {
             </DropdownMenuGroup>
             <DropdownMenuSeparator className="bg-border" />
             <DropdownMenuItem onClick={handleCreateWorkspace} className="cursor-pointer text-primary hover:bg-primary/10">
-              <Plus className="mr-2 h-4 w-4" /> Create Workspace
+              <Plus className="mr-2 h-4 w-4" /> Create workspace
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -183,7 +193,7 @@ export function AppSidebar() {
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
-                    render={<Link href={item.href} />}
+                    render={<Link href={item.href} onClick={closeOnPhone} />}
                     tooltip={item.title}
                     isActive={isActiveRoute(pathname, item.href)}
                     aria-current={isActiveRoute(pathname, item.href) ? "page" : undefined}
@@ -206,7 +216,7 @@ export function AppSidebar() {
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    render={<Link href="/debug/memory" />}
+                    render={<Link href="/debug/memory" onClick={closeOnPhone} />}
                     tooltip={PAGE_TITLES["/debug/memory"]}
                     isActive={isActiveRoute(pathname, "/debug/memory")}
                     aria-current={isActiveRoute(pathname, "/debug/memory") ? "page" : undefined}
@@ -218,7 +228,7 @@ export function AppSidebar() {
                 </SidebarMenuItem>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    render={<Link href="/debug/context" />}
+                    render={<Link href="/debug/context" onClick={closeOnPhone} />}
                     tooltip={PAGE_TITLES["/debug/context"]}
                     isActive={isActiveRoute(pathname, "/debug/context")}
                     aria-current={isActiveRoute(pathname, "/debug/context") ? "page" : undefined}
@@ -252,14 +262,14 @@ export function AppSidebar() {
         <div className="flex flex-col gap-2">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Activity</span>
           <div className="flex flex-col gap-1">
-            <Link href="/automation" className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-sidebar-accent group">
+            <Link href="/automation" onClick={closeOnPhone} className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-sidebar-accent group">
               <div className="flex items-center gap-2">
                 <Zap className="w-3.5 h-3.5 text-primary" />
                 <span className="text-sm text-foreground group-hover:text-sidebar-accent-foreground">Active automations</span>
               </div>
               <span className="text-[11px] text-muted-foreground font-mono">{activity ? activity.activeAutomations : "—"}</span>
             </Link>
-            <Link href="/tasks" className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-sidebar-accent group">
+            <Link href="/tasks" onClick={closeOnPhone} className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-sidebar-accent group">
               <div className="flex items-center gap-2">
                 <ShieldAlert className={`w-3.5 h-3.5 ${activity?.pendingApprovals ? "text-amber-400" : "text-muted-foreground"}`} />
                 <span className="text-sm text-foreground group-hover:text-sidebar-accent-foreground">Pending approvals</span>
@@ -273,7 +283,7 @@ export function AppSidebar() {
 
         <SidebarMenu className="gap-1">
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={() => setSettingsOpen(true)} className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
+            <SidebarMenuButton onClick={() => { closeOnPhone(); setSettingsOpen(true) }} className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
               <Settings className="h-4 w-4" />
               <span>Settings</span>
             </SidebarMenuButton>

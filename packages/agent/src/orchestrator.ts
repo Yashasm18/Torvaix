@@ -376,7 +376,7 @@ export class AgentOrchestrator {
       endTrace({ decision: 'end', bypass: true });
       state.pulse.route = 'identity';
       console.log(`[Router Agent] Decision: identity (keyword bypass)`);
-      state.output = "I am Torvaix, your workspace-first AI Operating System.";
+      state.output = "I'm Torvaix, an AI assistant that works inside your workspace. I can answer questions, remember what you tell me, and use tools such as reading and writing files, with your approval.";
       state.nextNode = 'end';
       return state;
     }
@@ -726,24 +726,24 @@ Reply with ONLY one word: memory, knowledge, execution, or conversation`;
         structure = resultText.split('Structure:')[1]?.trim() || 'Unknown';
       }
 
-      state.output = `## Repository Architecture Summary
+      state.output = `## Workspace summary
 
 **Package:** ${pkg}
 
 **Dependencies:** ${deps}
 
-**Directory Structure:**
+**Folder structure:**
 \`\`\`
 ${structure}
 \`\`\`
 
-*Analysis completed via deterministic repo_scan.*`;
+*From a scan of the workspace folder.*`;
 
       this.memoryStore.logExecution(state.workspaceId, 'repo_scan', {}, resultText, 'success');
       state.trace!.recordToolCall('repo_scan', 0, 'success');
       endTrace({ status: 'completed' });
     } catch (e: any) {
-      state.output = `Repo analysis failed: ${e.message}`;
+      state.output = `Couldn't scan the workspace: ${e.message}`;
       state.error = state.output;
       endTrace({ status: 'error', error: e.message });
       state.trace!.recordError('repo_analysis', e.message);
@@ -928,7 +928,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         const message = decision.message;
         state.output = typeof message === 'string' && message.trim()
           ? message
-          : message != null && typeof message !== 'string' ? JSON.stringify(message, null, 2) : 'Execution completed.';
+          : message != null && typeof message !== 'string' ? JSON.stringify(message, null, 2) : 'Done.';
         state.nextNode = 'end';
         endTrace({ done: true });
         return state;
@@ -983,7 +983,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       if (this.lastToolCall && this.lastToolCall.tool === tool && this.lastToolCall.argsHash === argsHash) {
         console.log(`[FINAL BREAK] Duplicate tool call detected: ${tool} with same args. Forcing synthesis.`);
         // Force the LLM to synthesize from existing context
-        state.output = this.lastToolOutput ?? 'The requested information was already retrieved. Please check the results above.';
+        state.output = this.lastToolOutput ?? 'The results are above.';
         // Repeating a call that just failed is a failure; repeating one that worked only means the answer is already there.
         if (this.lastToolOutput?.startsWith('Tool execution failed:')) state.error = state.output;
         state.final = true;
@@ -1002,7 +1002,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
         const pendingId = this.memoryStore.createPendingAction(state.workspaceId, tool, args);
         state.pendingActionId = pendingId;
         state.pulse.awaitingApproval = tool;
-        state.output = `Security Confirmation Required for ${tool}. Please approve.`;
+        state.output = `Waiting for your approval to run ${tool}.`;
         endTrace({ tool, status: 'awaiting_approval' });
         state.nextNode = 'end';
         return state;
@@ -1044,7 +1044,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
 
         if (previousFailed) {
           console.log('[FINAL BREAK] Repeated tool failure. Aborting execution.');
-          state.output = `Execution aborted due to repeated tool failures: ${text.replace(/^Tool execution failed: /, '')}`;
+          state.output = `Stopped because the same step kept failing: ${text.replace(/^Tool execution failed: /, '')}`;
           state.error = state.output;
           state.final = true;
           state.nextNode = 'end';
@@ -1061,7 +1061,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
       
       const prevMsg = state.messages.length > 0 ? state.messages[state.messages.length - 1] : null;
       if (prevMsg && prevMsg.content.includes('JSON Parsing Error')) {
-        state.output = `Agent parsing error: ${e.message}. Raw: ${rawResponse}`;
+        state.output = `The model's reply couldn't be read as a step (${e.message}). It said: ${rawResponse}`;
         state.error = state.output;
         state.nextNode = 'end';
         endTrace({ error: e.message });
@@ -1170,7 +1170,7 @@ Reply with ONLY ONE JSON object. Nothing else.`;
     } catch (e: any) {
       if (!this.stopIfAborted(state)) {
         trace.recordError('execution', `Fatal: ${e.message}`);
-        state.output = `Agent error: ${e.message}`;
+        state.output = `Something went wrong: ${e.message}`;
         state.error = state.output;
       }
     } finally {

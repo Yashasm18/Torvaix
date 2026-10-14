@@ -43,8 +43,8 @@ test.describe('Agents', () => {
     const run = page.getByRole('dialog');
     await run.locator('textarea').fill('Please run the command `echo agent-approved`');
     await run.getByRole('button', { name: 'Run', exact: true }).click();
-    await expect(run.getByText('Security Approval Required')).toBeVisible();
-    await run.getByRole('button', { name: 'Approve Execution' }).click();
+    await expect(run.getByText('Approval needed')).toBeVisible();
+    await run.getByRole('button', { name: 'Approve and run' }).click();
     await expect(run.getByText(/agent-approved/).first()).toBeVisible({ timeout: 60_000 });
     await expect(run.getByText('Done').first()).toBeVisible();
   });
@@ -57,7 +57,7 @@ test.describe('Agents', () => {
     await run.locator('textarea').fill('Please run the command `echo should-not-run`');
     await run.getByRole('button', { name: 'Run', exact: true }).click();
     await expect(run.getByText('Done').first()).toBeVisible({ timeout: 60_000 });
-    await expect(run.getByText('Security Approval Required')).toHaveCount(0);
+    await expect(run.getByText('Approval needed')).toHaveCount(0);
     await expect(run.getByText(/should-not-run$/)).toHaveCount(0);
   });
 });

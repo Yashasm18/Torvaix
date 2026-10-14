@@ -2,7 +2,12 @@ import type { Chat, Message } from "@torvaix/types"
 
 /** Messages kept per chat in browser storage; older ones are dropped first. */
 export const MAX_STORED_MESSAGES = 200
-export const DEFAULT_CHAT_TITLE = "New Chat"
+export const DEFAULT_CHAT_TITLE = "New chat"
+
+/** A chat still has the title it was made with, so its first message may name it. "New Chat" is the old spelling. */
+export function isDefaultChatTitle(title: string): boolean {
+  return title === DEFAULT_CHAT_TITLE || title === "New Chat"
+}
 
 // The chat page appends this marker to approve/deny messages so the API can resume the action.
 const ACTION_MARKER = /\n?__PENDING_ACTION_ID__:[a-f0-9-]+/g

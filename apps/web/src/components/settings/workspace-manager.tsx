@@ -22,7 +22,7 @@ export function WorkspaceManager() {
 
   const remove = () => {
     const confirmed = window.confirm(
-      `Delete workspace "${workspace.name}"?\n\nIts chats, notes and projects in this browser will be removed. ` +
+      `Delete workspace "${workspace.name}"?\n\nIts chats and projects in this browser will be removed. ` +
         `Memories and automations on the agent server are kept.`
     )
     if (confirmed) deleteWorkspace(workspace.id)
@@ -47,7 +47,7 @@ export function WorkspaceManager() {
         <p className="text-xs text-muted-foreground">
           {isOnlyWorkspace
             ? "This is your only workspace, so it can't be deleted."
-            : "Deleting removes this workspace's chats, notes and projects from this browser."}
+            : "Deleting removes this workspace's chats and projects from this browser."}
         </p>
         <Button type="button" variant="destructive" size="sm" disabled={isOnlyWorkspace} onClick={remove}>
           Delete

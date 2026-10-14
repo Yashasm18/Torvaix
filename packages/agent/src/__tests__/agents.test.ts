@@ -327,7 +327,7 @@ describe('an agent only uses its own tools', () => {
 });
 
 describe('asking an agent who it is', () => {
-  const FIXED_ANSWER = 'I am Torvaix, your workspace-first AI Operating System.';
+  const FIXED_ANSWER = "I'm Torvaix, an AI assistant that works inside your workspace. I can answer questions, remember what you tell me, and use tools such as reading and writing files, with your approval.";
   let store: MemoryStore;
   beforeEach(() => {
     callTool.mockClear();

@@ -22,7 +22,7 @@ const spaceGrotesk = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: "Torvaix",
-  description: "Workspace-first AI Operating System — Local-first, privacy-first, no telemetry.",
+  description: "A local-first AI workspace: chat, memory, agents and automations that run on your computer. No telemetry.",
 };
 
 export default function RootLayout({

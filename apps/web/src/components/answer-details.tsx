@@ -170,8 +170,8 @@ function EmptyState() {
       <p>You can correct or delete a memory right here if it&apos;s wrong.</p>
       <div className="rounded-lg border border-border bg-background/60 p-3 space-y-1.5">
         <p className="text-xs font-medium text-foreground/80">Try it</p>
-        <p className="text-xs">1. Send <span className="text-foreground">Remember that my favorite framework is Next.js</span></p>
-        <p className="text-xs">2. Then ask <span className="text-foreground">What is my favorite framework?</span></p>
+        <p className="text-xs">1. Send <span className="text-foreground">Remember that my favourite framework is Next.js</span></p>
+        <p className="text-xs">2. Then ask <span className="text-foreground">What is my favourite framework?</span></p>
       </div>
     </div>
   )

@@ -92,7 +92,7 @@ export default function RetrievalTesterPage() {
             <textarea
               id="retrieval-query"
               className="w-full bg-background border border-border rounded-lg p-3 text-sm h-24 focus:ring-1 focus:ring-primary outline-none resize-none"
-              placeholder="e.g. What is my favorite database?"
+              placeholder="e.g. What is my favourite database?"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {

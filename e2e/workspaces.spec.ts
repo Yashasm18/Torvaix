@@ -11,7 +11,7 @@ test.describe('Workspaces and projects', () => {
 
     // Create a second workspace from the switcher; it becomes the active one.
     await page.getByText('First workspace').first().click();
-    await page.getByRole('menuitem', { name: 'Create Workspace' }).click();
+    await page.getByRole('menuitem', { name: 'Create workspace' }).click();
     await page.getByLabel('Name').fill('Second workspace');
     await page.getByRole('dialog').getByRole('button', { name: 'Create workspace' }).click();
     await expect(page.getByText('Second workspace').first()).toBeVisible();

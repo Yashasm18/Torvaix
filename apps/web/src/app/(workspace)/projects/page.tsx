@@ -112,7 +112,7 @@ export default function ProjectsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Projects</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Organize your work in {workspace?.name ?? "this workspace"} into focused projects.
+            Track the projects in {workspace?.name ?? "this workspace"}: what each is about, its status and tags. Saved in this browser.
           </p>
         </div>
         <Button onClick={openCreate} disabled={!workspaceId} className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 rounded-lg">
@@ -127,7 +127,7 @@ export default function ProjectsPage() {
           <Search className="w-4 h-4 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search projects..."
+            placeholder="Search projects…"
             aria-label="Search projects"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}

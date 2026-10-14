@@ -15,12 +15,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useDBStore } from "@/store/db-store"
 
+// Research and Startup made the same empty workspace as General, so they are no longer offered.
 const TEMPLATES: { id: WorkspaceTemplate; label: string; hint: string }[] = [
-  { id: "general", label: "General", hint: "An empty workspace with one chat" },
-  { id: "coding", label: "Coding", hint: "Code assistant chat and a snippets note" },
-  { id: "university", label: "University", hint: "Discussion chat plus assignments and references notes" },
-  { id: "research", label: "Research", hint: "An empty workspace for research" },
-  { id: "startup", label: "Startup", hint: "An empty workspace for your company" },
+  { id: "general", label: "Blank", hint: "One empty chat." },
+  { id: "coding", label: "Coding", hint: "A Code assistant chat and a Snippets project." },
+  { id: "university", label: "University", hint: "A Course discussion chat, plus Assignments and References projects." },
 ]
 
 export function CreateWorkspaceDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {

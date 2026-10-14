@@ -1,5 +1,6 @@
 "use client";
 
+import { announceActivityChanged } from "@/lib/activity";
 import { useState, useEffect, useRef } from "react";
 import { LoadError } from "@/components/load-error";
 import { NO_RESPONSE, responseError } from "@/lib/api-error";
@@ -279,6 +280,7 @@ export default function AutomationPage() {
           prev.map(a => (a.id === automation.id ? { ...a, status: nextStatus } : a))
         );
         fetchAutomations();
+        announceActivityChanged();
       } else {
         setActionError(`Couldn't ${nextStatus === "active" ? "turn on" : "pause"} "${automation.name}". ${await responseError(res)}`);
       }
@@ -315,7 +317,7 @@ export default function AutomationPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this automation workflow?")) return;
+    if (!confirm("Delete this automation and its run history? This can't be undone.")) return;
     try {
       const res = await fetch(`/api/automations/${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -485,8 +487,8 @@ export default function AutomationPage() {
                   Agent offline
                 </span>
               ) : (
-                <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-primary/10 border border-primary/20 text-primary">
-                  Running
+                <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-primary/10 border border-primary/20 text-primary" title="The agent server is on, so automations run when they are due">
+                  Scheduler on
                 </span>
               )}
             </div>
@@ -975,7 +977,8 @@ export default function AutomationPage() {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleToggleStatus(automation)}
-                        title={automation.status === "active" ? "Pause Automation" : "Resume Automation"}
+                        title={automation.status === "active" ? "Pause" : "Resume"}
+                        aria-label={`${automation.status === "active" ? "Pause" : "Resume"} ${automation.name}`}
                         className="h-8 w-8 text-muted-foreground hover:text-amber-400"
                       >
                         {automation.status === "active" ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
@@ -985,7 +988,8 @@ export default function AutomationPage() {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleDelete(automation.id)}
-                        title="Delete Automation"
+                        title="Delete automation"
+                        aria-label={`Delete ${automation.name}`}
                         className="h-8 w-8 text-muted-foreground hover:text-red-400"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1064,7 +1068,7 @@ export default function AutomationPage() {
               <DialogTitle className="text-lg font-bold">Run history: {selectedWorkflowForLogs?.name}</DialogTitle>
             </div>
             <DialogDescription>
-              Audit trail of background runs and execution outputs.
+              Each run, newest first, with what it did.
             </DialogDescription>
           </DialogHeader>
 
@@ -1077,7 +1081,7 @@ export default function AutomationPage() {
             ) : logs.length === 0 ? (
               <div className="py-12 text-center text-muted-foreground">
                 <p className="text-sm">This automation hasn&apos;t run yet.</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">Run the workflow or wait for the scheduler to trigger it.</p>
+                <p className="text-xs text-muted-foreground/70 mt-1">Choose Run now, or wait until it is next due.</p>
               </div>
             ) : (
               logs.map(log => (

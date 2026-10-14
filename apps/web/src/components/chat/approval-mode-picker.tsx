@@ -35,7 +35,7 @@ export function ApprovalModePicker({ disabled }: { disabled?: boolean }) {
     if (next === mode) return
     if (
       next === "bypass" &&
-      !window.confirm("Bypass runs every command the assistant decides on without asking you, including ones that change or delete files. Turn it on?")
+      !window.confirm("Never ask runs every command Torvaix decides on without asking you, including ones that change or delete files. Turn it on?")
     ) {
       return
     }
@@ -44,8 +44,8 @@ export function ApprovalModePicker({ disabled }: { disabled?: boolean }) {
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-2">
-      <div role="radiogroup" aria-label="When commands run" className="flex items-center gap-1.5">
-        <span className="text-[11px] text-muted-foreground">Commands:</span>
+      <div role="radiogroup" aria-label="When commands run" className="flex items-center gap-1 sm:gap-1.5">
+        <span className="hidden sm:inline text-[11px] text-muted-foreground">Commands:</span>
         {APPROVAL_MODES.map((m) => {
           const Icon = ICONS[m.id]
           const selected = m.id === mode
@@ -58,7 +58,7 @@ export function ApprovalModePicker({ disabled }: { disabled?: boolean }) {
               disabled={disabled}
               title={m.description}
               onClick={() => choose(m.id)}
-              className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors disabled:opacity-50 ${
+              className={`flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2 sm:px-2.5 text-xs transition-colors disabled:opacity-50 ${
                 selected ? SELECTED[m.id] : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               }`}
             >

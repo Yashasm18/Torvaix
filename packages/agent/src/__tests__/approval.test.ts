@@ -296,7 +296,7 @@ describe('runs that end in failure', () => {
     const state = await run(scriptedLlm([readFile('a.txt'), readFile('b.txt')]));
 
     expect(callTool).toHaveBeenCalledTimes(2);
-    expect(state.output).toBe('Execution aborted due to repeated tool failures: no such file either');
+    expect(state.output).toBe('Stopped because the same step kept failing: no such file either');
     expect(state.error).toBe(state.output);
   });
 

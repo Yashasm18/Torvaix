@@ -30,9 +30,12 @@ test.describe('on a phone-sized screen', () => {
     await openApp(page, '/chat');
     await sendChat(page, 'Explain small screens');
     await expect(page.getByText('Fake model reply: Explain small screens')).toBeVisible();
-    await page.getByRole('button', { name: 'Toggle Sidebar' }).first().click();
+    await page.getByRole('button', { name: 'Toggle sidebar' }).first().click();
     await page.getByRole('link', { name: 'Knowledge' }).first().click();
     await expect(page).toHaveURL(/\/knowledge$/);
+    // The menu closes once a page is picked, so the page itself can be used.
+    await expect(page.getByRole('link', { name: 'Knowledge graph' })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Add memory' })).toBeVisible();
     const width = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(width).toBeLessThanOrEqual(390);
   });

@@ -12,11 +12,11 @@ export async function openApp(page: Page, path = '/chat', workspaceName = `E2E $
   const app = page
     .getByRole('link', { name: 'Chat' })
     .first()
-    .or(page.getByRole('button', { name: 'Toggle Sidebar' }).first());
+    .or(page.getByRole('button', { name: 'Toggle sidebar' }).first());
   await expect(name.or(app).first()).toBeVisible({ timeout: 60_000 });
   if (await name.isVisible()) {
     await name.fill(workspaceName);
-    await page.getByRole('button', { name: 'Create Workspace' }).click();
+    await page.getByRole('button', { name: 'Create workspace' }).click();
     await expect(app.first()).toBeVisible();
   }
   if (!page.url().endsWith(path)) await page.goto(path);

@@ -30,8 +30,8 @@ test.describe('Chat', () => {
     await openApp(page, '/chat');
     await expect(page.getByRole('radio', { name: /Ask every time/i })).toHaveAttribute('aria-checked', 'true');
     await sendChat(page, 'Please run the command `echo e2e-approved`');
-    await expect(page.getByText('Security Approval Required')).toBeVisible();
-    await page.getByRole('button', { name: 'Approve Execution' }).click();
+    await expect(page.getByText('Approval needed')).toBeVisible();
+    await page.getByRole('button', { name: 'Approve and run' }).click();
     // The command's card shows what it printed. (A reply that only repeats that output is hidden.)
     await expect(page.getByText('Ran bash').first()).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText('e2e-approved', { exact: true })).toBeVisible();
@@ -40,7 +40,7 @@ test.describe('Chat', () => {
   test('does not run a command that was denied', async ({ page }) => {
     await openApp(page, '/chat');
     await sendChat(page, 'Please run the command `echo e2e-denied`');
-    await expect(page.getByText('Security Approval Required')).toBeVisible();
+    await expect(page.getByText('Approval needed')).toBeVisible();
     await page.getByRole('button', { name: 'Deny' }).click();
     await expect(page.getByText(/denied/i).last()).toBeVisible();
     await expect(page.getByText(/The command printed/)).toHaveCount(0);
@@ -51,6 +51,6 @@ test.describe('Chat', () => {
     await page.getByRole('radio', { name: /Auto/ }).click();
     await sendChat(page, 'Please run the command `pwd`');
     await expect(page.getByText('Ran bash').first()).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByText('Security Approval Required')).toHaveCount(0);
+    await expect(page.getByText('Approval needed')).toHaveCount(0);
   });
 });

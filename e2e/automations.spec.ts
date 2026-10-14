@@ -22,7 +22,7 @@ test.describe('Automations', () => {
     await expect(logs.getByText('Created automation-report.txt.').first()).toBeVisible({ timeout: 60_000 });
     await page.keyboard.press('Escape');
 
-    await card.getByRole('button', { name: 'Pause Automation' }).click();
-    await expect(card.getByRole('button', { name: 'Resume Automation' })).toBeVisible();
+    await card.getByRole('button', { name: /^Pause / }).click();
+    await expect(card.getByRole('button', { name: /^Resume / })).toBeVisible();
   });
 });

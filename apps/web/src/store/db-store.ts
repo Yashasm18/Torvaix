@@ -8,7 +8,7 @@ import {
   WORKSPACE_STATE_VERSION,
   migrateWorkspaceState,
 } from './workspace-migration';
-import { DEFAULT_CHAT_TITLE, deriveChatTitle, toStoredMessages, type UiMessage } from './chat-history';
+import { DEFAULT_CHAT_TITLE, deriveChatTitle, isDefaultChatTitle, toStoredMessages, type UiMessage } from './chat-history';
 
 interface DBState {
   workspaces: Workspace[];
@@ -120,7 +120,7 @@ export const useDBStore = create<DBState>()(
         set((state) => {
           const chat = state.chats.find((c) => c.id === chatId);
           if (!chat) return {};
-          const title = chat.title === DEFAULT_CHAT_TITLE ? deriveChatTitle(uiMessages) ?? chat.title : chat.title;
+          const title = isDefaultChatTitle(chat.title) ? deriveChatTitle(uiMessages) ?? chat.title : chat.title;
           return {
             messages: [...state.messages.filter((m) => m.chatId !== chatId), ...toStoredMessages(chatId, uiMessages)],
             chats: state.chats.map((c) => (c.id === chatId ? { ...c, title, updatedAt: new Date() } : c)),
@@ -149,13 +149,14 @@ export const useDBStore = create<DBState>()(
         }));
 
         // Apply templates
+        // Templates start with things the user can see and use: a named chat and starter projects.
         if (template === 'university') {
-          get().createChat(newWorkspace.id, 'General Discussion');
-          get().createNote(newWorkspace.id, 'Assignments');
-          get().createNote(newWorkspace.id, 'References');
+          get().createChat(newWorkspace.id, 'Course discussion');
+          get().createProject(newWorkspace.id, { name: 'Assignments', description: 'Coursework, deadlines and grades.', tags: ['university'] });
+          get().createProject(newWorkspace.id, { name: 'References', description: 'Papers, books and links to cite.', tags: ['university'] });
         } else if (template === 'coding') {
-          get().createChat(newWorkspace.id, 'Code Assistant');
-          get().createNote(newWorkspace.id, 'Snippets');
+          get().createChat(newWorkspace.id, 'Code assistant');
+          get().createProject(newWorkspace.id, { name: 'Snippets', description: 'Commands and code worth keeping.', tags: ['coding'] });
         } else {
           get().createChat(newWorkspace.id, DEFAULT_CHAT_TITLE);
         }

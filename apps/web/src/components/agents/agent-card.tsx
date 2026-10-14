@@ -48,7 +48,7 @@ export function AgentCard({
 
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pt-3 border-t border-border/50">
         <p className="text-xs text-muted-foreground whitespace-nowrap" title={lastRun?.toLocaleString()}>
-          {lastRunLabel(agent.lastRunAt)} · {runCountLabel(agent.runCount)}
+          {agent.runCount > 0 ? `${lastRunLabel(agent.lastRunAt)} · ${runCountLabel(agent.runCount)}` : "No runs yet"}
         </p>
         <div className="flex items-center gap-1.5">
           <Button size="sm" onClick={() => onRun(agent)} aria-label={`Run ${agent.name}`} className="gap-1.5">

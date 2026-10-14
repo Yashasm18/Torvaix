@@ -33,6 +33,12 @@ const TYPE_COLORS: Record<string, string> = {
   UNKNOWN: '#94a3b8' // slate
 };
 
+/** How a node type is written for people: "TECHNOLOGY" → "Technology", "UNKNOWN" → "Other". */
+function typeLabel(type: string): string {
+  if (!type || type === 'UNKNOWN') return 'Other';
+  return type.charAt(0) + type.slice(1).toLowerCase();
+}
+
 export default function GraphPage() {
   const [graphData, setGraphData] = useState<{ nodes: Node[], links: Link[] }>({ nodes: [], links: [] });
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -153,7 +159,7 @@ export default function GraphPage() {
           {Object.entries(TYPE_COLORS).map(([type, color]) => (
             <div key={type} className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
-              <span className="text-muted-foreground">{type}</span>
+              <span className="text-muted-foreground">{typeLabel(type)}</span>
             </div>
           ))}
         </div>
@@ -268,7 +274,8 @@ export default function GraphPage() {
           <div className="absolute inset-x-3 bottom-3 z-20 max-h-[60%] md:static md:inset-auto md:max-h-none md:w-80 flex flex-col rounded-xl border border-border bg-card p-6 shadow-sm overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">{selectedNode.name}</h2>
-              <button 
+              <button
+                type="button"
                 onClick={() => setSelectedNode(null)}
                 className="text-muted-foreground hover:text-foreground text-sm"
               >
@@ -280,28 +287,21 @@ export default function GraphPage() {
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Type</h3>
                 <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold" style={{ backgroundColor: selectedNode.color + '20', color: selectedNode.color }}>
-                  {selectedNode.type}
+                  {typeLabel(selectedNode.type)}
                 </span>
               </div>
               
               <div>
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Importance Score</h3>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Importance</h3>
                 <p className="text-sm font-mono bg-muted/50 p-2 rounded-md border border-border/50">
                   {(selectedNode.importance ?? 5).toFixed(2)}
                 </p>
               </div>
 
               <div>
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">ID</h3>
-                <p className="text-xs font-mono text-muted-foreground break-all">
-                  {selectedNode.id}
-                </p>
-              </div>
-
-              <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Connections</h3>
                 <p className="text-sm text-muted-foreground">
-                  {countConnections(graphData.links, selectedNode.id)} edges
+                  {(() => { const n = countConnections(graphData.links, selectedNode.id); return `${n} ${n === 1 ? 'connection' : 'connections'}`; })()}
                 </p>
               </div>
             </div>

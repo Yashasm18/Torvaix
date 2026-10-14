@@ -47,6 +47,7 @@ import { ThinkingIndicator } from "@/components/chat/thinking-indicator";
 import { latestProgress, type ProgressStep } from "@/lib/progress";
 import { MAX_MESSAGE_CHARS } from "@/lib/chat-request";
 import { MarkdownMessage } from "@/components/chat/markdown";
+import { announceActivityChanged } from "@/lib/activity";
 
 const MAX_ATTACHMENT_BYTES = 100_000;
 /** Characters of a command's output shown on its card. */
@@ -165,6 +166,13 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
     },
   });
 
+  // A finished reply may have asked for an approval: let the sidebar count it now.
+  const wasLoading = useRef(isLoading);
+  useEffect(() => {
+    if (wasLoading.current && !isLoading) announceActivityChanged();
+    wasLoading.current = isLoading;
+  }, [isLoading]);
+
   // Persist the conversation to browser storage: the user's message right away, the reply once
   // it has finished streaming.
   const lastSaved = useRef(messagesSignature(initialMessages));
@@ -231,6 +239,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
       );
       return false;
     }
+    announceActivityChanged();
     append({
       role: 'user',
       content: status === 'approved'
@@ -291,6 +300,8 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
   // up to read. Sending a message always goes back to the bottom.
   const followReply = useRef(true);
   useEffect(() => {
+    // An empty chat starts at the top, with its heading in view.
+    if (messages.length === 0) return;
     if (messages[messages.length - 1]?.role === 'user') followReply.current = true;
     if (followReply.current) messagesEndRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth' });
   }, [messages, isLoading]);
@@ -367,7 +378,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
                       onClick={() => {
                         if (c.id === chatId) return;
                         setActiveChat(workspaceId, c.id);
-                        // Don't leave empty "New Chat" entries behind when switching away from one.
+                        // Don't leave empty "New chat" entries behind when switching away from one.
                         if (messages.length === 0) deleteChat(chatId);
                       }}
                       className="cursor-pointer flex items-center justify-between gap-3"
@@ -448,10 +459,12 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
         }}
       >
         {messages.length === 0 ? (
+          // min-h-full, not h-full: on a short screen the cards are taller than the space, and a
+          // centred box of fixed height cut its top off where it couldn't be scrolled to.
           <motion.div
-            className="flex flex-col items-center justify-center h-full text-center px-8"
+            className="flex flex-col items-center justify-center min-h-full text-center px-2 sm:px-8 py-6"
             initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
             <div className="w-20 h-20 bg-primary/10 border border-primary/20 text-primary rounded-2xl flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(0,212,170,0.15)]">
@@ -570,7 +583,7 @@ function ChatSession({ chatId, workspaceId }: { chatId: string; workspaceId: str
             <Textarea
               value={input}
               onChange={handleInputChange}
-              placeholder={isLoading ? 'Type your next message while Torvaix replies…' : `Ask ${agentName === REMEMBERED_AGENT_NAME ? 'your agent' : agentName}...`}
+              placeholder={isLoading ? 'Type your next message while Torvaix replies…' : `Ask ${agentName === REMEMBERED_AGENT_NAME ? 'your agent' : agentName}…`}
               aria-label="Message"
               ref={messageBox}
               className="flex-1 min-h-[60px] max-h-48 resize-none bg-transparent border-none text-foreground placeholder:text-muted-foreground focus-visible:ring-0 px-2 py-2"

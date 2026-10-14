@@ -89,7 +89,7 @@ export default function KnowledgePage() {
   // New Memory modal state
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newContent, setNewContent] = useState("");
-  const [newSource, setNewSource] = useState("Manual Entry");
+  const [newSource, setNewSource] = useState("Added by hand");
   const [submitting, setSubmitting] = useState(false);
 
   const { workspaceId } = useActiveWorkspace();
@@ -188,7 +188,7 @@ export default function KnowledgePage() {
         body: JSON.stringify({
           workspaceId,
           content: newContent.trim(),
-          source: newSource.trim() || "Manual Entry",
+          source: newSource.trim() || "Added by hand",
         }),
       });
 
